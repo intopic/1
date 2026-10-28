@@ -1,15 +1,15 @@
 //! Tick <-> Q64.64 sqrt price (docs/numeric-spec.md section 2).
 //!
 //! `sqrt_price_at_tick(t)` targets `floor(sqrt(1.0001^t) * 2^64)`. It
-//! multiplies Q128 powers `sqrt(1.0001^(2^i))` from the generated table, then
-//! shifts (t >= 0) or inverts `2^192 / R` (t < 0). The tests check the result
+//! multiplies normalized 128-bit mantissas of `sqrt(1.0001^(2^i))` from the
+//! generated table, then shifts (t >= 0) or inverts `2^(64-e) / m` (t < 0). The tests check the result
 //! against exact integer references for every committed vector.
 
 use crate::constants::{MAX_TICK, MIN_TICK};
 use crate::errors::AmmError;
 
 use super::tick_table::{SQRT_POW, SQRT_POW_BITS};
-use super::wide::{full_mul, narrow, to_u128, MathResult, U256};
+use super::wide::{to_u128, MathResult, U256};
 
 /// `sqrt_price_at_tick(MIN_TICK)`; equals the exact floor 4295048016.
 pub const MIN_SQRT_PRICE_X64: u128 = 4_295_048_016;
@@ -38,19 +38,45 @@ pub fn check_sqrt_price(sqrt_price_x64: u128) -> MathResult<()> {
 pub fn sqrt_price_at_tick(tick: i32) -> MathResult<u128> {
     check_tick(tick)?;
     let abs = tick.unsigned_abs();
-    // R = sqrt(1.0001^|tick|) in Q128, at most ~2^160.
-    let mut r = U256::one() << 128;
-    for (i, pow) in SQRT_POW.iter().enumerate() {
+    // R = sqrt(1.0001^|tick|) as a normalized binary float m * 2^e with
+    // m in [2^127, 2^128). Only u128 arithmetic until the final step, which
+    // keeps the SBF cost low (no U512).
+    let mut m: u128 = 1 << 127;
+    let mut e: i32 = -127;
+    for (i, (pm, pe)) in SQRT_POW.iter().enumerate() {
         if abs & (1 << i) != 0 {
-            r = narrow(full_mul(r, *pow) >> 128)?;
+            let (hi, lo) = mul_u128(m, *pm);
+            if hi >> 127 != 0 {
+                m = hi;
+                e += pe + 128;
+            } else {
+                m = (hi << 1) | (lo >> 127);
+                e += pe + 127;
+            }
         }
     }
+    // R < 2^33, so e is in [-127, -95].
     if tick >= 0 {
-        to_u128(r >> 64)
+        Ok(m >> (-(e + 64)) as u32)
     } else {
-        // sqrt(P(-t)) * 2^64 = 2^192 / R.
-        to_u128((U256::one() << 192) / r)
+        // sqrt(P(-t)) * 2^64 = 2^(64 - e) / m.
+        to_u128((U256::one() << (64 - e) as usize) / U256::from(m))
     }
+}
+
+/// Full 128 x 128 -> 256 bit product as (high, low) halves.
+fn mul_u128(a: u128, b: u128) -> (u128, u128) {
+    const LO: u128 = u64::MAX as u128;
+    let (a1, a0) = (a >> 64, a & LO);
+    let (b1, b0) = (b >> 64, b & LO);
+    let p00 = a0 * b0;
+    let p01 = a0 * b1;
+    let p10 = a1 * b0;
+    let p11 = a1 * b1;
+    let mid = (p00 >> 64) + (p01 & LO) + (p10 & LO);
+    let lo = (p00 & LO) | (mid << 64);
+    let hi = p11 + (p01 >> 64) + (p10 >> 64) + (mid >> 64);
+    (hi, lo)
 }
 
 /// Largest tick `t` with `sqrt_price_at_tick(t) <= sqrt_price_x64`.

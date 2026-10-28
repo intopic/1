@@ -202,6 +202,9 @@ impl Env {
         let tx = Transaction::new(signers, msg, self.svm.latest_blockhash());
         let r = self.svm.send_transaction(tx);
         self.svm.expire_blockhash();
+        if let (Err(f), Ok(_)) = (&r, std::env::var("AMM_LOGS")) {
+            eprintln!("tx failed: {:?}\n{}", f.err, f.meta.logs.join("\n"));
+        }
         r.map(|m| m.compute_units_consumed).map_err(|f| f.err)
     }
 
@@ -429,7 +432,8 @@ pub fn ix(accounts: impl ToAccountMetas, data: impl InstructionData) -> Instruct
 }
 
 pub fn with_remaining(mut i: Instruction, keys: &[Pubkey]) -> Instruction {
-    i.accounts.extend(keys.iter().map(|k| AccountMeta::new(*k, false)));
+    i.accounts
+        .extend(keys.iter().map(|k| AccountMeta::new(*k, false)));
     i
 }
 
@@ -438,7 +442,13 @@ pub fn tick_array_pda(shard: &Pubkey, start: i32) -> Pubkey {
 }
 
 pub fn position_pda(shard: &Pubkey, owner: &Pubkey, lower: i32, upper: i32) -> Pubkey {
-    pda(&[POSITION_SEED, shard.as_ref(), owner.as_ref(), &lower.to_le_bytes(), &upper.to_le_bytes()])
+    pda(&[
+        POSITION_SEED,
+        shard.as_ref(),
+        owner.as_ref(),
+        &lower.to_le_bytes(),
+        &upper.to_le_bytes(),
+    ])
 }
 
 pub fn array_start(tick: i32, spacing: u16) -> i32 {
@@ -457,7 +467,16 @@ impl Env {
         let data = token_account_data(mint, owner, amount);
         let lamports = self.svm.minimum_balance_for_rent_exemption(165);
         self.svm
-            .set_account(key, Account { lamports, data, owner: TOKEN_PROGRAM, executable: false, rent_epoch: 0 })
+            .set_account(
+                key,
+                Account {
+                    lamports,
+                    data,
+                    owner: TOKEN_PROGRAM,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
             .unwrap();
         key
     }
@@ -471,7 +490,11 @@ impl Env {
         self.svm.airdrop(&kp.pubkey(), 50_000_000_000).unwrap();
         let token_a = self.token_account(&m.mint_a, &kp.pubkey(), amount);
         let token_b = self.token_account(&m.mint_b, &kp.pubkey(), amount);
-        Lp { kp, token_a, token_b }
+        Lp {
+            kp,
+            token_a,
+            token_b,
+        }
     }
 
     pub fn tick_array(&self, key: &Pubkey) -> TickArray {
@@ -484,7 +507,9 @@ impl Env {
     }
 
     pub fn now(&self) -> i64 {
-        self.svm.get_sysvar::<anchor_lang::prelude::Clock>().unix_timestamp
+        self.svm
+            .get_sysvar::<anchor_lang::prelude::Clock>()
+            .unix_timestamp
     }
 
     pub fn warp(&mut self, seconds: i64) {
@@ -494,14 +519,28 @@ impl Env {
         self.svm.set_sysvar(&c);
     }
 
-    pub fn ix_initialize_price(m: &Market, authority: &Pubkey, id: u8, sqrt_price_x64: u128) -> Instruction {
+    pub fn ix_initialize_price(
+        m: &Market,
+        authority: &Pubkey,
+        id: u8,
+        sqrt_price_x64: u128,
+    ) -> Instruction {
         ix(
-            sharded_amm::accounts::InitializePrice { authority: *authority, market: m.market, shard: shard_addrs(m, id, 0).shard },
+            sharded_amm::accounts::InitializePrice {
+                authority: *authority,
+                market: m.market,
+                shard: shard_addrs(m, id, 0).shard,
+            },
             sharded_amm::instruction::InitializePrice { sqrt_price_x64 },
         )
     }
 
-    pub fn ix_init_tick_array(m: &Market, payer: &Pubkey, shard: &Pubkey, start: i32) -> Instruction {
+    pub fn ix_init_tick_array(
+        m: &Market,
+        payer: &Pubkey,
+        shard: &Pubkey,
+        start: i32,
+    ) -> Instruction {
         ix(
             sharded_amm::accounts::InitTickArray {
                 payer: *payer,
@@ -510,11 +549,19 @@ impl Env {
                 tick_array: tick_array_pda(shard, start),
                 system_program: SYSTEM_PROGRAM,
             },
-            sharded_amm::instruction::InitTickArray { start_tick_index: start },
+            sharded_amm::instruction::InitTickArray {
+                start_tick_index: start,
+            },
         )
     }
 
-    pub fn ix_open_position(m: &Market, owner: &Pubkey, shard: &Pubkey, lower: i32, upper: i32) -> Instruction {
+    pub fn ix_open_position(
+        m: &Market,
+        owner: &Pubkey,
+        shard: &Pubkey,
+        lower: i32,
+        upper: i32,
+    ) -> Instruction {
         ix(
             sharded_amm::accounts::OpenPosition {
                 owner: *owner,
@@ -524,11 +571,20 @@ impl Env {
                 position: position_pda(shard, owner, lower, upper),
                 system_program: SYSTEM_PROGRAM,
             },
-            sharded_amm::instruction::OpenPosition { tick_lower: lower, tick_upper: upper },
+            sharded_amm::instruction::OpenPosition {
+                tick_lower: lower,
+                tick_upper: upper,
+            },
         )
     }
 
-    pub fn modify_accounts(m: &Market, lp: &Lp, id: u8, lower: i32, upper: i32) -> sharded_amm::accounts::ModifyLiquidity {
+    pub fn modify_accounts(
+        m: &Market,
+        lp: &Lp,
+        id: u8,
+        lower: i32,
+        upper: i32,
+    ) -> sharded_amm::accounts::ModifyLiquidity {
         let a = shard_addrs(m, id, 0);
         sharded_amm::accounts::ModifyLiquidity {
             owner: lp.kp.pubkey(),
@@ -556,21 +612,45 @@ impl Env {
         v
     }
 
-    pub fn ix_increase(&self, m: &Market, lp: &Lp, id: u8, lower: i32, upper: i32, liquidity: u128) -> Instruction {
+    pub fn ix_increase(
+        &self,
+        m: &Market,
+        lp: &Lp,
+        id: u8,
+        lower: i32,
+        upper: i32,
+        liquidity: u128,
+    ) -> Instruction {
         with_remaining(
             ix(
                 Self::modify_accounts(m, lp, id, lower, upper),
-                sharded_amm::instruction::IncreaseLiquidity { liquidity, amount_a_max: u64::MAX, amount_b_max: u64::MAX },
+                sharded_amm::instruction::IncreaseLiquidity {
+                    liquidity,
+                    amount_a_max: u64::MAX,
+                    amount_b_max: u64::MAX,
+                },
             ),
             &self.boundary_arrays(m, id, lower, upper),
         )
     }
 
-    pub fn ix_decrease(&self, m: &Market, lp: &Lp, id: u8, lower: i32, upper: i32, liquidity: u128) -> Instruction {
+    pub fn ix_decrease(
+        &self,
+        m: &Market,
+        lp: &Lp,
+        id: u8,
+        lower: i32,
+        upper: i32,
+        liquidity: u128,
+    ) -> Instruction {
         with_remaining(
             ix(
                 Self::modify_accounts(m, lp, id, lower, upper),
-                sharded_amm::instruction::DecreaseLiquidity { liquidity, amount_a_min: 0, amount_b_min: 0 },
+                sharded_amm::instruction::DecreaseLiquidity {
+                    liquidity,
+                    amount_a_min: 0,
+                    amount_b_min: 0,
+                },
             ),
             &self.boundary_arrays(m, id, lower, upper),
         )
@@ -578,7 +658,10 @@ impl Env {
 
     pub fn ix_collect(&self, m: &Market, lp: &Lp, id: u8, lower: i32, upper: i32) -> Instruction {
         with_remaining(
-            ix(Self::modify_accounts(m, lp, id, lower, upper), sharded_amm::instruction::CollectFees {}),
+            ix(
+                Self::modify_accounts(m, lp, id, lower, upper),
+                sharded_amm::instruction::CollectFees {},
+            ),
             &self.boundary_arrays(m, id, lower, upper),
         )
     }
@@ -592,19 +675,40 @@ impl Env {
         let mut start = array_start(from, spacing);
         while start <= to {
             if self.raw(&tick_array_pda(&shard, start)).is_none() {
-                self.send(&[Self::ix_init_tick_array(m, &payer.pubkey(), &shard, start)], &[&payer]).expect("init tick array");
+                self.send(
+                    &[Self::ix_init_tick_array(m, &payer.pubkey(), &shard, start)],
+                    &[&payer],
+                )
+                .expect("init tick array");
             }
             start += span;
         }
     }
 
     /// Opens (if needed) and funds a position.
-    pub fn add_liquidity(&mut self, m: &Market, lp: &Lp, id: u8, lower: i32, upper: i32, liquidity: u128) -> Result<u64, TransactionError> {
+    pub fn add_liquidity(
+        &mut self,
+        m: &Market,
+        lp: &Lp,
+        id: u8,
+        lower: i32,
+        upper: i32,
+        liquidity: u128,
+    ) -> Result<u64, TransactionError> {
         self.ensure_arrays(m, id, lower, upper);
         let shard = shard_addrs(m, id, 0).shard;
         let mut ixs = Vec::new();
-        if self.raw(&position_pda(&shard, &lp.kp.pubkey(), lower, upper)).is_none() {
-            ixs.push(Self::ix_open_position(m, &lp.kp.pubkey(), &shard, lower, upper));
+        if self
+            .raw(&position_pda(&shard, &lp.kp.pubkey(), lower, upper))
+            .is_none()
+        {
+            ixs.push(Self::ix_open_position(
+                m,
+                &lp.kp.pubkey(),
+                &shard,
+                lower,
+                upper,
+            ));
         }
         ixs.push(self.ix_increase(m, lp, id, lower, upper, liquidity));
         let kp = lp.kp.insecure_clone();
@@ -618,18 +722,32 @@ impl Env {
             keys.extend([a.shard, a.vault_a, a.vault_b]);
         }
         let mut i = ix(
-            sharded_amm::accounts::OpenMarket { authority: *authority, market: m.market, registry: m.registry },
+            sharded_amm::accounts::OpenMarket {
+                authority: *authority,
+                market: m.market,
+                registry: m.registry,
+            },
             sharded_amm::instruction::OpenMarket {},
         );
         for (n, k) in keys.iter().enumerate() {
             // Shards are writable, vaults read-only.
-            i.accounts.push(if n % 3 == 0 { AccountMeta::new(*k, false) } else { AccountMeta::new_readonly(*k, false) });
+            i.accounts.push(if n % 3 == 0 {
+                AccountMeta::new(*k, false)
+            } else {
+                AccountMeta::new_readonly(*k, false)
+            });
         }
         i
     }
 
     pub fn ix_cancel_setup(m: &Market, admin: &Pubkey) -> Instruction {
-        ix(sharded_amm::accounts::CancelSetup { admin: *admin, market: m.market }, sharded_amm::instruction::CancelSetup {})
+        ix(
+            sharded_amm::accounts::CancelSetup {
+                admin: *admin,
+                market: m.market,
+            },
+            sharded_amm::instruction::CancelSetup {},
+        )
     }
 
     pub fn ix_activate(m: &Market, keeper: &Pubkey, id: u8, reference: u8) -> Instruction {
@@ -649,14 +767,32 @@ impl Env {
     }
 
     pub fn ix_apply_fees(m: &Market, admin: &Pubkey) -> Instruction {
-        ix(sharded_amm::accounts::UpdateFees { admin: *admin, market: m.market }, sharded_amm::instruction::ApplyFees {})
+        ix(
+            sharded_amm::accounts::UpdateFees {
+                admin: *admin,
+                market: m.market,
+            },
+            sharded_amm::instruction::ApplyFees {},
+        )
     }
 
     pub fn ix_cancel_fee_change(m: &Market, admin: &Pubkey) -> Instruction {
-        ix(sharded_amm::accounts::UpdateFees { admin: *admin, market: m.market }, sharded_amm::instruction::CancelFeeChange {})
+        ix(
+            sharded_amm::accounts::UpdateFees {
+                admin: *admin,
+                market: m.market,
+            },
+            sharded_amm::instruction::CancelFeeChange {},
+        )
     }
 
-    pub fn ix_collect_protocol(m: &Market, revenue: &Pubkey, id: u8, dest_a: Pubkey, dest_b: Pubkey) -> Instruction {
+    pub fn ix_collect_protocol(
+        m: &Market,
+        revenue: &Pubkey,
+        id: u8,
+        dest_a: Pubkey,
+        dest_b: Pubkey,
+    ) -> Instruction {
         let a = shard_addrs(m, id, 0);
         ix(
             sharded_amm::accounts::CollectProtocolFees {
@@ -705,9 +841,20 @@ impl Env {
         }
     }
 
-    pub fn ix_swap(&self, m: &Market, user: &Lp, id: u8, args: SwapArgs, arrays: &[Pubkey]) -> Instruction {
+    pub fn ix_swap(
+        &self,
+        m: &Market,
+        user: &Lp,
+        id: u8,
+        args: SwapArgs,
+        arrays: &[Pubkey],
+    ) -> Instruction {
         let a = shard_addrs(m, id, 0);
-        let (tin, tout) = if args.a_to_b { (user.token_a, user.token_b) } else { (user.token_b, user.token_a) };
+        let (tin, tout) = if args.a_to_b {
+            (user.token_a, user.token_b)
+        } else {
+            (user.token_b, user.token_a)
+        };
         with_remaining(
             ix(
                 sharded_amm::accounts::SwapExactIn {
@@ -728,7 +875,14 @@ impl Env {
         )
     }
 
-    pub fn swap(&mut self, m: &Market, user: &Lp, id: u8, a_to_b: bool, amount: u64) -> Result<u64, TransactionError> {
+    pub fn swap(
+        &mut self,
+        m: &Market,
+        user: &Lp,
+        id: u8,
+        a_to_b: bool,
+        amount: u64,
+    ) -> Result<u64, TransactionError> {
         let arrays = self.swap_arrays(m, id, a_to_b);
         let i = self.ix_swap(m, user, id, self.swap_args(a_to_b, amount), &arrays);
         let kp = user.kp.insecure_clone();
@@ -751,8 +905,13 @@ impl Env {
         let lp = self.user(m, u64::MAX / 4);
         for id in 0..8 {
             self.prepare(m, &keeper, id).expect("prepare");
-            self.send(&[Self::ix_initialize_price(m, &keeper.pubkey(), id, Q64)], &[&keeper]).expect("price");
-            self.add_liquidity(m, &lp, id, -1200, 1200, liquidity).expect("seed liquidity");
+            self.send(
+                &[Self::ix_initialize_price(m, &keeper.pubkey(), id, Q64)],
+                &[&keeper],
+            )
+            .expect("price");
+            self.add_liquidity(m, &lp, id, -1200, 1200, liquidity)
+                .expect("seed liquidity");
         }
         lp
     }
@@ -761,6 +920,10 @@ impl Env {
 /// Reads a zero-copy struct from account bytes after the discriminator.
 pub fn bytemuck_from<T: Copy>(bytes: &[u8]) -> &T {
     assert!(bytes.len() >= std::mem::size_of::<T>());
-    assert_eq!(bytes.as_ptr() as usize % std::mem::align_of::<T>(), 0, "unaligned account data");
+    assert_eq!(
+        bytes.as_ptr() as usize % std::mem::align_of::<T>(),
+        0,
+        "unaligned account data"
+    );
     unsafe { &*(bytes.as_ptr() as *const T) }
 }
