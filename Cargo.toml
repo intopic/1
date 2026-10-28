@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/amm-model"]
+members = ["crates/amm-model", "programs/sharded-amm"]
 exclude = ["env-smoke", "env-anchor"]
 resolver = "2"
 
@@ -9,3 +9,10 @@ publish = false
 
 [profile.release]
 overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[profile.release.build-override]
+opt-level = 3
+incremental = false
+codegen-units = 1

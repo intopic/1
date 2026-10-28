@@ -1,0 +1,28 @@
+//! Protocol constants that are part of the ABI. Changing any value here changes
+//! account addresses or registry semantics and requires a schema version bump.
+
+/// Account schema version, also the `schema_u16_le` market seed component.
+pub const SCHEMA_VERSION: u16 = 1;
+
+/// Shards funded and activated atomically when the market opens (IDs 0..=7).
+pub const INITIAL_SHARDS: u8 = 8;
+/// Registry capacity: valid shard IDs are 0..=55.
+pub const MAX_SHARDS: u8 = 56;
+/// `0x0000_0000_0000_00ff`.
+pub const INITIAL_MASK: u64 = (1u64 << INITIAL_SHARDS) - 1;
+/// `0x00ff_ffff_ffff_ffff`; bits 56..=63 are reserved and must stay zero.
+pub const VALID_MASK: u64 = (1u64 << MAX_SHARDS) - 1;
+pub const RESERVED_MASK: u64 = !VALID_MASK;
+
+const _: () = assert!(INITIAL_SHARDS > 0 && INITIAL_SHARDS <= MAX_SHARDS);
+const _: () = assert!(MAX_SHARDS < 64);
+const _: () = assert!(INITIAL_MASK & RESERVED_MASK == 0);
+
+// PDA seed prefixes. Full layouts are normative in docs/account-layout.md.
+pub const MARKET_SEED: &[u8] = b"market";
+pub const REGISTRY_SEED: &[u8] = b"registry";
+pub const SHARD_SEED: &[u8] = b"shard";
+pub const VAULT_AUTH_SEED: &[u8] = b"vault_auth";
+pub const VAULT_SEED: &[u8] = b"vault";
+pub const TICK_ARRAY_SEED: &[u8] = b"ticks";
+pub const POSITION_SEED: &[u8] = b"lp_pos";

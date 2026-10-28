@@ -1,0 +1,27 @@
+[package]
+name = "sharded-amm"
+version = "0.1.0"
+description = "Sharded-tick CLMM: 8 initial shards, capacity 56 (work in progress, unaudited)"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+name = "sharded_amm"
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { version = "=1.2.1", default-features = false, features = ["solana-v4"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
