@@ -1,58 +1,50 @@
 # Gjendja aktuale
 
-Përditësuar: 28 tetor 2026.
+Përditësuar: 28 tetor 2026. Repository: `github.com/intopic/1`.
 
-**Vendimi aktual i produktit:** nisje me **8 shard-e**, ID 0–7, maskë `0xff`; zgjerim dinamik me kapital të verifikuar deri në **56**, ID 0–55. Përmbledhja dhe struktura e propozuar janë te `docs/OVERVIEW_RUST_ANCHOR_8_TO_56.md`. Kjo zëvendëson propozimin e mëparshëm me katër shard-e, por nuk do të thotë se kontrata/bitmask-i janë implementuar.
+**Vendimi i produktit:** nisje me **8 shard-e**, ID 0–7, maskë `0xff`; zgjerim me kapital të verifikuar deri në **56**, ID 0–55. Specifikimi i plotë është [docs/DEVELOPER_HANDOFF_8_SHARDS.md](docs/DEVELOPER_HANDOFF_8_SHARDS.md).
 
-**Për developer-in:** `docs/DEVELOPER_HANDOFF_8_SHARDS.md` përmban specifikimin e detajuar, milestone-et, testet dhe një hartë referencash Raydium me commit të fiksuar. Licenca aktuale Orca është dalluar nga Apache 2.0; nuk është importuar kod Orca ose Raydium dhe nuk pretendohet trashëgimi auditimi/sigurie. Ky është dorëzim dokumentacioni, jo implementim i ri i kontratës.
+**Përmbledhje:** mjedisi Linux funksionon (ENG-00), specifikimi numerik dhe ADR-të janë shkruar (ENG-01), dhe maska + lifecycle i regjistrit janë implementuar si logjikë e testuar në host (ENG-02). **Ende nuk ka instruksione onchain, custody, ticks, LP ose swap.** Asnjë deklaratë për throughput, paralelizëm të matur, kapje MEV ose fitim nuk është provuar.
 
-## Kryer dhe verifikuar
+## Milestone-et
 
-- Workspace lokal Rust me crate `amm-model`, pa varësi të jashtme.
-- README, plan fazash dhe skripte për kontrollin e mjedisit/validimin lokal.
-- Specifikimi i arkitekturës dhe matrica PDA/R/W për veprimet e propozuara.
-- Modeli i kërcënimeve me 13 rreziqe dhe matrica e pranimit G0–G4; provat e modelit shënohen si mbulim i pjesshëm, pa kaluar ende portat onchain.
-- Model integer për quote exact-in dhe përditësimin e rezervave virtuale, në dy drejtime, me tarifa dhe refuzim overflow.
-- Agave/Solana CLI 4.3.2 e instaluar brenda `.tools` dhe e verifikuar; aktivizohet me `scripts/activate-toolchain.ps1`, pa ndryshuar PATH global.
-- Anchor 1.2.1 u shkarkua dhe hash-i u verifikua; Windows antivirus bllokoi ekzekutimin. Nuk u çaktivizua mbrojtja dhe nuk u shtuan përjashtime.
-- **Build SBF kaloi** për programin e veçuar `env-smoke`, me SDK 4.1.0 dhe platform-tools 1.58. Artefakti `environment_smoke.so` ka 10,608 bajt; hash-i është te `docs/environment-report.json`.
-- Validator-i native nisi executable-n, por nuk arriti RPC ready: me `--log` kaloi pengesën e log symlink 1314, pastaj dështoi gjatë genesis unpack me AccessDenied, edhe jashtë sandbox-it.
-- Pas rinisjes nga përdoruesi, WSL **3.0.3.0** funksionon me version default 2. Lista nuk ka ende shpërndarje Linux të regjistruar.
-- Përfundimi i instalimit Ubuntu dështoi me `HCS_E_HYPERV_NOT_INSTALLED`: virtualizimi firmware është i fikur. CPU Intel i5-7200U mbështet VM extensions dhe SLAT, por `VirtualizationFirmwareEnabled = False`. Kompjuteri është **HP ProBook 430 G4**. Kërkohet aktivizim i VTx në BIOS përpara nisjes Linux.
-- Projekti i izoluar `env-anchor` është përgatitur për build Anchor dhe IDL, por nuk është ndërtuar ende.
-- Skriptet e build-it, validator-it dhe klientit provues ruhen në `scripts`; klienti pranon vetëm RPC lokale dhe ende nuk ka kaluar provën end-to-end.
-- Skriptet Linux `setup-wsl.sh`/`check-wsl.sh` kaluan kontrollin sintaksor `bash -n`; klienti Node kaloi `node --check` dhe skriptet PowerShell kaluan parser-in. Instalimi/ekzekutimi i këtyre skripteve në Ubuntu mbetet i paprovuar deri pas restart-it.
-- `scripts/check.ps1`: kaloi formatimi, **5 teste Rust** dhe Clippy me `-D warnings`, në mënyrë offline.
+| ID | Statusi | Evidenca / çfarë mungon |
+|---|---|---|
+| ENG-00 Mjedisi | **PASS në Linux** | Agave 4.3.2 (SHA256 i verifikuar), host rustc 1.95.0, platform-tools v1.58. Build SBF për `sharded-amm`, `env-smoke`, `env-anchor`; IDL nga `anchor-lang` 1.2.1 `idl-build`; validator lokal ping/pong i konfirmuar. Komandat: `scripts/build-linux.sh`, `scripts/smoke-validator.sh`; CI në `.github/workflows/ci.yml`. Anchor CLI binar nuk u ekzekutua në këtë mjedis; IDL u gjenerua me të njëjtin mekanizëm që përdor CLI-ja. |
+| ENG-01 ADR/numeric/provenance | **PROPOSED** | [numeric-spec.md](docs/numeric-spec.md), [ADR 0001–0004](docs/adr/README.md), [upstream-lock.json](docs/upstream-lock.json), [third-party-notices.md](docs/third-party-notices.md), vektorë reference [tick_vectors.json](docs/vectors/tick_vectors.json). Pret rishikim; vendimet e produktit në ADR-0004 janë të hapura. |
+| ENG-02 Bitmap/lifecycle | **PASS si logjikë host** | `programs/sharded-amm/src/{constants,errors,math/bitmap,state/*}.rs`; 23 teste. Instruksionet që e përdorin janë ENG-03/04. |
+| ENG-03 … ENG-10 | NOT IMPLEMENTED | — |
 
-Testet mbulojnë ruajtjen e input-it dhe tarifat në model, input-e të pavlefshme, overflow pa ndryshim të pjesshëm gjendjeje, fragmentimin e likuiditetit dhe quote të vjetra kundrejt ekzekutimit vijues.
+## Evidenca e ENG-00 (Linux, 2026-10-28)
+
+Mjedisi: kontejner Linux x86_64, rustc 1.95.0 (`rust-toolchain.toml`), `solana-cli 4.3.2`, `cargo-build-sbf 4.4.0` me `--tools-version v1.58`.
+
+| Artefakti | Bajt | SHA256 |
+|---|---:|---|
+| `target/deploy/sharded_amm.so` | 49 840 | `4e30c7f9ac9838ca914b00c4357becba696c8bfe9a7a0f9c8f8191d4233b2321` |
+| `env-smoke/target/deploy/environment_smoke.so` | 10 608 | `5615bb8b68315cde7cef0436b5e0d673dcab16b640a69946e0b6fec726e19c9f` |
+| `env-anchor/target/deploy/anchor_environment_smoke.so` | 50 080 | `87633337f8f018c5b4a78c72a95fb51e8e54f441ff4a599c8120bee430ea3923` |
+
+Dy build-e radhazi në të njëjtin path dhanë hash-e identike. Hash-i i `environment_smoke.so` ndryshon nga ai i Windows-it (`581e0826…`) edhe pse madhësia është e njëjtë; build-et SBF përfshijnë path-e, prandaj hash-et krahasohen vetëm për të njëjtin path dhe toolchain. Raporti i plotë gjenerohet në `target/build-report.json`.
+
+Validator-i lokal (`solana-test-validator`, `127.0.0.1:18899`) ngarkoi `env-smoke`; klienti konfirmoi `pong`, simulimi negativ dha `InvalidInstructionData`, 161 CU. Transaksion legacy, jo v1.
+
+## Kufizime të njohura
+
+- Programi `sharded-amm` ka `#[program]` bosh; IDL ka 0 instruksione. Program ID `B6rXDCwiXe1CyXyCS4JS1Tn9J5yud87cREWapUoD5hEy` është placeholder; keypair-i nuk është në repo.
+- Kompjuteri Windows mbetet i bllokuar për WSL nga virtualizimi BIOS i fikur ([BIOS_VIRTUALIZATION.md](docs/BIOS_VIRTUALIZATION.md)). Kjo nuk bllokon më zhvillimin: build-et bëhen në Linux/CI.
+- Modeli `crates/amm-model` mbetet CPMM kërkimor; nuk është reference CLMM.
 
 ## Hapi i radhës
 
-**P1-01 është pjesërisht e kryer.** Build-i SBF kaloi; Anchor/IDL dhe runtime lokal mbeten të paverifikuara.
+ENG-03: `MarketConfig`, `ShardState`, PDA-të, `initialize_market` dhe `prepare_shard` me vault-e SPL Token, teste negative për çdo owner/mint/authority/seed/alias, dhe testim në SVM. Për këtë duhen vendimet e ADR-0004 për token program, rolet dhe `tick_spacing`; propozimet aktuale përdoren si default i dokumentuar derisa pronari t'i ndryshojë.
 
-Duhet aktivizuar manualisht **Virtualization Technology (VTx)** në BIOS të HP-së. Udhëzimi dhe burimet zyrtare janë te `docs/BIOS_VIRTUALIZATION.md`. Rinisi e zakonshme Windows nuk mjafton për këtë cilësim. Nga ky sesion nuk ndryshojmë firmware-n.
+## Si riprodhohet
 
-Pas aktivizimit, kontrollojmë përsëri firmware flag dhe instalimin Ubuntu. Pas boot-it Linux ekzekutojmë `setup-wsl.sh`, `check-wsl.sh` dhe provën Anchor/IDL nga `env-anchor/README.md`. Skriptet dhe projekti janë të përgatitur, jo të verifikuar në një sesion Linux funksional. Kjo është pika e rifillimit.
-
-Më pas implementohen helper-at e bitmap-it dhe programi me initialize market/registry/shard. Prepare dhe financimi bëhen për tetë shard-et fillestare; finalizimi hap tregun me maskë `0xff`. Zgjerimi aktivizon gradualisht shard-e të tjera deri në 56, pasi verifikohen fondet dhe të drejtat LP. Skema dinamike mbetet plan, jo veçori e kodit aktual.
-
-## Ende të parealizuara
-
-- Programi AMM Solana, build Anchor/IDL, ekzekutimi i programit provues në validator, transaksioni v1 real dhe deployment devnet.
-- CLMM i plotë: tick crossing, fixed-point price/liquidity dhe kufij intervali.
-- Pozicionet LP, kontabiliteti i detyrimeve dhe transferimet SPL.
-- Router-i dhe benchmark-u i rrjetit.
-- Huadhënia, oracle, interesi dhe likuidimi.
-- Split/merge dinamik dhe auditimi.
-
-Modeli aktual përdor rezerva virtuale constant-product, tarifa të ndara dhe rrumbullakim integer. Nuk është provë e aftësisë paguese të vault-eve reale dhe nuk është implementim i plotë i një intervali CLMM me kufij. Programi `env-smoke` është vetëm ping/pong pa fonde dhe pa gjendje. Asnjë matje TPS, CU ose vonese onchain nuk është bërë.
-
-## Si riprodhohen kontrollet
-
-```powershell
-Set-Location 'C:\Users\Perdorues\Desktop\1\sharded_amm'
-.\scripts\preflight.ps1
-.\scripts\check.ps1
+```bash
+# Linux x86_64 me rustup, python3, node dhe Agave 4.3.2 në PATH
+bash scripts/build-linux.sh
+bash scripts/smoke-validator.sh
 ```
 
-Dokumentet e sigurisë dhe pranimit dallojnë kontrollet që ekzistojnë në model nga ato që ende kërkojnë implementim. Kalimi i testeve lokale nuk mbyll portat e programit onchain.
+Në Windows, kontrollet e vjetra (`scripts/preflight.ps1`, `scripts/check.ps1`) mbeten për modelin host.

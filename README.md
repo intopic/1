@@ -6,10 +6,18 @@ Produkti është projektuar si smart contract AMM/likuidimi në Solana që **nis
 
 ## Si fillojmë
 
+Në Linux (ose CI):
+
+```bash
+bash scripts/build-linux.sh
+bash scripts/smoke-validator.sh
+```
+
+
 Nga PowerShell:
 
 ```powershell
-Set-Location 'C:\Users\Perdorues\Desktop\1\sharded_amm'
+Set-Location '<rrënja e repo-s>'
 .\scripts\preflight.ps1
 cargo test --workspace --offline
 cargo fmt --all -- --check
@@ -44,7 +52,11 @@ Preflight vetëm kontrollon mjedisin. Nuk instalon programe, nuk ndryshon konfig
 | `toolchain.versions.json` | Versionet dhe SHA256 e mjeteve të zhvillimit |
 | `docs/toolchain.md` | Build-i SBF, kufizimet native dhe rruga WSL |
 | `env-smoke/` | Program i veçuar ping/pong për provën e mjedisit |
-| `../sharded_amm_research/` | Kërkimi dhe eksperimenti fillestar Python |
+| `research/` | Kërkimi dhe eksperimenti fillestar Python |
+| `programs/sharded-amm/` | Programi Anchor: konstantet, maska dhe lifecycle i regjistrit (ENG-02); ende pa instruksione |
+| `docs/numeric-spec.md`, `docs/adr/` | Specifikimi numerik dhe vendimet e arkitekturës (ENG-01) |
+| `tools/reference/` | Referenca të pavarura (Python stdlib) për teste diferenciale |
+| `scripts/build-linux.sh`, `scripts/smoke-validator.sh` | Build/test/IDL dhe prova e validator-it në Linux/CI (ENG-00) |
 
 ## Rregullat e projektit
 
@@ -56,6 +68,6 @@ Preflight vetëm kontrollon mjedisin. Nuk instalon programe, nuk ndryshon konfig
 - Çelësat, wallet-et dhe sekretet nuk futen në kod ose dokumente.
 - Kontrata e ardhshme duhet të ketë teste reference dhe negative përpara devnet; kapitali real kërkon verifikime dhe auditim të veçantë.
 
-Organizimi është lokal. Nuk është krijuar repository GitHub dhe nuk është publikuar kod jashtë kompjuterit.
+Kodi ruhet në `github.com/intopic/1`. `.tools`, `target/`, keypair-et dhe sekretet nuk publikohen (shih `.gitignore`).
 
 Build-i SBF i programit provues ka kaluar. Anchor native është bllokuar nga Windows antivirus dhe validator-i native nuk arriti RPC ready. Pas restart-it WSL funksionon, por Ubuntu nuk niset sepse virtualizimi BIOS është i fikur. Shih `docs/BIOS_VIRTUALIZATION.md` dhe `STATUS.md`; kjo nuk ndryshon statusin e AMM-së së paimplementuar. Projekti `env-anchor` është përgatitur për provën e mëvonshme Anchor/IDL.

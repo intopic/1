@@ -58,3 +58,14 @@ anchor-lang = { version = "=1.2.1", default-features = false, features = ["solan
 ```
 
 E njëjta zgjedhje kërkohet për `anchor-spl`/`anchor-client` kur përdoren; modulet SPL të nevojshme duhen shtuar shprehimisht. Mos përzieni feature-t `solana-v3` dhe `solana-v4`. Rust i host-it dhe Rust i platform-tools SBF janë dy compiler-a të ndryshëm; kontrollojini veçmas gjatë diagnostikimit.
+
+## Linux / CI (ENG-00, 28 tetor 2026)
+
+Rruga kryesore e build-it tani është Linux. `rust-toolchain.toml` fikson host rustc `1.95.0`. Agave 4.3.2 shkarkohet nga release-i zyrtar dhe verifikohet me SHA256 `5c9599d7…0933` (e njëjta vlerë si në `scripts/setup-wsl.sh`). Pastaj:
+
+```bash
+bash scripts/build-linux.sh      # fmt, clippy, teste, SBF (v1.58), IDL, target/build-report.json
+bash scripts/smoke-validator.sh  # validator lokal i ri + ping/pong
+```
+
+IDL gjenerohet me harness-in `idl-build` të `anchor-lang` 1.2.1, i njëjti mekanizëm që thërret `anchor idl build`; binari Anchor CLI nuk kërkohet për build/IDL. CI (`.github/workflows/ci.yml`) ekzekuton të dy skriptet në `ubuntu-24.04`. Rezultatet janë në `STATUS.md` dhe `docs/environment-report.json` (`linux_2026_10_28`).

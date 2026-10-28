@@ -2,8 +2,15 @@
   "date": "2026-10-28",
   "phase": "P1-01",
   "overall": "PARTIAL",
-  "agave_cli": { "version": "4.3.2", "execution": "PASS" },
-  "sbf_driver": { "reported_version": "4.4.0", "bundled_default_tools": "1.57", "explicit_selected_tools": "1.58" },
+  "agave_cli": {
+    "version": "4.3.2",
+    "execution": "PASS"
+  },
+  "sbf_driver": {
+    "reported_version": "4.4.0",
+    "bundled_default_tools": "1.57",
+    "explicit_selected_tools": "1.58"
+  },
   "sbf_build": {
     "status": "PASS",
     "command": "cargo build-sbf --manifest-path env-smoke/Cargo.toml --tools-version v1.58 --skip-tools-install --offline",
@@ -12,7 +19,11 @@
     "bytes": 10608,
     "sha256": "581e08264a75388c8b1e9c0909e7ef984439c0c1ba33e8578e5d80975c62fdb8"
   },
-  "native_anchor": { "version": "1.2.1", "status": "BLOCKED_BY_WINDOWS_ANTIVIRUS", "bypass_attempted": false },
+  "native_anchor": {
+    "version": "1.2.1",
+    "status": "BLOCKED_BY_WINDOWS_ANTIVIRUS",
+    "bypass_attempted": false
+  },
   "native_validator": {
     "status": "FAIL_BEFORE_RPC_READY",
     "initial_error": "Windows 1314 while creating log symlink",
@@ -26,7 +37,11 @@
   "wsl": {
     "status": "POST_REBOOT_BLOCKED_FIRMWARE_VIRTUALIZATION_DISABLED",
     "installer_exit_code": 0,
-    "reported_installed": ["Virtual Machine Platform", "Windows Subsystem for Linux", "Ubuntu"],
+    "reported_installed": [
+      "Virtual Machine Platform",
+      "Windows Subsystem for Linux",
+      "Ubuntu"
+    ],
     "installer_message": "Changes will not be effective until the system is rebooted.",
     "additional_installer_output": "The requested operation requires elevation.",
     "windows_component_reboot_pending": true,
@@ -46,8 +61,60 @@
     },
     "optional_feature_state_readback": "DISM readback unavailable without Windows administrator token; installer previously reported enabled"
   },
-  "model_regression": { "tests_passed": 5, "fmt": "PASS", "clippy_deny_warnings": "PASS" },
-  "script_syntax": { "powershell": "PASS", "bash_final_setup_and_check": "PASS", "node_client": "PASS", "linux_setup_executed": false },
+  "model_regression": {
+    "tests_passed": 5,
+    "fmt": "PASS",
+    "clippy_deny_warnings": "PASS"
+  },
+  "script_syntax": {
+    "powershell": "PASS",
+    "bash_final_setup_and_check": "PASS",
+    "node_client": "PASS",
+    "linux_setup_executed": false
+  },
   "next_required_action": "Enable Virtualization Technology (VTx) in HP BIOS/UEFI, save and return to Windows. Verify firmware flag before completing Ubuntu installation and running Linux setup. See docs/BIOS_VIRTUALIZATION.md.",
-  "external_cluster_or_real_funds": false
+  "external_cluster_or_real_funds": false,
+  "linux_2026_10_28": {
+    "host": "Linux x86_64 container",
+    "rustc": "1.95.0 (59807616e 2026-04-14)",
+    "agave": {
+      "version": "4.3.2",
+      "archive_sha256": "5c9599d7fa397375df69d58e8d4f550ee45463dd6d1ecad9e5a1f053ce8e0933",
+      "sha256_matches_setup_wsl": true
+    },
+    "sbf_driver": "cargo-build-sbf 4.4.0",
+    "platform_tools": "v1.58",
+    "sbf_build": {
+      "status": "PASS",
+      "artifacts": {
+        "target/deploy/sharded_amm.so": {
+          "bytes": 49840,
+          "sha256": "4e30c7f9ac9838ca914b00c4357becba696c8bfe9a7a0f9c8f8191d4233b2321"
+        },
+        "env-smoke/target/deploy/environment_smoke.so": {
+          "bytes": 10608,
+          "sha256": "5615bb8b68315cde7cef0436b5e0d673dcab16b640a69946e0b6fec726e19c9f"
+        },
+        "env-anchor/target/deploy/anchor_environment_smoke.so": {
+          "bytes": 50080,
+          "sha256": "87633337f8f018c5b4a78c72a95fb51e8e54f441ff4a599c8120bee430ea3923"
+        }
+      },
+      "note": "Rebuild in the same path reproduced identical hashes; hashes differ across paths/hosts."
+    },
+    "anchor_idl": {
+      "status": "PASS",
+      "method": "anchor-lang 1.2.1 idl-build test harness (__anchor_private_print_idl), same mechanism as `anchor idl build`",
+      "anchor_cli_executed": false
+    },
+    "validator_smoke": {
+      "status": "PASS",
+      "program": "env-smoke",
+      "computeUnitsConsumed": 161,
+      "transaction_format": "legacy",
+      "negative_simulation": "InvalidInstructionData"
+    },
+    "transaction_v1": "NOT_VERIFIED",
+    "external_cluster_or_real_funds": false
+  }
 }

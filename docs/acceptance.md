@@ -41,12 +41,12 @@ Këto janë specifikime të reja; asnjëri nuk është test i ekzekutuar ose ve�
 
 | ID | Rreziku | Testi / kriteri i matshëm | Statusi | Evidenca |
 |---|---|---|---|---|
-| R-01 | SEC-14 | Registry përdor `u64`; pranon vetëm bit-et 0..55, refuzon çdo bit 56..63. `count_ones()` jep numrin aktiv ≤56; count i ruajtur që nuk përputhet refuzohet. Testo 0, `0xff`, bit 55 dhe maskën e plotë të vlefshme. | NOT IMPLEMENTED | — |
-| R-02 | SEC-14 | Guard `id < 56` ekzekutohet përpara checked shift. Testo id 0/7/8/55; refuzo secilin id 56..63 dhe vlera më të mëdha të input-it pa panic, truncate ose ndryshim gjendjeje. | NOT IMPLEMENTED | — |
-| R-03 | SEC-16 | Prepare për shard-et 0..7 është i versionuar/idempotent; finalize publikon atomikisht pool ready + maskën `0xff` vetëm kur të tetë janë gati. Retry/dështim në çdo hap nuk finalizon pool të pjesshëm; shard-et 8..55 nuk kërkojnë krijim ose rent fillestar. | NOT IMPLEMENTED | — |
+| R-01 | SEC-14 | Registry përdor `u64`; pranon vetëm bit-et 0..55, refuzon çdo bit 56..63. `count_ones()` jep numrin aktiv ≤56; count i ruajtur që nuk përputhet refuzohet. Testo 0, `0xff`, bit 55 dhe maskën e plotë të vlefshme. | PARTIAL | E-03: logjikë host; mungon instruksioni onchain. |
+| R-02 | SEC-14 | Guard `id < 56` ekzekutohet përpara checked shift. Testo id 0/7/8/55; refuzo secilin id 56..63 dhe vlera më të mëdha të input-it pa panic, truncate ose ndryshim gjendjeje. | PARTIAL | E-03: çdo vlerë `u8` testohet në host; mungon instruksioni onchain. |
+| R-03 | SEC-16 | Prepare për shard-et 0..7 është i versionuar/idempotent; finalize publikon atomikisht pool ready + maskën `0xff` vetëm kur të tetë janë gati. Retry/dështim në çdo hap nuk finalizon pool të pjesshëm; shard-et 8..55 nuk kërkojnë krijim ose rent fillestar. | PARTIAL | E-03: finalizim atomik dhe refuzim i pjesshëm në nivel regjistri; mungojnë llogaritë, fondet dhe retry onchain. |
 | R-04 | SEC-15/17 | Activate kërkon owner/seed/pool/generation, statusin e duhur, vault-e reale dhe likuiditet/LP allocation të vlefshëm. Flag i rremë funded-ready, vault bosh ose alokim LP i papërfunduar refuzohen; biti vetëm nuk ndryshon inventarin. TVL jashtë intervalit nuk zëvendëson thellësinë aktive: testo tregti/slippage në dy drejtime, headroom dhe inventar real. Pragjet USD kërkojnë oracle të vlefshëm. | NOT IMPLEMENTED | — |
 | R-05 | SEC-05/15 | Swap e lexon registry readonly; lane të ndryshme kanë W/R disjunkte përveç leximeve të përbashkëta. Activation shkruan registry/status/readiness atomikisht; garat activate/deactivate/swap provohen në të dy renditjet dhe dështimi rikthen bit-in/statusin. | NOT IMPLEMENTED | — |
-| R-06 | SEC-18 | Routing zgjedh rank modulo `count_ones(mask)` dhe pastaj bit-in aktiv; refuzon maskë zero. Testo maska sparse me boshllëqe, vetëm bit 55 dhe të gjithë bit-et e vlefshëm; nuk përdoret `hash & 55`. Onchain refuzon ID joaktiv edhe kur router-i e sugjeron. | NOT IMPLEMENTED | — |
+| R-06 | SEC-18 | Routing zgjedh rank modulo `count_ones(mask)` dhe pastaj bit-in aktiv; refuzon maskë zero. Testo maska sparse me boshllëqe, vetëm bit 55 dhe të gjithë bit-et e vlefshëm; nuk përdoret `hash & 55`. Onchain refuzon ID joaktiv edhe kur router-i e sugjeron. | PARTIAL | E-03: `select_by_hash` dhe maskat sparse/bit 55/plota testohen; refuzimi onchain mungon. |
 | R-07 | SEC-04/17 | Shard joaktiv por me fonde lejon withdraw/collect të autorizuar sipas pretendimeve; çaktivizimi nuk ndryshon LP claims ose fonde dhe nuk lejon swap të ri. Testo disable→withdraw dhe retry pa double claim. | NOT IMPLEMENTED | — |
 | R-08 | SEC-03/04/10/17 | Shtimi i shard-it të ri provon burimin e kapitalit dhe LP allocation pa ndryshuar pretendimet e vjetra. Split ka test veçmas për transferim/ruajtje të pretendimeve; aktivizimi me bit nuk konsiderohet split. | NOT IMPLEMENTED | — |
 | R-09 | SEC-13/16 | Mat bajtet, CU dhe account metas për prepare/finalize të 8 shard-eve dhe aktivizim incremental deri në 56. Nëse finalizimi kërkon staging, witness-et e versionuara nuk mund të ripërdoren pas ndryshimit të readiness. | NOT IMPLEMENTED | — |
@@ -112,3 +112,14 @@ Më 28 tetor 2026, build SBF i `env-smoke` kaloi me SDK `solana-program = 4.1.0`
 Anchor native është bllokuar nga antivirusi; validator-i native nuk arriti RPC ready. Instaluesi WSL/Ubuntu kërkon restart Windows. Nuk ka ende ekzekutim end-to-end, Anchor/IDL build ose provë v1. Kjo evidencë nuk ndryshon A-07..A-12 në PASS dhe nuk kalon asnjë portë G0–G4.
 
 Pas restart-it, WSL 3.0.3.0 u verifikua, por Ubuntu registration dështoi me `HCS_E_HYPERV_NOT_INSTALLED`. CPU VM/SLAT mbështeten; `VirtualizationFirmwareEnabled=False`. Projekti `env-anchor` dhe manifestet e tij janë përgatitur/kontrolluar sintaksisht, pa build të ekzekutuar. Statuset e portave mbeten të pandryshuara.
+
+### E-03 — bitmap dhe lifecycle i regjistrit (ENG-02)
+
+Commit `0c43eac`, 28 tetor 2026, Linux, rustc 1.95.0: `cargo test -p sharded-amm` → **23 passed, 0 failed**. Mbulon: `shard_bit` për çdo `u8`, refuzimin e secilit bit 56..=63, maskat 0/`0xff`/bit 55/`VALID_MASK`/sparse, rank dhe `select_by_hash` kundrejt një reference naive (20 000 maska, seed `0x5eed000000000001`), prepare/finalize/activate me refuzim pa ndryshim gjendjeje, aktivizim të dyfishtë, overflow të `registry_version`, finalizim me përgatitje ose readiness të pjesshme, zgjerim 16/32/56, dhe model të rastësishëm të lifecycle-it (seed `0xabad1dea00000056`).
+
+Kufijtë: logjikë e pastër Rust në host. Nuk ka instruksione, lidhje llogarish, readiness reale, CPI ose validator. Asnjë portë G0–G4 nuk kalon nga kjo evidencë.
+
+### E-04 — mjedisi Linux (ENG-00)
+
+Commit `069a6f8`, 28 tetor 2026: `scripts/build-linux.sh` kaloi (fmt, clippy `-D warnings`, 28 teste host, tre build SBF me platform-tools v1.58, IDL për `sharded_amm` dhe `anchor_environment_smoke`); `scripts/smoke-validator.sh` konfirmoi ping/pong në validator lokal, 161 CU, transaksion legacy. Hash-et janë në `STATUS.md`. Kjo mbyll pengesën e mjedisit të E-02 për Linux; nuk provon transaksion v1, AMM ose siguri.
+
