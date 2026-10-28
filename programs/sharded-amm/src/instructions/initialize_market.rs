@@ -16,7 +16,10 @@ use anchor_spl::token::{Mint, Token};
 use crate::constants::{MARKET_SEED, REGISTRY_SEED, SCHEMA_VERSION};
 use crate::errors::AmmError;
 use crate::events::MarketInitialized;
-use crate::state::{check_mint_order, MarketConfig, MarketParams, MarketStatus, ShardRegistry};
+use crate::state::{
+    check_mint_order, MarketConfig, MarketParams, MarketStatus, PendingFees, ReadinessParams,
+    ShardRegistry,
+};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct InitializeMarketArgs {
@@ -25,6 +28,7 @@ pub struct InitializeMarketArgs {
     pub keeper: Pubkey,
     pub revenue_authority: Pubkey,
     pub pauser: Pubkey,
+    pub readiness: ReadinessParams,
 }
 
 #[derive(Accounts)]
@@ -66,6 +70,7 @@ pub fn handle_initialize_market(
 ) -> Result<()> {
     check_mint_order(&ctx.accounts.mint_a.key(), &ctx.accounts.mint_b.key())?;
     args.params.validate()?;
+    args.readiness.validate()?;
     for role in [&args.keeper, &args.revenue_authority, &args.pauser] {
         require!(*role != Pubkey::default(), AmmError::Unauthorized);
     }
@@ -84,7 +89,9 @@ pub fn handle_initialize_market(
         params: args.params,
         status: MarketStatus::Initializing,
         bump: ctx.bumps.market,
-        reserved: [0; 64],
+        readiness: args.readiness,
+        pending_fees: PendingFees::default(),
+        reserved: [0; 15],
     });
     ctx.accounts.registry.set_inner(ShardRegistry {
         market: market_key,

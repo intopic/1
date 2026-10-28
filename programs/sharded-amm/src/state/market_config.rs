@@ -7,7 +7,10 @@
 
 use anchor_lang::prelude::*;
 
-use crate::constants::{MAX_FEE_RATE_PPM, MAX_PROTOCOL_SHARE_BPS, MAX_TICK_SPACING};
+use crate::constants::{
+    FEE_TIMELOCK_SECONDS, MAX_ACTIVATION_DEVIATION_BPS, MAX_FEE_RATE_PPM, MAX_PROTOCOL_SHARE_BPS,
+    MAX_TICK_SPACING,
+};
 use crate::errors::AmmError;
 use crate::state::MarketStatus;
 
@@ -31,8 +34,56 @@ pub struct MarketConfig {
     pub params: MarketParams,
     pub status: MarketStatus,
     pub bump: u8,
+    /// Thresholds a shard must meet, re-checked on-chain, before it is routable.
+    pub readiness: ReadinessParams,
+    /// Fee change waiting for `FEE_TIMELOCK_SECONDS`.
+    pub pending_fees: PendingFees,
     /// Zeroed space for future fields without a realloc.
-    pub reserved: [u8; 64],
+    pub reserved: [u8; 15],
+}
+
+#[derive(
+    AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, Default, PartialEq, Eq,
+)]
+pub struct ReadinessParams {
+    /// Minimum active liquidity at the shard's current price.
+    pub min_liquidity: u128,
+    /// Minimum raw vault balances, both sides.
+    pub min_reserve_a: u64,
+    pub min_reserve_b: u64,
+    /// Expansion only: max price difference from an active reference shard.
+    pub max_activation_deviation_bps: u16,
+}
+
+impl ReadinessParams {
+    pub fn validate(&self) -> std::result::Result<(), AmmError> {
+        if self.min_liquidity == 0
+            || self.min_reserve_a == 0
+            || self.min_reserve_b == 0
+            || self.max_activation_deviation_bps > MAX_ACTIVATION_DEVIATION_BPS
+        {
+            return Err(AmmError::InvalidReadinessParams);
+        }
+        Ok(())
+    }
+
+    /// Liquidity and both real vault balances meet the thresholds.
+    pub fn is_ready(&self, liquidity: u128, vault_a: u64, vault_b: u64) -> bool {
+        liquidity >= self.min_liquidity
+            && vault_a >= self.min_reserve_a
+            && vault_b >= self.min_reserve_b
+    }
+}
+
+#[derive(
+    AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, Default, PartialEq, Eq,
+)]
+pub struct PendingFees {
+    pub fee_rate_ppm: u32,
+    pub protocol_share_bps: u16,
+    /// Earliest unix time at which the change can be applied.
+    pub eta: i64,
+    pub active: bool,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,26 +145,87 @@ impl MarketConfig {
         Ok(())
     }
 
-    /// Admin-only fee update within bounds. `tick_spacing` is immutable and
-    /// not an input. Returns the previous params for the event.
-    pub fn update_fees(
+    /// Admin proposes a fee change within bounds; it can be applied after
+    /// `FEE_TIMELOCK_SECONDS`. `tick_spacing` is immutable and not an input.
+    /// A new proposal replaces a pending one and restarts the delay.
+    pub fn propose_fees(
         &mut self,
         signer: &Pubkey,
         fee_rate_ppm: u32,
         protocol_share_bps: u16,
-    ) -> std::result::Result<MarketParams, AmmError> {
+        now: i64,
+    ) -> std::result::Result<PendingFees, AmmError> {
         if *signer != self.admin {
             return Err(AmmError::Unauthorized);
         }
-        let new = MarketParams {
+        MarketParams {
             fee_rate_ppm,
             protocol_share_bps,
             ..self.params
+        }
+        .validate()?;
+        let eta = now
+            .checked_add(FEE_TIMELOCK_SECONDS)
+            .ok_or(AmmError::MathOverflow)?;
+        self.pending_fees = PendingFees {
+            fee_rate_ppm,
+            protocol_share_bps,
+            eta,
+            active: true,
+        };
+        Ok(self.pending_fees)
+    }
+
+    /// Admin applies the pending change once the delay has passed.
+    /// Returns `(old, new)` params for the event.
+    pub fn apply_fees(
+        &mut self,
+        signer: &Pubkey,
+        now: i64,
+    ) -> std::result::Result<(MarketParams, MarketParams), AmmError> {
+        if *signer != self.admin {
+            return Err(AmmError::Unauthorized);
+        }
+        let p = self.pending_fees;
+        if !p.active {
+            return Err(AmmError::NoPendingChange);
+        }
+        if now < p.eta {
+            return Err(AmmError::TimelockNotElapsed);
+        }
+        let old = self.params;
+        let new = MarketParams {
+            fee_rate_ppm: p.fee_rate_ppm,
+            protocol_share_bps: p.protocol_share_bps,
+            ..old
         };
         new.validate()?;
-        let old = self.params;
         self.params = new;
-        Ok(old)
+        self.pending_fees = PendingFees::default();
+        Ok((old, new))
+    }
+
+    pub fn cancel_fee_change(&mut self, signer: &Pubkey) -> std::result::Result<(), AmmError> {
+        if *signer != self.admin {
+            return Err(AmmError::Unauthorized);
+        }
+        if !self.pending_fees.active {
+            return Err(AmmError::NoPendingChange);
+        }
+        self.pending_fees = PendingFees::default();
+        Ok(())
+    }
+
+    /// Admin cancels a market that never opened; LPs can still withdraw.
+    pub fn cancel_setup(&mut self, signer: &Pubkey) -> std::result::Result<(), AmmError> {
+        if *signer != self.admin {
+            return Err(AmmError::Unauthorized);
+        }
+        if self.status != MarketStatus::Initializing {
+            return Err(AmmError::InvalidMarketStatus);
+        }
+        self.status = MarketStatus::Cancelled;
+        Ok(())
     }
 
     /// Signer may prepare shards: the keeper, or the admin during setup.
@@ -201,7 +313,14 @@ mod tests {
             },
             status,
             bump: 255,
-            reserved: [0; 64],
+            readiness: ReadinessParams {
+                min_liquidity: 1,
+                min_reserve_a: 1,
+                min_reserve_b: 1,
+                max_activation_deviation_bps: 100,
+            },
+            pending_fees: PendingFees::default(),
+            reserved: [0; 15],
         }
     }
 
@@ -237,31 +356,119 @@ mod tests {
     }
 
     #[test]
-    fn fee_update_admin_only_and_bounded() {
+    fn fee_change_is_timelocked_admin_only_and_bounded() {
         let mut c = config(MarketStatus::Open);
         let admin = c.admin;
         for who in [c.keeper, c.revenue_authority, c.pauser] {
-            assert_eq!(c.update_fees(&who, 500, 2_000), Err(AmmError::Unauthorized));
+            assert_eq!(
+                c.propose_fees(&who, 500, 2_000, 0),
+                Err(AmmError::Unauthorized)
+            );
         }
         assert_eq!(
-            c.update_fees(&admin, 100_001, 2_000),
+            c.propose_fees(&admin, 100_001, 2_000, 0),
             Err(AmmError::InvalidFeeRate)
         );
         assert_eq!(
-            c.update_fees(&admin, 500, 5_001),
+            c.propose_fees(&admin, 500, 5_001, 0),
             Err(AmmError::InvalidProtocolShare)
         );
-        assert_eq!(c.params.fee_rate_ppm, 3_000);
-        let old = c.update_fees(&admin, 500, 1_000).unwrap();
+        assert_eq!(c.apply_fees(&admin, 0), Err(AmmError::NoPendingChange));
+        c.propose_fees(&admin, 500, 1_000, 1_000).unwrap();
+        assert_eq!(
+            c.params.fee_rate_ppm, 3_000,
+            "nothing changes before the delay"
+        );
+        assert_eq!(
+            c.apply_fees(&admin, 1_000 + FEE_TIMELOCK_SECONDS - 1),
+            Err(AmmError::TimelockNotElapsed)
+        );
+        assert_eq!(
+            c.apply_fees(&c.keeper.clone(), 1_000 + FEE_TIMELOCK_SECONDS),
+            Err(AmmError::Unauthorized)
+        );
+        let (old, new) = c.apply_fees(&admin, 1_000 + FEE_TIMELOCK_SECONDS).unwrap();
         assert_eq!(old.fee_rate_ppm, 3_000);
         assert_eq!(
-            c.params,
+            new,
             MarketParams {
                 fee_rate_ppm: 500,
                 protocol_share_bps: 1_000,
                 tick_spacing: 60
             }
         );
+        assert_eq!(c.params, new);
+        assert_eq!(
+            c.apply_fees(&admin, i64::MAX),
+            Err(AmmError::NoPendingChange)
+        );
+        c.propose_fees(&admin, 0, 0, 5).unwrap();
+        c.cancel_fee_change(&admin).unwrap();
+        assert_eq!(
+            c.apply_fees(&admin, i64::MAX),
+            Err(AmmError::NoPendingChange)
+        );
+        assert_eq!(
+            c.propose_fees(&admin, 0, 0, i64::MAX),
+            Err(AmmError::MathOverflow)
+        );
+    }
+
+    #[test]
+    fn cancel_only_before_open() {
+        let mut c = config(MarketStatus::Initializing);
+        assert_eq!(
+            c.cancel_setup(&c.keeper.clone()),
+            Err(AmmError::Unauthorized)
+        );
+        c.cancel_setup(&c.admin.clone()).unwrap();
+        assert_eq!(c.status, MarketStatus::Cancelled);
+        assert!(
+            !c.status.allows_add_liquidity()
+                && !c.status.allows_swap()
+                && c.status.allows_lp_exit()
+        );
+        assert_eq!(
+            c.cancel_setup(&c.admin.clone()),
+            Err(AmmError::InvalidMarketStatus)
+        );
+        let mut open = config(MarketStatus::Open);
+        assert_eq!(
+            open.cancel_setup(&open.admin.clone()),
+            Err(AmmError::InvalidMarketStatus)
+        );
+    }
+
+    #[test]
+    fn readiness_bounds() {
+        let r = config(MarketStatus::Open).readiness;
+        assert_eq!(r.validate(), Ok(()));
+        assert!(
+            r.is_ready(1, 1, 1)
+                && !r.is_ready(0, 1, 1)
+                && !r.is_ready(1, 0, 1)
+                && !r.is_ready(1, 1, 0)
+        );
+        for bad in [
+            ReadinessParams {
+                min_liquidity: 0,
+                ..r
+            },
+            ReadinessParams {
+                min_reserve_a: 0,
+                ..r
+            },
+            ReadinessParams {
+                min_reserve_b: 0,
+                ..r
+            },
+            ReadinessParams {
+                max_activation_deviation_bps: MAX_ACTIVATION_DEVIATION_BPS + 1,
+                ..r
+            },
+        ] {
+            assert_eq!(bad.validate(), Err(AmmError::InvalidReadinessParams));
+        }
     }
 
     #[test]

@@ -90,7 +90,9 @@ impl ShardRegistry {
                 return Err(AmmError::NotAnInitialShard)
             }
             MarketStatus::Initializing | MarketStatus::Open => {}
-            MarketStatus::Paused => return Err(AmmError::InvalidMarketStatus),
+            MarketStatus::Paused | MarketStatus::Cancelled => {
+                return Err(AmmError::InvalidMarketStatus)
+            }
         }
         let prepared = bitmap::insert(self.prepared_mask, id, AmmError::ShardAlreadyPrepared)?;
         let version = self.next_version()?;

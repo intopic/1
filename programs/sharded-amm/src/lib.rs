@@ -1,9 +1,11 @@
 //! Sharded-tick CLMM for Solana: one market, 8 initial shards, capacity 56.
 //!
-//! Status: ENG-03 in progress. Implemented: constants, shard bitmaps, registry
-//! lifecycle, `initialize_market`, `prepare_shard` (accounts, PDAs, vaults),
-//! `set_paused` and `update_fees`.
-//! No liquidity, swap or fee handlers exist yet; see STATUS.md. Not audited.
+//! Instructions: market setup (`initialize_market`, `prepare_shard`,
+//! `initialize_price`, `open_market`, `cancel_setup`, `activate_shard`),
+//! liquidity (`init_tick_array`, `open_position`, `increase_liquidity`,
+//! `decrease_liquidity`, `collect_fees`, `close_position`), trading
+//! (`swap_exact_in`) and controls (`set_paused`, fee timelock,
+//! `collect_protocol_fees`). See STATUS.md. Not audited.
 #![allow(unexpected_cfgs)]
 
 use anchor_lang::prelude::*;
@@ -41,11 +43,85 @@ pub mod sharded_amm {
         handle_set_paused(ctx, paused)
     }
 
+    /// Proposes a fee change; applied by `apply_fees` after the timelock.
     pub fn update_fees(
         ctx: Context<UpdateFees>,
         fee_rate_ppm: u32,
         protocol_share_bps: u16,
     ) -> Result<()> {
         handle_update_fees(ctx, fee_rate_ppm, protocol_share_bps)
+    }
+
+    pub fn apply_fees(ctx: Context<UpdateFees>) -> Result<()> {
+        handle_apply_fees(ctx)
+    }
+
+    pub fn cancel_fee_change(ctx: Context<UpdateFees>) -> Result<()> {
+        handle_cancel_fee_change(ctx)
+    }
+
+    pub fn initialize_price(ctx: Context<InitializePrice>, sqrt_price_x64: u128) -> Result<()> {
+        handle_initialize_price(ctx, sqrt_price_x64)
+    }
+
+    pub fn init_tick_array(ctx: Context<InitTickArray>, start_tick_index: i32) -> Result<()> {
+        handle_init_tick_array(ctx, start_tick_index)
+    }
+
+    pub fn open_position(
+        ctx: Context<OpenPosition>,
+        tick_lower: i32,
+        tick_upper: i32,
+    ) -> Result<()> {
+        handle_open_position(ctx, tick_lower, tick_upper)
+    }
+
+    pub fn increase_liquidity<'info>(
+        ctx: Context<'info, ModifyLiquidity<'info>>,
+        liquidity: u128,
+        amount_a_max: u64,
+        amount_b_max: u64,
+    ) -> Result<()> {
+        handle_increase_liquidity(ctx, liquidity, amount_a_max, amount_b_max)
+    }
+
+    pub fn decrease_liquidity<'info>(
+        ctx: Context<'info, ModifyLiquidity<'info>>,
+        liquidity: u128,
+        amount_a_min: u64,
+        amount_b_min: u64,
+    ) -> Result<()> {
+        handle_decrease_liquidity(ctx, liquidity, amount_a_min, amount_b_min)
+    }
+
+    pub fn collect_fees<'info>(ctx: Context<'info, ModifyLiquidity<'info>>) -> Result<()> {
+        handle_collect_fees(ctx)
+    }
+
+    pub fn close_position(ctx: Context<ClosePosition>) -> Result<()> {
+        handle_close_position(ctx)
+    }
+
+    pub fn open_market<'info>(ctx: Context<'info, OpenMarket<'info>>) -> Result<()> {
+        handle_open_market(ctx)
+    }
+
+    pub fn cancel_setup(ctx: Context<CancelSetup>) -> Result<()> {
+        handle_cancel_setup(ctx)
+    }
+
+    pub fn activate_shard(ctx: Context<ActivateShard>) -> Result<()> {
+        handle_activate_shard(ctx)
+    }
+
+    pub fn swap_exact_in<'info>(
+        ctx: Context<'info, SwapExactIn<'info>>,
+        args: SwapArgs,
+    ) -> Result<()> {
+        handle_swap_exact_in(ctx, args)
+    }
+
+    pub fn collect_protocol_fees(ctx: Context<CollectProtocolFees>) -> Result<()> {
+        handle_collect_protocol_fees(ctx)
     }
 }

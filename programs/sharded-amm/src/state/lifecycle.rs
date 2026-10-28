@@ -1,7 +1,8 @@
 //! Market and shard status machines.
 //!
-//! Market: `Initializing -> Open`, `Open <-> Paused`. There is no transition
-//! back to `Initializing`. Shard: `Prepared -> Active`. Deactivation, ID reuse
+//! Market: `Initializing -> Open`, `Initializing -> Cancelled`,
+//! `Open <-> Paused`. There is no transition back to `Initializing` and
+//! `Cancelled` is final. Shard: `Prepared -> Active`. Deactivation, ID reuse
 //! and shrinking are out of scope for v1 (see docs/adr/0002).
 //!
 //! Exit policy: an LP may always withdraw/collect its own claims from a
@@ -20,6 +21,8 @@ pub enum MarketStatus {
     Open = 1,
     /// Swaps and new liquidity blocked; exits allowed.
     Paused = 2,
+    /// Setup abandoned before opening; only LP exits remain (refund path).
+    Cancelled = 3,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +71,7 @@ mod tests {
             MarketStatus::Initializing,
             MarketStatus::Open,
             MarketStatus::Paused,
+            MarketStatus::Cancelled,
         ] {
             for s in [ShardStatus::Prepared, ShardStatus::Active] {
                 assert!(m.allows_lp_exit() && s.allows_lp_exit());

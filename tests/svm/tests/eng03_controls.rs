@@ -87,50 +87,54 @@ fn cannot_pause_while_initializing() {
 }
 
 #[test]
-fn fee_update_admin_only_bounded_spacing_unchanged() {
+fn fee_update_is_timelocked_admin_only_bounded_spacing_unchanged() {
     let mut env = Env::new();
     let m = env.market();
     let admin = env.admin.insecure_clone();
     let stranger = Keypair::new();
     env.svm.airdrop(&stranger.pubkey(), 1_000_000_000).unwrap();
-    for who in [
-        &stranger,
-        &env.keeper.insecure_clone(),
-        &env.pauser.insecure_clone(),
-    ] {
+    for who in [&stranger, &env.keeper.insecure_clone(), &env.pauser.insecure_clone()] {
         let ix = Env::ix_update_fees(&m, &who.pubkey(), 500, 2_000);
+        expect_custom(env.send(&[ix], &[who]), amm_code(AmmError::Unauthorized));
+        let ix = Env::ix_apply_fees(&m, &who.pubkey());
         expect_custom(env.send(&[ix], &[who]), amm_code(AmmError::Unauthorized));
     }
     expect_custom(
-        env.send(
-            &[Env::ix_update_fees(&m, &admin.pubkey(), 100_001, 2_000)],
-            &[&admin],
-        ),
+        env.send(&[Env::ix_update_fees(&m, &admin.pubkey(), 100_001, 2_000)], &[&admin]),
         amm_code(AmmError::InvalidFeeRate),
     );
     expect_custom(
-        env.send(
-            &[Env::ix_update_fees(&m, &admin.pubkey(), 500, 5_001)],
-            &[&admin],
-        ),
+        env.send(&[Env::ix_update_fees(&m, &admin.pubkey(), 500, 5_001)], &[&admin]),
         amm_code(AmmError::InvalidProtocolShare),
     );
-    // Candidate tiers from ADR-0004.
+    expect_custom(env.send(&[Env::ix_apply_fees(&m, &admin.pubkey())], &[&admin]), amm_code(AmmError::NoPendingChange));
+    // Candidate tiers from ADR-0004, each behind the delay.
     for fee in [500u32, 1_000, 3_000] {
-        env.send(
-            &[Env::ix_update_fees(&m, &admin.pubkey(), fee, 2_000)],
-            &[&admin],
-        )
-        .unwrap();
+        env.send(&[Env::ix_update_fees(&m, &admin.pubkey(), fee, 2_000)], &[&admin]).unwrap();
+        let before = env.market_state(&m).params;
+        expect_custom(
+            env.send(&[Env::ix_apply_fees(&m, &admin.pubkey())], &[&admin]),
+            amm_code(AmmError::TimelockNotElapsed),
+        );
+        env.warp(sharded_amm::constants::FEE_TIMELOCK_SECONDS - 10);
+        expect_custom(
+            env.send(&[Env::ix_apply_fees(&m, &admin.pubkey())], &[&admin]),
+            amm_code(AmmError::TimelockNotElapsed),
+        );
+        assert_eq!(env.market_state(&m).params, before, "nothing changes during the delay");
+        env.warp(10);
+        env.send(&[Env::ix_apply_fees(&m, &admin.pubkey())], &[&admin]).unwrap();
         assert_eq!(
             env.market_state(&m).params,
-            MarketParams {
-                fee_rate_ppm: fee,
-                protocol_share_bps: 2_000,
-                tick_spacing: 60
-            }
+            MarketParams { fee_rate_ppm: fee, protocol_share_bps: 2_000, tick_spacing: 60 }
         );
     }
+    // A cancelled proposal cannot be applied later.
+    env.send(&[Env::ix_update_fees(&m, &admin.pubkey(), 0, 0)], &[&admin]).unwrap();
+    env.send(&[Env::ix_cancel_fee_change(&m, &admin.pubkey())], &[&admin]).unwrap();
+    env.warp(sharded_amm::constants::FEE_TIMELOCK_SECONDS * 2);
+    expect_custom(env.send(&[Env::ix_apply_fees(&m, &admin.pubkey())], &[&admin]), amm_code(AmmError::NoPendingChange));
+    assert_eq!(env.market_state(&m).params.fee_rate_ppm, 3_000);
 }
 
 #[test]

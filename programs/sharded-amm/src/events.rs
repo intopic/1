@@ -34,3 +34,85 @@ pub struct FeesUpdated {
     pub new: MarketParams,
     pub by: Pubkey,
 }
+
+#[event]
+pub struct FeeChangeProposed {
+    pub market: Pubkey,
+    pub fee_rate_ppm: u32,
+    pub protocol_share_bps: u16,
+    pub eta: i64,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct PriceInitialized {
+    pub shard: Pubkey,
+    pub sqrt_price_x64: u128,
+    pub tick: i32,
+}
+
+#[event]
+pub struct LiquidityChanged {
+    pub shard: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    /// Positive when added, negative when removed.
+    pub liquidity_delta: i128,
+    pub amount_a: u64,
+    pub amount_b: u64,
+}
+
+#[event]
+pub struct FeesCollected {
+    pub shard: Pubkey,
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub amount_a: u64,
+    pub amount_b: u64,
+}
+
+#[event]
+pub struct MarketOpened {
+    pub market: Pubkey,
+    pub active_mask: u64,
+    pub registry_version: u64,
+}
+
+#[event]
+pub struct MarketCancelled {
+    pub market: Pubkey,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct ShardActivated {
+    pub market: Pubkey,
+    pub shard: Pubkey,
+    pub id: u8,
+    pub active_mask: u64,
+    pub registry_version: u64,
+}
+
+#[event]
+pub struct SwapExecuted {
+    pub shard: Pubkey,
+    pub user: Pubkey,
+    pub a_to_b: bool,
+    pub amount_in: u64,
+    pub amount_out: u64,
+    /// Nominal fee plus rounding dust; split below.
+    pub total_fee: u64,
+    pub protocol_fee: u64,
+    pub rounding_dust: u64,
+    pub sqrt_price_x64: u128,
+    pub tick: i32,
+    pub ticks_crossed: u32,
+}
+
+#[event]
+pub struct ProtocolFeesCollected {
+    pub shard: Pubkey,
+    pub amount_a: u64,
+    pub amount_b: u64,
+    pub by: Pubkey,
+}
