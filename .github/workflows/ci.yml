@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  AGAVE_VERSION: "4.3.2"
+  # Same digest as scripts/setup-wsl.sh; verified independently on 2026-10-28.
+  AGAVE_SHA256: "5c9599d7fa397375df69d58e8d4f550ee45463dd6d1ecad9e5a1f053ce8e0933"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Agave (checksum verified)
+        run: |
+          set -euo pipefail
+          url="https://github.com/anza-xyz/agave/releases/download/v${AGAVE_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 "$url" -o agave.tar.bz2
+          echo "${AGAVE_SHA256}  agave.tar.bz2" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/agave"
+          tar -xjf agave.tar.bz2 -C "$RUNNER_TEMP/agave"
+          rm agave.tar.bz2
+          echo "$RUNNER_TEMP/agave/solana-release/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/solana
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-sbf-v1.58-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+
+      - name: Build, test, SBF, IDL
+        run: bash scripts/build-linux.sh
+
+      - name: Validator smoke
+        run: bash scripts/smoke-validator.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-report
+          path: |
+            target/build-report.json
+            target/idl/
