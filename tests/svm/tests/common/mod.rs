@@ -341,3 +341,51 @@ pub fn token_account_fields(data: &[u8]) -> (Pubkey, Pubkey, u64) {
     let amount = u64::from_le_bytes(data[64..72].try_into().unwrap());
     (mint, owner, amount)
 }
+
+impl Env {
+    pub fn ix_set_paused(m: &Market, authority: &Pubkey, paused: bool) -> Instruction {
+        let accounts = sharded_amm::accounts::SetPaused {
+            authority: *authority,
+            market: m.market,
+        };
+        Instruction {
+            program_id: sharded_amm::ID,
+            accounts: accounts.to_account_metas(None),
+            data: sharded_amm::instruction::SetPaused { paused }.data(),
+        }
+    }
+
+    pub fn ix_update_fees(
+        m: &Market,
+        admin: &Pubkey,
+        fee_rate_ppm: u32,
+        protocol_share_bps: u16,
+    ) -> Instruction {
+        let accounts = sharded_amm::accounts::UpdateFees {
+            admin: *admin,
+            market: m.market,
+        };
+        Instruction {
+            program_id: sharded_amm::ID,
+            accounts: accounts.to_account_metas(None),
+            data: sharded_amm::instruction::UpdateFees {
+                fee_rate_ppm,
+                protocol_share_bps,
+            }
+            .data(),
+        }
+    }
+
+    /// Overwrites the market status in place. Test-only shortcut until
+    /// finalize (ENG-04) can open a market through the program.
+    pub fn force_market_status(&mut self, m: &Market, status: sharded_amm::state::MarketStatus) {
+        use anchor_lang::AccountSerialize;
+        let mut cfg = self.market_state(m);
+        cfg.status = status;
+        let mut acc = self.raw(&m.market).unwrap();
+        let mut data = Vec::new();
+        cfg.try_serialize(&mut data).unwrap();
+        acc.data = data;
+        self.svm.set_account(m.market, acc).unwrap();
+    }
+}

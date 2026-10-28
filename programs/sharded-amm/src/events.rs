@@ -19,3 +19,18 @@ pub struct ShardPrepared {
     pub generation: u64,
     pub registry_version: u64,
 }
+
+#[event]
+pub struct MarketPauseChanged {
+    pub market: Pubkey,
+    pub paused: bool,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct FeesUpdated {
+    pub market: Pubkey,
+    pub old: MarketParams,
+    pub new: MarketParams,
+    pub by: Pubkey,
+}
