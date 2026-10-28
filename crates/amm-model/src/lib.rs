@@ -7,6 +7,8 @@
 //! Integer division rounds output down and the input fee up. Consequently the
 //! virtual reserve product may grow by rounding dust rather than stay exact.
 
+pub mod cpmm;
+
 pub const FEE_DENOMINATOR: u128 = 1_000_000;
 /// Deliberate research-model bound. Checked intermediates can still overflow;
 /// such quotes return an error instead of using arbitrary-precision arithmetic.
