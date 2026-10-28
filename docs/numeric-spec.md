@@ -1,6 +1,6 @@
 # Specifikimi numerik — Q64.64, ticks, likuiditet dhe tarifa
 
-**Statusi:** ENG-01, i propozuar për rishikim. Ky dokument fikson domain-in dhe rregullat që kodi i ENG-05/06 duhet të zbatojë. Asnjë formulë këtu nuk është ende e implementuar onchain; vetëm konstantet e maskës (ENG-02) dhe vektorët e referencës ekzistojnë si kod. Vendimi formal është [ADR-0001](adr/0001-numeric-domain.md).
+**Statusi:** ENG-01, i propozuar për rishikim; formulat e §2, §3, §4 dhe §6 janë implementuar në ENG-05 si funksione të pastra në `programs/sharded-amm/src/math/` dhe testohen bit-për-bit kundrejt referencës së pavarur [`tools/reference/clmm_vectors.py`](../tools/reference/clmm_vectors.py). Ende nuk thirren nga asnjë instruksion (ENG-04/06). Vendimi formal është [ADR-0001](adr/0001-numeric-domain.md).
 
 ## 1. Llojet dhe njësitë
 
@@ -10,7 +10,7 @@
 | `sqrt_price_x64` | `u128` | `√P · 2^64` (Q64.64) | `MIN_SQRT_PRICE_X64 ≤ s ≤ MAX_SQRT_PRICE_X64`, gjithmonë `< 2^96` |
 | `liquidity` (L) | `u128` | njësi `√(A·B)` | aktive `≤ u128::MAX`; për tick shih §4 |
 | shumat e tokenëve | `u64` | njësi bazë të mint-it | `0 ≤ a ≤ u64::MAX`; çdo rezultat që s'futet në `u64` refuzohet |
-| `fee_growth_*_x64` | `u128` | tarifë LP për njësi L, Q64.64 | **modulare `2^128`** (§6) |
+| `fee_growth_*_x128` | U256 (`[u64; 4]`) | tarifë LP për njësi L, Q128 | global dhe outside **checked, pa wrap**; inside modulare (§6) |
 | `fee_rate_ppm` | `u32` | pjesë e input-it, emërues `1_000_000` | `0 ≤ r ≤ 100_000` (10%) |
 | `protocol_share_bps` | `u16` | pjesë e tarifës totale, emërues `10_000` | `0 ≤ p ≤ 5_000` |
 
@@ -24,7 +24,7 @@ Token A dhe B janë mint-et në renditje kanonike (`mint_a < mint_b` sipas bajt�
 
 ```text
 MIN_SQRT_PRICE_X64 (floor, tick = -443636) = 4295048016
-MAX_SQRT_PRICE_X64 (ceil,  tick =  443636) = 79226673515401279992447579062   (96 bit)
+MAX_SQRT_PRICE_X64 (floor, tick =  443636) = 79226673515401279992447579061   (96 bit; ceil = ...062)
 ```
 
 Burimi: [`tools/reference/tick_vectors.py`](../tools/reference/tick_vectors.py) (vetëm stdlib Python `decimal`), dalja në [`docs/vectors/tick_vectors.json`](vectors/tick_vectors.json) me 47 vektorë (kufijtë, ±1, ±60, ±100000 dhe fuqitë e 2). Komanda:
@@ -33,7 +33,7 @@ Burimi: [`tools/reference/tick_vectors.py`](../tools/reference/tick_vectors.py) 
 python3 -I tools/reference/tick_vectors.py > docs/vectors/tick_vectors.json
 ```
 
-`get_sqrt_price_at_tick` i ENG-05 do të llogarisë një përafrim me tabelë fuqish. Kontrata e tij: për çdo tick në domain, rezultati `s` plotëson `floor ≤ s ≤ ceil` i vektorit ose ka gabim relativ të deklaruar e të testuar; konstantet `MIN/MAX_SQRT_PRICE_X64` të kodit janë **dalja e funksionit** në kufij dhe testohen kundrejt këtyre vlerave. Nëse algoritmi jep vlerë tjetër nga ajo e saktë (siç ndodh në implementime ekzistuese), ndryshimi dokumentohet me test, jo me rregullim të heshtur.
+`sqrt_price_at_tick` (ENG-05) shumëzon fuqitë Q128 `floor(2^128·√(1.0001^(2^i)))` nga tabela e gjeneruar [`tools/reference/tick_table.py`](../tools/reference/tick_table.py) (rrënjë katrore e plotë ekzakte) dhe për tick negativ llogarit `2^192 / R`. Kontrata: rezultati është **floor-i ekzakt** `floor(√(1.0001^t)·2^64)`. Kjo është verifikuar për 400 ticks (kufijtë, fuqitë e 2 dhe ticks të rastësishme) kundrejt referencës, dhe për 6 000 ticks me testin e inversit. Konstantet `MIN/MAX_SQRT_PRICE_X64` janë dalja e funksionit në kufij.
 
 `get_tick_at_sqrt_price(s)` kthen tick-un më të madh `t` me `sqrt_price_at(t) ≤ s`. Kjo është konventa e kufirit në barazi:
 
@@ -78,7 +78,7 @@ Hyrje: `amount_in > 0`, `min_out`, `sqrt_price_limit`, `deadline`, `shard_id`, `
 2. Përsërit derisa `remaining == 0`:
    - Gjej tick-un e ardhshëm të inicializuar **vetëm** në tick arrays të deklaruara, në renditjen e kërkuar; një varg që mungon, nuk lidhet me shard-in/gjeneratën ose është jashtë rendit → gabim.
    - `target = clamp(sqrt_price_at(next_tick), limit)`.
-   - Hapi: nëse `L > 0`, llogarit input-in pa tarifë deri në target, tarifën dhe output-in; nëse `L = 0`, hapi kalon te target pa konsumuar input dhe pa tarifë.
+   - Hapi: nëse `L > 0`, llogarit input-in pa tarifë deri në target, tarifën dhe output-in. Nëse `L = 0` dhe distanca deri te target-i është pozitive, swap-i **dështon** me `ZeroLiquidityGap` (rishikuar 2026-10-28, ADR-0001 6a).
    - Tarifat akumulohen me **L përpara crossing-ut**; pastaj, nëse u arrit tick-u, kalohet: `fee_growth_outside` përmbyset dhe `L` përditësohet me `±liquidity_net` sipas drejtimit.
    - Çdo iteracion konsumon input > 0, ose lëviz çmimin te një target i ri, ose kalon një tick. Kufiri i fortë `MAX_SWAP_STEPS` (propozim: 64) kthen gabim në vend të loop-it.
 3. Nëse mbetet input pas arritjes së limitit ose fundit të vargjeve → **gabim, pa partial fill** (politika v1).
@@ -89,24 +89,28 @@ Hyrje: `amount_in > 0`, `min_out`, `sqrt_price_limit`, `deadline`, `shard_id`, `
 Për çdo hap me `L > 0`:
 
 ```text
-fee_step      = ceil(amount_in_step · fee_rate_ppm / (1_000_000 − fee_rate_ppm))   kur arrihet target-i
-              = remaining − amount_in_step                                         kur hapi e konsumon gjithë mbetjen
-protocol_fee  = floor(fee_step · protocol_share_bps / 10_000)
-lp_fee        = fee_step − protocol_fee
-growth_delta  = floor(lp_fee · 2^64 / L)            // lp_fee < 2^64, produkti < 2^128
-fee_growth_global = fee_growth_global.wrapping_add(growth_delta)
+net_budget    = floor(gross · (D − f) / D)                         D = 1_000_000
+fee_nominal   = ceil(input_net · f / (D − f))
+rounding_dust = gross − input_net − fee_nominal                    vetëm në hapin final, përndryshe 0
+total_fee     = fee_nominal + rounding_dust
+protocol_fee  = floor(total_fee · protocol_share_bps / 10_000)
+lp_fee        = total_fee − protocol_fee
+growth_delta  = floor(lp_fee · 2^128 / L)                          // < 2^192, U256
+fee_growth_global = fee_growth_global.checked_add(growth_delta)   // pa wrap
 ```
 
 Pozicioni:
 
 ```text
-inside(now)   = global − below(lower) − above(upper)          // të gjitha wrapping mod 2^128
-owed_delta    = floor(old_position_L · inside(now).wrapping_sub(checkpoint) / 2^64)   // 256 bit → U256
+outside(init) = tick ≤ current ? global : 0                   // checked, 0 ≤ outside ≤ global
+outside(cross)= global − outside                              // checked
+inside(now)   = global − below(lower) − above(upper)          // mod 2^256
+owed_delta    = floor(old_position_L · (inside(now) − checkpoint mod 2^256) / 2^128)   // 384 bit → U512
 owed          = owed.checked_add(owed_delta)  → gabim në overflow
 checkpoint    = inside(now)
 ```
 
-- **Politika modulare** vlen vetëm për `fee_growth_*`: diferencat llogariten me `wrapping_sub`, prandaj wrap-i i akumulatorit nuk humbet tarifa për sa kohë një pozicion nuk lë të kalojë më shumë se `2^128` njësi growth pa u përditësuar. Asnjë shumë, L ose balancë nuk përdor wrapping.
+- `global` dhe `outside` janë monotonë dhe **checked**. `inside` nuk mund të jetë checked: me inicializimin standard ai del negativ për një range që çmimi nuk e ka prekur ende (kundërshembulli në `math::fee_math::tests::inside_can_be_negative`). Prandaj `inside` llogaritet mod `2^256` dhe përdoren vetëm diferencat e tij. Diferenca reale (growth brenda range-it që nga checkpoint-i) është jo-negative dhe `< 2^256`, kështu që zbritja modulare është ekzakte. Asnjë shumë, L ose balancë nuk përdor wrapping.
 - Tarifat historike llogariten me **L e vjetër** përpara çdo add/remove. Tarifa nuk shtohet kurrë në L aktiv.
 - `protocol_fee_a/b` ruhen në `ShardState` me `checked_add`; mblidhen vetëm nga `collect_protocol_fees`.
 

@@ -46,4 +46,18 @@ pub enum AmmError {
     Unauthorized,
     #[msg("Only generation 0 is supported in v1")]
     UnsupportedGeneration,
+    #[msg("Arithmetic overflow or result does not fit the target type")]
+    MathOverflow,
+    #[msg("Division by zero")]
+    DivisionByZero,
+    #[msg("Tick outside MIN_TICK..=MAX_TICK")]
+    TickOutOfRange,
+    #[msg("Sqrt price outside MIN_SQRT_PRICE_X64..=MAX_SQRT_PRICE_X64")]
+    SqrtPriceOutOfRange,
+    #[msg("Swap reached a price interval with zero liquidity")]
+    ZeroLiquidityGap,
+    #[msg("Liquidity must be positive")]
+    ZeroLiquidity,
+    #[msg("Internal math invariant violated")]
+    MathInvariantViolated,
 }

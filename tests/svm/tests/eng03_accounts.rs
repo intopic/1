@@ -348,6 +348,6 @@ fn account_sizes_match_layout_doc() {
     assert_eq!(env.raw(&m.registry).unwrap().data.len(), 65);
     assert_eq!(
         env.raw(&shard_addrs(&m, 0, 0).shard).unwrap().data.len(),
-        264
+        296
     );
 }

@@ -34,7 +34,7 @@ position:   ["lp_pos", shard, owner, position_id_u64_le] (ENG-05)
 
 market (32), prepared_mask u64, active_mask u64, registry_version u64, bump u8.
 
-## `ShardState` — 264 bajt
+## `ShardState` — 296 bajt
 
 | Fusha | Lloji | Bajt |
 |---|---|---:|
@@ -48,9 +48,11 @@ market (32), prepared_mask u64, active_mask u64, registry_version u64, bump u8.
 | sqrt_price_x64 | u128 (0 = ende pa çmim) | 16 |
 | tick_current | i32 | 4 |
 | liquidity | u128 | 16 |
-| fee_growth_global_a/b_x64 | u128 ×2 | 32 |
+| fee_growth_global_a/b_x128 | [u64; 4] ×2 (U256 little-endian, Q128, checked, pa wrap) | 64 |
 | protocol_fees_a/b | u64 ×2 | 16 |
 | bump | u8 | 1 |
 | reserved | [u8; 64] | 64 |
+
+Fee growth u ndryshua nga u128 Q64 në U256 Q128 më 2026-10-28 (ENG-05, kërkimi N07), para çdo deploy-i; prandaj `SCHEMA_VERSION` mbetet 1.
 
 `ShardStatus::Prepared = 0` sepse `init` i Anchor-it deserializon llogarinë e sapokrijuar me data zero; një vlerë 0 e pavlefshme e enum-it e bën `init` të dështojë.

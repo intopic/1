@@ -4,7 +4,7 @@ Përditësuar: 28 tetor 2026. Repository: `github.com/intopic/1`.
 
 **Vendimi i produktit:** nisje me **8 shard-e**, ID 0–7, maskë `0xff`; zgjerim me kapital të verifikuar deri në **56**, ID 0–55. Specifikimi i plotë është [docs/DEVELOPER_HANDOFF_8_SHARDS.md](docs/DEVELOPER_HANDOFF_8_SHARDS.md).
 
-**Përmbledhje:** mjedisi Linux/CI funksionon (ENG-00), specifikimi numerik dhe ADR-të janë shkruar (ENG-01), maska + lifecycle janë të testuara (ENG-02), dhe krijimi i tregut e i shard-eve me vault-e është onchain me teste SVM (ENG-03, pjesërisht). Të gjitha testet ekzekutohen në GitHub Actions. **Ende nuk ka ticks, LP ose swap.** Asnjë deklaratë për throughput, paralelizëm të matur, kapje MEV ose fitim nuk është provuar.
+**Përmbledhje:** mjedisi Linux/CI funksionon (ENG-00), specifikimi numerik dhe ADR-të janë shkruar (ENG-01), maska + lifecycle janë të testuara (ENG-02), krijimi i tregut e i shard-eve me vault-e është onchain me teste SVM (ENG-03, pjesërisht), dhe matematika CLMM është e testuar bit-për-bit kundrejt një reference të pavarur (ENG-05). Të gjitha testet ekzekutohen në GitHub Actions. **Ende nuk ka instruksione për ticks, LP ose swap.** Asnjë deklaratë për throughput, paralelizëm të matur, kapje MEV ose fitim nuk është provuar.
 
 ## Milestone-et
 
@@ -14,7 +14,8 @@ Përditësuar: 28 tetor 2026. Repository: `github.com/intopic/1`.
 | ENG-01 ADR/numeric/provenance | **PROPOSED** | [numeric-spec.md](docs/numeric-spec.md), [ADR 0001–0004](docs/adr/README.md), [upstream-lock.json](docs/upstream-lock.json), [third-party-notices.md](docs/third-party-notices.md), vektorë reference [tick_vectors.json](docs/vectors/tick_vectors.json). Pret rishikim; vendimet e produktit në ADR-0004 janë të hapura. |
 | ENG-02 Bitmap/lifecycle | **PASS si logjikë host** | `programs/sharded-amm/src/{constants,errors,math/bitmap,state/*}.rs`; 23 teste. Instruksionet që e përdorin janë ENG-03/04. |
 | ENG-03 Accounts/PDA/custody | **PARTIAL** | `initialize_market`, `prepare_shard`, `set_paused`, `update_fees` me `MarketConfig`, `ShardRegistry`, `ShardState`, vault-e SPL për shard ([account-layout.md](docs/account-layout.md)). 18 teste SVM (LiteSVM 0.18.1, `tests/svm`) në CI: role, signer, seeds, mint/token program të gabuar, Token-2022, alias vault-esh, ID 56/63/255, generation ≠ 0, dyfishim, izolim byte-for-byte, madhësitë e llogarive; pauser pauzon dhe vetëm admin rifillon; pauza bllokon `prepare_shard`; tarifat vetëm nga admin, brenda kufijve, `tick_spacing` i pandryshuar. Mungojnë: timelock-u i admin-it dhe tërheqja/refund para nisjes (ENG-04). |
-| ENG-04 … ENG-10 | NOT IMPLEMENTED | Rendi pas [rishikimit të kërkimit](docs/research/2026-10-28-team-research-review.md): ENG-05 matematika → ENG-05b CPMM baseline → ENG-04 seed/cancel/refund → ENG-06 swap një-shard. |
+| ENG-05 Matematika CLMM | **PASS si logjikë host** | `programs/sharded-amm/src/math/{wide,tick_math,sqrt_price_math,swap_step,fee_math,liquidity_math}.rs`. U256/U512 (`uint` 0.10), tick ↔ sqrt price si floor ekzakt, delta-t me rrumbullakim në favor të pool-it, hapi i swap-it me `fee_nominal`/`rounding_dust` (N05), gabim në gap me L = 0, fee growth U256 Q128 checked (N07, me `inside` mod 2^256). Teste: 20 njësi/vetive + 6 grupe diferenciale bit-për-bit kundrejt [referencës Python](tools/reference/clmm_vectors.py) (400 ticks, 400 delta, 300 çmime, 600 hapa swap, 200 fee growth); CI kontrollon që tabela dhe vektorët rigjenerohen identikë. Mungojnë: thirrja nga instruksionet, matja e CU në SBF, provat formale P01–P05. |
+| ENG-04, ENG-06 … ENG-10 | NOT IMPLEMENTED | Rendi pas [rishikimit të kërkimit](docs/research/2026-10-28-team-research-review.md): ENG-05b CPMM baseline → ENG-04 seed/cancel/refund → ENG-06 swap një-shard. |
 
 ## Evidenca e ENG-00 (Linux, 2026-10-28)
 
@@ -38,7 +39,7 @@ Validator-i lokal (`solana-test-validator`, `127.0.0.1:18899`) ngarkoi `env-smok
 
 ## Hapi i radhës
 
-ENG-05: tick math, `mul_div` 512-bit, swap step me ndarjen e dust-it (N05) dhe fee growth u256 Q128 checked (N07), me teste diferenciale kundrejt referencës Python. Asnjë transaksion v1 nuk është ekzekutuar ende; SAMM është prior art, prandaj nuk pretendojmë risi për AMM me shards.
+ENG-05b (CPMM baseline me ledger para/pas), pastaj ENG-04 (seed, finalize, cancel/refund) që përdor matematikën e ENG-05. CU e `tick_at_sqrt_price` (kërkim binar) matet në ENG-06 para se të vendoset për optimizim. Asnjë transaksion v1 nuk është ekzekutuar ende; SAMM është prior art, prandaj nuk pretendojmë risi për AMM me shards.
 
 ## Si riprodhohet
 

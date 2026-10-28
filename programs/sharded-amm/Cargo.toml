@@ -23,6 +23,11 @@ custom-panic = []
 [dependencies]
 anchor-lang = { version = "=1.2.1", default-features = false, features = ["solana-v4"] }
 anchor-spl = { version = "=1.2.1", default-features = false, features = ["token", "token_2022", "solana-v4"] }
+# Fixed-width U256/U512 for the 288-bit products in math/ (ADR-0001).
+uint = { version = "=0.10.0", default-features = false }
+
+[dev-dependencies]
+serde_json = "1"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

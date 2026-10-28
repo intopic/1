@@ -21,6 +21,10 @@ cargo --version
 solana --version
 cargo-build-sbf --version
 
+step "reference: generated table and vectors are reproducible"
+python3 -I tools/reference/tick_table.py | diff -u programs/sharded-amm/src/math/tick_table.rs -
+python3 -I tools/reference/clmm_vectors.py | diff -q docs/vectors/clmm_vectors.json -
+
 step "host: fmt, clippy, tests"
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings

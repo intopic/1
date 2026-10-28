@@ -35,6 +35,8 @@ Vazhdojmë me **8 CLMM lokale të pavarura** (çmim, ticks, vault-e dhe LP për 
 | 8 | Evidencë për **transaksion v1** të ekzekutuar mungon; deri atëherë deklarojmë vetëm legacy/v0. | L, T09 | STATUS |
 | 9 | **SAMM** është prior art i drejtpërdrejtë. Nuk pretendojmë risi për "AMM me shards". | F, executive | README/STATUS (asnjë deklaratë risie) |
 
+**Saktësim i N07 gjatë ENG-05:** `global` dhe `outside` janë checked pa wrap, siç propozon raporti, por `inside = global − below − above` mund të jetë negativ për një range ku çmimi nuk ka qenë ende. Kundërshembulli: tick-u i sipërm inicializohet nën çmim, çmimi e kalon, pastaj tick-u i poshtëm inicializohet mbi çmim. Prandaj `inside` mbahet mod 2^256 dhe përdoren vetëm diferencat. Testi `inside_can_be_negative` e dokumenton rastin.
+
 Pika ku **mbajmë** specifikimin tonë: seed-i i `generation` mbetet `u64` LE siç e kërkon handoff-i (raporti sugjeron `u32`). Politika "pa kopjim nga Orca" mbetet, edhe pse raporti vëren që commit-i historik c55588a6 ishte MIT; Raydium (Apache-2.0) mbetet e vetmja referencë, me provenancë.
 
 ## 4. Vendim i hapur për pronarin
