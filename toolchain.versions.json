@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "verification_status": "SBF_BUILD_PASSED_RUNTIME_AND_ANCHOR_BLOCKED",
+  "anchor_execution_status": "BLOCKED_BY_WINDOWS_ANTIVIRUS",
+  "verification_note": "Native SBF build passed; Anchor and native runtime remain blocked. After user reboot, WSL 3.0.3.0 runs, but Ubuntu registration failed HCS_E_HYPERV_NOT_INSTALLED. CPU supports VM/SLAT; firmware virtualization is false on HP ProBook 430 G4. BIOS VTx activation is required before Linux setup. See STATUS.md.",
+  "target_host": "x86_64-pc-windows-msvc",
+  "anchor": {
+    "version": "1.2.1",
+    "path": ".tools/anchor/1.2.1/anchor.exe",
+    "url": "https://github.com/otter-sec/anchor/releases/download/v1.2.1/anchor-1.2.1-x86_64-pc-windows-msvc.exe",
+    "sha256": "df3b5f1d0c0a7947fa977e80c4a84591eed3fc1dea63b2c39601cb5e607e175e",
+    "release_notes": "https://www.anchor-lang.com/docs/updates/release-notes/1-2-1"
+  },
+  "agave": {
+    "version": "4.3.2",
+    "bin_path": ".tools/agave/4.3.2/solana-release/bin",
+    "archive_path": ".tools/downloads/agave-4.3.2-windows.tar.bz2",
+    "url": "https://github.com/anza-xyz/agave/releases/download/v4.3.2/solana-release-x86_64-pc-windows-msvc.tar.bz2",
+    "sha256": "ce29128589045fe1964e9d5c064ea5f2a58151f707bae4d5bab345a3725e0f09"
+  },
+  "platform_tools": {
+    "version": "1.58",
+    "rust_version": "1.95.0",
+    "llvm_version": "22",
+    "location": "existing user cache; resolve and verify locally",
+    "url": "https://github.com/anza-xyz/platform-tools/releases/download/v1.58/platform-tools-windows-x86_64.tar.bz2",
+    "sha256": "4e13969c0e291e59db4a4514c28383598d78f8aa9a3f0e221423c1554d2f0f8d"
+  },
+  "anchor_program_dependency_policy": {
+    "version": "=1.2.1",
+    "default_features": false,
+    "solana_feature": "solana-v4",
+    "note": "Apply consistently to Anchor dependencies selecting a Solana version. Enable only necessary SPL modules explicitly."
+  },
+  "scope": "Local development tools and separate smoke program only. WSL/VirtualMachinePlatform installation requested. Local test program identity created under ignored .tools; no user wallet or cluster configuration changes, no external deployment or contract security certification."
+}

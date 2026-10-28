@@ -1,0 +1,20 @@
+{
+  "scope": "Symbolic account-set and rational-arithmetic model; no SVM, network, TPS, CU or latency measurement.",
+  "lock_conflict_present": {
+    "independent_shards": false,
+    "same_shard": true,
+    "shared_vaults": true,
+    "shared_fee_payer": true,
+    "same_user_token_accounts": true
+  },
+  "no_fee_single_band_example": {
+    "initial_sqrt_price": 1,
+    "total_liquidity": 1000,
+    "token0_input": 100,
+    "unsharded_token1_output": 90.9090909090909,
+    "one_of_two_shards_token1_output": 83.33333333333333,
+    "proportional_two_shard_output": 90.9090909090909,
+    "single_shard_output_loss_percent": 8.333333333333334
+  },
+  "model_checks_passed": 8
+}

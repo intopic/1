@@ -1,0 +1,11 @@
+/target/
+/artifacts/
+.env
+.env.*
+!.env.example
+*-keypair.json
+node_modules/
+/.tools/
+/env-smoke/target/
+/env-anchor/target/
+/env-anchor/.anchor/

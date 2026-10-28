@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-28",
+  "phase": "P1-01",
+  "overall": "PARTIAL",
+  "agave_cli": { "version": "4.3.2", "execution": "PASS" },
+  "sbf_driver": { "reported_version": "4.4.0", "bundled_default_tools": "1.57", "explicit_selected_tools": "1.58" },
+  "sbf_build": {
+    "status": "PASS",
+    "command": "cargo build-sbf --manifest-path env-smoke/Cargo.toml --tools-version v1.58 --skip-tools-install --offline",
+    "sdk": "solana-program 4.1.0",
+    "artifact": "env-smoke/target/deploy/environment_smoke.so",
+    "bytes": 10608,
+    "sha256": "581e08264a75388c8b1e9c0909e7ef984439c0c1ba33e8578e5d80975c62fdb8"
+  },
+  "native_anchor": { "version": "1.2.1", "status": "BLOCKED_BY_WINDOWS_ANTIVIRUS", "bypass_attempted": false },
+  "native_validator": {
+    "status": "FAIL_BEFORE_RPC_READY",
+    "initial_error": "Windows 1314 while creating log symlink",
+    "log_option_result": "--log avoids initial log symlink failure",
+    "remaining_error": "genesis archive unpack Access is denied (os error 5), also outside sandbox",
+    "last_log": ".tools/smoke-runs/09ef26e950a04c878859e5830f135128/stdout.log"
+  },
+  "end_to_end_smoke": "NOT_RUN_VALIDATOR_NOT_READY",
+  "anchor_build_and_idl": "NOT_RUN",
+  "transaction_v1": "NOT_VERIFIED",
+  "wsl": {
+    "status": "POST_REBOOT_BLOCKED_FIRMWARE_VIRTUALIZATION_DISABLED",
+    "installer_exit_code": 0,
+    "reported_installed": ["Virtual Machine Platform", "Windows Subsystem for Linux", "Ubuntu"],
+    "installer_message": "Changes will not be effective until the system is rebooted.",
+    "additional_installer_output": "The requested operation requires elevation.",
+    "windows_component_reboot_pending": true,
+    "linux_boot_verified": false,
+    "post_install_wsl_status": "WSL 3.0.3.0 works after reboot; default version 2; no installed distributions",
+    "post_reboot_kernel": "6.18.54.1-1",
+    "post_reboot_ubuntu_install_exit_code": 1,
+    "post_reboot_ubuntu_error": "Wsl/InstallDistro/Service/RegisterDistro/CreateVm/HCS/HCS_E_HYPERV_NOT_INSTALLED",
+    "post_reboot_ubuntu_message": "WSL2 is unable to start since virtualization is not enabled on this machine.",
+    "hardware": {
+      "manufacturer": "HP",
+      "model": "HP ProBook 430 G4",
+      "cpu": "Intel Core i5-7200U",
+      "vm_monitor_extensions": true,
+      "slat": true,
+      "virtualization_firmware_enabled": false
+    },
+    "optional_feature_state_readback": "DISM readback unavailable without Windows administrator token; installer previously reported enabled"
+  },
+  "model_regression": { "tests_passed": 5, "fmt": "PASS", "clippy_deny_warnings": "PASS" },
+  "script_syntax": { "powershell": "PASS", "bash_final_setup_and_check": "PASS", "node_client": "PASS", "linux_setup_executed": false },
+  "next_required_action": "Enable Virtualization Technology (VTx) in HP BIOS/UEFI, save and return to Windows. Verify firmware flag before completing Ubuntu installation and running Linux setup. See docs/BIOS_VIRTUALIZATION.md.",
+  "external_cluster_or_real_funds": false
+}
