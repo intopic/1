@@ -14,7 +14,7 @@ Përditësuar: 28 tetor 2026. Repository: `github.com/intopic/1`.
 | ENG-01 ADR/numeric/provenance | **PROPOSED** | [numeric-spec.md](docs/numeric-spec.md), [ADR 0001–0004](docs/adr/README.md), [upstream-lock.json](docs/upstream-lock.json), [third-party-notices.md](docs/third-party-notices.md), vektorë reference [tick_vectors.json](docs/vectors/tick_vectors.json). Pret rishikim; vendimet e produktit në ADR-0004 janë të hapura. |
 | ENG-02 Bitmap/lifecycle | **PASS si logjikë host** | `programs/sharded-amm/src/{constants,errors,math/bitmap,state/*}.rs`; 23 teste. Instruksionet që e përdorin janë ENG-03/04. |
 | ENG-03 Accounts/PDA/custody | **PARTIAL** | `initialize_market`, `prepare_shard`, `set_paused`, `update_fees` me `MarketConfig`, `ShardRegistry`, `ShardState`, vault-e SPL për shard ([account-layout.md](docs/account-layout.md)). 18 teste SVM (LiteSVM 0.18.1, `tests/svm`) në CI: role, signer, seeds, mint/token program të gabuar, Token-2022, alias vault-esh, ID 56/63/255, generation ≠ 0, dyfishim, izolim byte-for-byte, madhësitë e llogarive; pauser pauzon dhe vetëm admin rifillon; pauza bllokon `prepare_shard`; tarifat vetëm nga admin, brenda kufijve, `tick_spacing` i pandryshuar. Mungojnë: timelock-u i admin-it dhe tërheqja/refund para nisjes (ENG-04). |
-| ENG-04 … ENG-10 | NOT IMPLEMENTED | — |
+| ENG-04 … ENG-10 | NOT IMPLEMENTED | Rendi pas [rishikimit të kërkimit](docs/research/2026-10-28-team-research-review.md): ENG-05 matematika → ENG-05b CPMM baseline → ENG-04 seed/cancel/refund → ENG-06 swap një-shard. |
 
 ## Evidenca e ENG-00 (Linux, 2026-10-28)
 
@@ -38,7 +38,7 @@ Validator-i lokal (`solana-test-validator`, `127.0.0.1:18899`) ngarkoi `env-smok
 
 ## Hapi i radhës
 
-Mbyllja e ENG-03 (pause, update_parameters me bounds/event, kode gabimi specifike), pastaj ENG-05 (tick math, likuiditet, fee math me referencë të pavarur) para ENG-04 (seed/finalize), sepse seed-i kërkon çmimin dhe L.
+ENG-05: tick math, `mul_div` 512-bit, swap step me ndarjen e dust-it (N05) dhe fee growth u256 Q128 checked (N07), me teste diferenciale kundrejt referencës Python. Asnjë transaksion v1 nuk është ekzekutuar ende; SAMM është prior art, prandaj nuk pretendojmë risi për AMM me shards.
 
 ## Si riprodhohet
 

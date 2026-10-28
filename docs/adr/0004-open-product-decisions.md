@@ -28,7 +28,9 @@ Tarifat {0,05%, 0,10%, 0,30%} × spacing {10, 60}, me kapital total, shpërndarj
 
 | Vendimi | Propozimi | Bllokon |
 |---|---|---|
-| Mint me freeze authority | Lejohet me deklarim publik të rrezikut (USDC e ka) | ENG-03 |
+| Mint me freeze authority | Lejohet me deklarim publik të rrezikut (USDC e ka). Kërkimi i ekipit propozon profil strikt që i refuzon; pret vendimin e pronarit. | ENG-03 |
+| WSOL | `SyncNative`, rezerva e rent-it native, wrap/unwrap në SDK; teste pas mint-eve prove | ENG-03/07 |
+| Kufiri i llogarive | Kufiri aktual 64 (96 draft); router/Jupiter nisin me një shard për swap | ENG-07/09 |
 | Çmimi/range fillestar i 8 shard-eve | I njëjti çmim fillestar, range i njëjtë, kapital i barabartë | ENG-04 |
 | Çmimi i shard-it të ri | Çmim nga financuesi brenda tolerancës ndaj medianës së shard-eve aktive | ENG-08 |
 | Pragu i readiness | L aktive ≥ X dhe inventar real ≥ Y në njësi raw, të dy drejtimet | ENG-04/08 |
