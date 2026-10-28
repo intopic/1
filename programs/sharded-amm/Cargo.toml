@@ -25,6 +25,8 @@ anchor-lang = { version = "=1.2.1", default-features = false, features = ["solan
 anchor-spl = { version = "=1.2.1", default-features = false, features = ["token", "token_2022", "solana-v4"] }
 # Fixed-width U256/U512 for the 288-bit products in math/ (ADR-0001).
 uint = { version = "=0.10.0", default-features = false }
+# Required by Anchor zero-copy accounts (TickArray).
+bytemuck = { version = "1.17", features = ["derive", "min_const_generics"] }
 
 [dev-dependencies]
 serde_json = "1"

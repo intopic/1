@@ -9,6 +9,7 @@
 use anchor_lang::prelude::*;
 
 pub mod constants;
+pub mod engine;
 pub mod errors;
 pub mod events;
 pub mod instructions;

@@ -35,3 +35,14 @@ pub const MAX_PROTOCOL_SHARE_BPS: u16 = 5_000;
 pub const MAX_TICK_SPACING: u16 = 1_000;
 pub const MIN_TICK: i32 = -443_636;
 pub const MAX_TICK: i32 = 443_636;
+
+/// Initialized-tick slots per `TickArray`; an array spans `32 * tick_spacing` ticks.
+pub const TICKS_PER_ARRAY: usize = 32;
+/// Upper bound on tick arrays a single swap may traverse (ADR-0004).
+pub const MAX_SWAP_TICK_ARRAYS: usize = 3;
+/// Hard cap on swap loop iterations; exceeding it fails instead of looping.
+pub const MAX_SWAP_STEPS: u32 = 128;
+/// Delay between proposing and applying a fee change (ADR-0004: admin delay).
+pub const FEE_TIMELOCK_SECONDS: i64 = 86_400;
+/// Upper bound on the activation price tolerance.
+pub const MAX_ACTIVATION_DEVIATION_BPS: u16 = 10_000;

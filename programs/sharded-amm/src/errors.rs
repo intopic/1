@@ -60,4 +60,56 @@ pub enum AmmError {
     ZeroLiquidity,
     #[msg("Internal math invariant violated")]
     MathInvariantViolated,
+    #[msg("Shard price is not initialized")]
+    PriceNotInitialized,
+    #[msg("Shard price is already initialized")]
+    PriceAlreadyInitialized,
+    #[msg("Ticks must be multiples of tick_spacing with MIN_TICK <= lower < upper <= MAX_TICK")]
+    InvalidTickRange,
+    #[msg("Tick array start index is not aligned or outside the domain")]
+    InvalidTickArrayStart,
+    #[msg("Tick array missing, out of order, or belongs to another shard")]
+    TickArrayMismatch,
+    #[msg("Swap needs more tick arrays than were provided")]
+    TickArraysExhausted,
+    #[msg("Price limit is on the wrong side of the current price or outside the domain")]
+    InvalidPriceLimit,
+    #[msg("Price limit reached before the input was consumed; partial fills are not supported")]
+    PriceLimitReached,
+    #[msg("Swap exceeded MAX_SWAP_STEPS")]
+    TooManySwapSteps,
+    #[msg("Amount must be positive")]
+    ZeroAmount,
+    #[msg("Output below the minimum or input above the maximum")]
+    SlippageExceeded,
+    #[msg("Rounding dust above the caller's max_rounding_dust")]
+    RoundingDustExceeded,
+    #[msg("Transaction deadline has passed")]
+    DeadlineExceeded,
+    #[msg("Swap output is zero")]
+    ZeroOutput,
+    #[msg("Liquidity per tick above the cap for this tick spacing")]
+    LiquidityPerTickExceeded,
+    #[msg("Position still holds liquidity or uncollected tokens")]
+    PositionNotEmpty,
+    #[msg("Position liquidity is lower than the requested decrease")]
+    InsufficientPositionLiquidity,
+    #[msg("Vault does not belong to this shard")]
+    InvalidVault,
+    #[msg("Token account has the wrong mint or owner")]
+    InvalidTokenAccount,
+    #[msg("The same account was passed twice")]
+    DuplicateAccount,
+    #[msg("Account belongs to another market or shard")]
+    ShardMismatch,
+    #[msg("Shard price deviates from the reference shard by more than allowed")]
+    PriceDeviationTooHigh,
+    #[msg("Fee change timelock has not elapsed")]
+    TimelockNotElapsed,
+    #[msg("No pending fee change")]
+    NoPendingChange,
+    #[msg("Invalid readiness parameters")]
+    InvalidReadinessParams,
+    #[msg("Wrong number of accounts for this instruction")]
+    InvalidAccountCount,
 }
