@@ -4,7 +4,7 @@ Përditësuar: 28 tetor 2026. Repository: `github.com/intopic/1`.
 
 **Vendimi i produktit:** nisje me **8 shard-e**, ID 0–7, maskë `0xff`; zgjerim me kapital të verifikuar deri në **56**, ID 0–55. Specifikimi i plotë është [docs/DEVELOPER_HANDOFF_8_SHARDS.md](docs/DEVELOPER_HANDOFF_8_SHARDS.md).
 
-**Përmbledhje:** mjedisi Linux funksionon (ENG-00), specifikimi numerik dhe ADR-të janë shkruar (ENG-01), dhe maska + lifecycle i regjistrit janë implementuar si logjikë e testuar në host (ENG-02). **Ende nuk ka instruksione onchain, custody, ticks, LP ose swap.** Asnjë deklaratë për throughput, paralelizëm të matur, kapje MEV ose fitim nuk është provuar.
+**Përmbledhje:** mjedisi Linux/CI funksionon (ENG-00), specifikimi numerik dhe ADR-të janë shkruar (ENG-01), maska + lifecycle janë të testuara (ENG-02), dhe krijimi i tregut e i shard-eve me vault-e është onchain me teste SVM (ENG-03, pjesërisht). Të gjitha testet ekzekutohen në GitHub Actions. **Ende nuk ka ticks, LP ose swap.** Asnjë deklaratë për throughput, paralelizëm të matur, kapje MEV ose fitim nuk është provuar.
 
 ## Milestone-et
 
@@ -13,7 +13,8 @@ Përditësuar: 28 tetor 2026. Repository: `github.com/intopic/1`.
 | ENG-00 Mjedisi | **PASS në Linux** | Agave 4.3.2 (SHA256 i verifikuar), host rustc 1.95.0, platform-tools v1.58. Build SBF për `sharded-amm`, `env-smoke`, `env-anchor`; IDL nga `anchor-lang` 1.2.1 `idl-build`; validator lokal ping/pong i konfirmuar. Komandat: `scripts/build-linux.sh`, `scripts/smoke-validator.sh`; CI në `.github/workflows/ci.yml`. Anchor CLI binar nuk u ekzekutua në këtë mjedis; IDL u gjenerua me të njëjtin mekanizëm që përdor CLI-ja. |
 | ENG-01 ADR/numeric/provenance | **PROPOSED** | [numeric-spec.md](docs/numeric-spec.md), [ADR 0001–0004](docs/adr/README.md), [upstream-lock.json](docs/upstream-lock.json), [third-party-notices.md](docs/third-party-notices.md), vektorë reference [tick_vectors.json](docs/vectors/tick_vectors.json). Pret rishikim; vendimet e produktit në ADR-0004 janë të hapura. |
 | ENG-02 Bitmap/lifecycle | **PASS si logjikë host** | `programs/sharded-amm/src/{constants,errors,math/bitmap,state/*}.rs`; 23 teste. Instruksionet që e përdorin janë ENG-03/04. |
-| ENG-03 … ENG-10 | NOT IMPLEMENTED | — |
+| ENG-03 Accounts/PDA/custody | **PARTIAL** | `initialize_market` dhe `prepare_shard` me `MarketConfig`, `ShardRegistry`, `ShardState`, vault-e SPL për shard ([account-layout.md](docs/account-layout.md)). 13 teste SVM (LiteSVM 0.18.1, `tests/svm`) në CI: role, signer, seeds, mint/token program të gabuar, Token-2022, alias vault-esh, ID 56/63/255, generation ≠ 0, dyfishim, izolim byte-for-byte, madhësitë e llogarive. `prepare_shard` ≈ 29–38k CU. Mungojnë: pause/update_parameters, timelock-u i admin-it dhe kodet specifike të gabimeve për disa raste negative. |
+| ENG-04 … ENG-10 | NOT IMPLEMENTED | — |
 
 ## Evidenca e ENG-00 (Linux, 2026-10-28)
 
@@ -31,13 +32,13 @@ Validator-i lokal (`solana-test-validator`, `127.0.0.1:18899`) ngarkoi `env-smok
 
 ## Kufizime të njohura
 
-- Programi `sharded-amm` ka `#[program]` bosh; IDL ka 0 instruksione. Program ID `B6rXDCwiXe1CyXyCS4JS1Tn9J5yud87cREWapUoD5hEy` është placeholder; keypair-i nuk është në repo.
+- IDL ka 2 instruksione (`initialize_market`, `prepare_shard`); pa likuiditet, swap ose tarifa. Program ID `B6rXDCwiXe1CyXyCS4JS1Tn9J5yud87cREWapUoD5hEy` është placeholder; keypair-i nuk është në repo.
 - Kompjuteri Windows mbetet i bllokuar për WSL nga virtualizimi BIOS i fikur ([BIOS_VIRTUALIZATION.md](docs/BIOS_VIRTUALIZATION.md)). Kjo nuk bllokon më zhvillimin: build-et bëhen në Linux/CI.
 - Modeli `crates/amm-model` mbetet CPMM kërkimor; nuk është reference CLMM.
 
 ## Hapi i radhës
 
-ENG-03: `MarketConfig`, `ShardState`, PDA-të, `initialize_market` dhe `prepare_shard` me vault-e SPL Token, teste negative për çdo owner/mint/authority/seed/alias, dhe testim në SVM. Për këtë duhen vendimet e ADR-0004 për token program, rolet dhe `tick_spacing`; propozimet aktuale përdoren si default i dokumentuar derisa pronari t'i ndryshojë.
+Mbyllja e ENG-03 (pause, update_parameters me bounds/event, kode gabimi specifike), pastaj ENG-05 (tick math, likuiditet, fee math me referencë të pavarur) para ENG-04 (seed/finalize), sepse seed-i kërkon çmimin dhe L.
 
 ## Si riprodhohet
 

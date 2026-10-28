@@ -36,9 +36,10 @@ jobs:
             ~/.cache/solana
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-sbf-v1.58-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+            tests/svm/target
+          key: ${{ runner.os }}-sbf-v1.58-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml') }}
 
-      - name: Build, test, SBF, IDL
+      - name: Build, host tests, SBF, SVM tests, IDL
         run: bash scripts/build-linux.sh
 
       - name: Validator smoke

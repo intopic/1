@@ -34,4 +34,16 @@ pub enum AmmError {
     InitialShardsNotReady,
     #[msg("Shard failed readiness checks")]
     ShardNotReady,
+    #[msg("Fee rate above MAX_FEE_RATE_PPM")]
+    InvalidFeeRate,
+    #[msg("Protocol share above MAX_PROTOCOL_SHARE_BPS")]
+    InvalidProtocolShare,
+    #[msg("Tick spacing outside 1..=MAX_TICK_SPACING")]
+    InvalidTickSpacing,
+    #[msg("Mints must be distinct and in canonical order (mint_a < mint_b)")]
+    MintsNotCanonical,
+    #[msg("Signer does not hold the required role")]
+    Unauthorized,
+    #[msg("Only generation 0 is supported in v1")]
+    UnsupportedGeneration,
 }

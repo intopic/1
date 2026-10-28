@@ -9,3 +9,4 @@ node_modules/
 /env-smoke/target/
 /env-anchor/target/
 /env-anchor/.anchor/
+/tests/svm/target/

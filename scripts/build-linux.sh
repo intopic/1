@@ -29,6 +29,9 @@ cargo test --workspace
 step "sbf: sharded-amm"
 cargo build-sbf --manifest-path programs/sharded-amm/Cargo.toml --tools-version "$tools_version"
 
+step "svm: integration tests (LiteSVM, separate workspace)"
+(cd tests/svm && cargo fmt -- --check && cargo clippy --all-targets -- -D warnings && cargo test -- --nocapture)
+
 step "sbf: env-smoke"
 cargo build-sbf --manifest-path env-smoke/Cargo.toml --tools-version "$tools_version"
 

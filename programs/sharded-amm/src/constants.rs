@@ -26,3 +26,12 @@ pub const VAULT_AUTH_SEED: &[u8] = b"vault_auth";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const TICK_ARRAY_SEED: &[u8] = b"ticks";
 pub const POSITION_SEED: &[u8] = b"lp_pos";
+
+// Market parameter bounds (docs/numeric-spec.md section 1, ADR-0004).
+pub const FEE_RATE_DENOMINATOR: u32 = 1_000_000;
+pub const MAX_FEE_RATE_PPM: u32 = 100_000;
+pub const PROTOCOL_SHARE_DENOMINATOR: u16 = 10_000;
+pub const MAX_PROTOCOL_SHARE_BPS: u16 = 5_000;
+pub const MAX_TICK_SPACING: u16 = 1_000;
+pub const MIN_TICK: i32 = -443_636;
+pub const MAX_TICK: i32 = 443_636;

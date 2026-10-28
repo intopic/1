@@ -27,9 +27,10 @@ pub enum MarketStatus {
 #[repr(u8)]
 pub enum ShardStatus {
     /// Accounts and vaults exist; may hold seeded liquidity; not routable.
-    Prepared = 1,
+    /// Zero so that Anchor's `init` can deserialize the zeroed account.
+    Prepared = 0,
     /// Routable: its bit is set in `ShardRegistry::active_mask`.
-    Active = 2,
+    Active = 1,
 }
 
 impl MarketStatus {

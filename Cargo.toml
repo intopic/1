@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/amm-model", "programs/sharded-amm"]
-exclude = ["env-smoke", "env-anchor"]
+exclude = ["env-smoke", "env-anchor", "tests/svm"]
 resolver = "2"
 
 [workspace.package]
