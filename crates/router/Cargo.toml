@@ -1,0 +1,13 @@
+[package]
+name = "amm-router"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "Off-chain router: threshold split routing over shards and rebalance search (ADR-0007)"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+sharded-amm = { path = "../../programs/sharded-amm", features = ["no-entrypoint"] }
+anchor-lang = { version = "=1.2.1", default-features = false, features = ["solana-v4"] }

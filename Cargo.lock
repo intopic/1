@@ -16,6 +16,14 @@ name = "amm-model"
 version = "0.1.0"
 
 [[package]]
+name = "amm-router"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "sharded-amm",
+]
+
+[[package]]
 name = "amm-sim"
 version = "0.1.0"
 dependencies = [
