@@ -2,7 +2,8 @@
 //! configuration (1, 2, 4, 8 lanes), each with the same total liquidity, and
 //! funded traders in LiteSVM with the real SBF program,
 //! then writes every account as a `solana-test-validator --account-dir` JSON
-//! file plus `bench.json` (addresses, tick arrays, trader keys).
+//! file plus `bench.json` (addresses, tick arrays, trader keys, and the four
+//! rebalancer keys listed on the 8-lane market for `examples/rebalancer.rs`).
 //!
 //! The keys are throwaway keypairs for a local test validator only.
 //!
@@ -66,6 +67,22 @@ fn main() {
         }
         let open = env.ix_open_market(&m, &keeper.pubkey(), &(0..8).collect::<Vec<_>>());
         env.send(&[open], &[&keeper]).unwrap();
+        // The 8-lane market lists four rebalancer keys for the rebalancer
+        // bot (`examples/rebalancer.rs`); each pays its own fees and holds
+        // no tokens, since a rebalance needs no capital.
+        let mut rebalancers = Vec::new();
+        if n == 8 {
+            let rs: Vec<_> = (0..4).map(|_| env.user(&m, 0)).collect();
+            env.set_rebalancers(&m, &rs.iter().map(|r| r.kp.pubkey()).collect::<Vec<_>>());
+            for r in &rs {
+                keys.extend([r.kp.pubkey(), r.token_a, r.token_b]);
+                rebalancers.push(json!({
+                    "secret": r.kp.to_bytes().to_vec(),
+                    "token_a": r.token_a.to_string(),
+                    "token_b": r.token_b.to_string(),
+                }));
+            }
+        }
 
         let spacing = env.market_state(&m).params.tick_spacing;
         let span = sharded_amm::state::array_span(spacing);
@@ -105,6 +122,7 @@ fn main() {
             "registry": m.registry.to_string(),
             "total_liquidity": TOTAL_LIQUIDITY.to_string(),
             "shards": shards,
+            "rebalancers": rebalancers,
         }));
         first.get_or_insert(m);
     }

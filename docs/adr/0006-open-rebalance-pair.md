@@ -113,3 +113,7 @@ Router-i (`find_rebalance`) e përfshin shard-in në rikuperim, por jo një çif
 - CU: rreth 69 000 për një rebalancim pa kalim tick-u.
 
 Ende pa bërë: simulim i fitimit të rebalancimit me router-in me prag (hapi 4), dhe teste stresi me rebalancime të rastit onchain.
+
+## Bot-i (29 tetor 2026)
+
+Bot-i jashtë zinxhirit është [`tests/svm/examples/rebalancer.rs`](../../tests/svm/examples/rebalancer.rs), me planifikimin në `amm_router::rebalance_round`: deri në 4 rebalancime për raund në çifte shard-esh të ndara, një për çdo çelës të listuar, secili me payer-in e vet, dhe vetëm kur fitimi mbulon koston e transaksionit. Testohet në CI kundër validatorit lokal (workflow `rebalancer`). Metoda dhe rezultatet: [docs/bench/rebalancer.md](../bench/rebalancer.md).

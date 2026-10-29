@@ -13,7 +13,9 @@
 //!   orders can run in parallel (A-10), while large orders still get the
 //!   price quality of a split (ENG-09).
 //! - [`find_rebalance`]: the most profitable `rebalance_pair` between the
-//!   cheapest and the dearest shard (ADR-0006), for any keeper or bot.
+//!   cheapest and the dearest shard (ADR-0006), for any keeper or bot;
+//!   [`rebalance_round`]: several of them on disjoint pairs, one per
+//!   rebalancer key, for the bot (`tests/svm/examples/rebalancer.rs`).
 //!
 //! - [`recovery`]: what to do when a planned swap fails, from the program's
 //!   error: refresh the snapshot, skip the shard, spread wider, or stop.
@@ -533,6 +535,20 @@ pub fn find_rebalance(
     slot: u64,
     min_profit: u64,
 ) -> Option<RebalancePlan> {
+    find_rebalance_min(books, m, slot, [min_profit, min_profit])
+}
+
+/// Like [`find_rebalance`], with its own floor per profit token:
+/// `min_profit[0]` in A, `min_profit[1]` in B. A bot sets each to what a
+/// transaction costs it in that token, so it never sends one that loses
+/// money. When both directions clear their floor the one worth more is
+/// taken, A valued in B at the geometric mean of the two shards' prices.
+pub fn find_rebalance_min(
+    books: &[Book],
+    m: &MarketCfg,
+    slot: u64,
+    min_profit: [u64; 2],
+) -> Option<RebalancePlan> {
     // A swap-paused shard may still be rebalanced (recovery), but only
     // against a shard that is trading, as the program requires.
     let open = || {
@@ -548,41 +564,25 @@ pub fn find_rebalance(
     if lo.pool.sqrt_price >= hi.pool.sqrt_price {
         return None;
     }
-    let mut best: Option<(u64, bool, u64)> = None;
+    let q64 = |x: u128| x as f64 / 18_446_744_073_709_551_616.0;
+    let b_per_a = q64(lo.pool.sqrt_price) * q64(hi.pool.sqrt_price);
+    let mut best: Option<(u64, bool, u64, f64)> = None;
     for input_is_a in [false, true] {
-        let f = |x: u64| rebalance_profit(lo, hi, m, slot, input_is_a, x).unwrap_or(0);
-        // Coarse: powers of two; then a ternary search around the best.
-        let (mut be, mut bp) = (0u32, 0u64);
-        for e in 0..63u32 {
-            let p = f(1u64 << e);
-            if p > bp {
-                (be, bp) = (e, p);
-            }
-        }
-        if bp == 0 {
+        let floor = min_profit[usize::from(!input_is_a)].max(1);
+        let Some((x, p)) = best_amount(lo, hi, m, slot, input_is_a) else {
             continue;
-        }
-        let (mut a, mut b) = (1u64 << be.saturating_sub(1), (1u64 << (be + 1).min(62)));
-        while b - a > 2 {
-            let m1 = a + (b - a) / 3;
-            let m2 = b - (b - a) / 3;
-            if f(m1) < f(m2) {
-                a = m1;
-            } else {
-                b = m2;
-            }
-        }
-        let (x, p) = (a..=b)
-            .chain([1u64 << be])
-            .map(|x| (x, f(x)))
-            .max_by_key(|e| e.1)
-            .unwrap();
-        if best.is_none_or(|(_, _, q)| p > q) {
-            best = Some((x, input_is_a, p));
+        };
+        let value = if input_is_a {
+            p as f64 * b_per_a
+        } else {
+            p as f64
+        };
+        if p >= floor && best.is_none_or(|(_, _, _, v)| value > v) {
+            best = Some((x, input_is_a, p, value));
         }
     }
-    let (amount_in, input_is_a, profit) = best?;
-    (profit >= min_profit.max(1)).then(|| RebalancePlan {
+    let (amount_in, input_is_a, profit, _) = best?;
+    Some(RebalancePlan {
         lo: lo.id,
         hi: hi.id,
         input_is_a,
@@ -591,6 +591,68 @@ pub fn find_rebalance(
         lo_array_starts: lo.array_starts(m.tick_spacing, false),
         hi_array_starts: hi.array_starts(m.tick_spacing, true),
     })
+}
+
+/// The input amount with the most profit in one direction, and that profit.
+fn best_amount(
+    lo: &Book,
+    hi: &Book,
+    m: &MarketCfg,
+    slot: u64,
+    input_is_a: bool,
+) -> Option<(u64, u64)> {
+    let f = |x: u64| rebalance_profit(lo, hi, m, slot, input_is_a, x).unwrap_or(0);
+    // Coarse: powers of two; then a ternary search around the best.
+    let (mut be, mut bp) = (0u32, 0u64);
+    for e in 0..63u32 {
+        let p = f(1u64 << e);
+        if p > bp {
+            (be, bp) = (e, p);
+        }
+    }
+    if bp == 0 {
+        return None;
+    }
+    let (mut a, mut b) = (1u64 << be.saturating_sub(1), (1u64 << (be + 1).min(62)));
+    while b - a > 2 {
+        let m1 = a + (b - a) / 3;
+        let m2 = b - (b - a) / 3;
+        if f(m1) < f(m2) {
+            a = m1;
+        } else {
+            b = m2;
+        }
+    }
+    (a..=b)
+        .chain([1u64 << be])
+        .map(|x| (x, f(x)))
+        .max_by_key(|e| e.1)
+}
+
+/// One round for a bot with several rebalancer keys: up to `max_pairs`
+/// rebalances on disjoint shard pairs, found greedily (the widest gap, then
+/// the widest among the shards left, ...). Disjoint pairs write disjoint
+/// accounts (each shard has its own state, vaults and tick arrays), so the
+/// transactions can land in the same slot. Each plan is priced on the
+/// snapshot as it is, which stays exact because no two plans touch the same
+/// shard.
+pub fn rebalance_round(
+    books: &[Book],
+    m: &MarketCfg,
+    slot: u64,
+    min_profit: [u64; 2],
+    max_pairs: usize,
+) -> Vec<RebalancePlan> {
+    let mut left: Vec<Book> = books.to_vec();
+    let mut out = Vec::new();
+    while out.len() < max_pairs {
+        let Some(r) = find_rebalance_min(&left, m, slot, min_profit) else {
+            break;
+        };
+        left.retain(|b| b.id != r.lo && b.id != r.hi);
+        out.push(r);
+    }
+    out
 }
 
 /// Executes a rebalance on the books, as the program would. Returns the
@@ -834,6 +896,56 @@ mod tests {
         }
         // Equal prices: nothing to do.
         assert_eq!(find_rebalance(&books(8, 1 << 40), &cfg(), 0, 0), None);
+    }
+
+    #[test]
+    fn a_round_uses_disjoint_pairs_and_closes_every_gap() {
+        // Four shards pushed down, four up: one round can fix all four gaps
+        // at once, one pair per rebalancer key.
+        let m = cfg();
+        let mut bs = books(8, 1 << 40);
+        for (i, b) in bs.iter_mut().enumerate() {
+            b.apply(&m, 0, i % 2 == 0, (1 << 36) + (i as u64) * (1 << 32), 0)
+                .unwrap();
+        }
+        let gap = |bs: &[Book]| {
+            bs.iter().map(|b| b.pool.sqrt_price).max().unwrap()
+                - bs.iter().map(|b| b.pool.sqrt_price).min().unwrap()
+        };
+        let gap0 = gap(&bs);
+        let round = rebalance_round(&bs, &m, 0, [1, 1], 4);
+        assert_eq!(round.len(), 4);
+        let mut seen = Vec::new();
+        for r in &round {
+            assert!(!seen.contains(&r.lo) && !seen.contains(&r.hi), "{round:?}");
+            seen.extend([r.lo, r.hi]);
+        }
+        // Applied one after the other on the same books, every plan pays
+        // exactly what it was priced at: the pairs do not interact.
+        for r in &round {
+            assert_eq!(apply_rebalance(&mut bs, &m, 0, r).unwrap(), r.profit);
+        }
+        assert!(gap(&bs) * 4 < gap0, "{} vs {gap0}", gap(&bs));
+        // No more than `max_pairs`, and nothing below the floor.
+        assert!(rebalance_round(&bs, &m, 0, [1, 1], 0).is_empty());
+        assert!(rebalance_round(&bs, &m, 0, [u64::MAX, u64::MAX], 4).is_empty());
+    }
+
+    #[test]
+    fn each_direction_has_its_own_profit_floor() {
+        let m = cfg();
+        let mut bs = books(2, 1 << 40);
+        bs[1].apply(&m, 0, false, 1 << 37, 0).unwrap();
+        let free = find_rebalance_min(&bs, &m, 0, [1, 1]).unwrap();
+        let (p, a) = (free.profit, free.input_is_a);
+        // The winning direction below its floor: the other one, or nothing.
+        let mut floor = [1, 1];
+        floor[usize::from(!a)] = p + 1;
+        if let Some(r) = find_rebalance_min(&bs, &m, 0, floor) {
+            assert_ne!(r.input_is_a, a);
+            assert!(r.profit >= floor[usize::from(!r.input_is_a)]);
+        }
+        assert!(find_rebalance_min(&bs, &m, 0, [u64::MAX, u64::MAX]).is_none());
     }
 
     /// First-leg shard of 1 000 small orders, one seed each, same snapshot.

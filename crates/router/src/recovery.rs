@@ -119,6 +119,9 @@ pub fn classify(e: AmmError, arrays_passed: usize) -> Recovery {
         TickArraysExhausted if arrays_passed >= MAX_SWAP_TICK_ARRAYS => Recovery::Smaller,
         SlippageExceeded | PriceLimitReached | TickArraysExhausted | TickArrayMismatch
         | DeadlineExceeded | RoundingDustExceeded => Recovery::Refresh,
+        // A rebalance planned on a snapshot where it paid: the prices moved
+        // since (another trade or rebalance landed first).
+        RebalanceUnprofitable | RebalanceNoPriceGap => Recovery::Refresh,
         ZeroLiquidityGap | ShardNotActive | PriceNotInitialized | ShardNotReady | ShardPaused => {
             Recovery::SkipShard
         }
@@ -305,6 +308,14 @@ mod tests {
         assert_eq!(classify(AmmError::SlippageExceeded, 1), Recovery::Refresh);
         assert_eq!(classify(AmmError::SwapsPaused, 1), Recovery::Halt);
         assert_eq!(classify(AmmError::ShardPaused, 1), Recovery::SkipShard);
+        assert_eq!(
+            classify(AmmError::RebalanceUnprofitable, 2),
+            Recovery::Refresh
+        );
+        assert_eq!(
+            classify(AmmError::RebalanceNoPriceGap, 2),
+            Recovery::Refresh
+        );
         assert_eq!(classify(AmmError::ZeroAmount, 1), Recovery::Reject);
         assert_eq!(classify(AmmError::InvalidVault, 1), Recovery::Reject);
     }

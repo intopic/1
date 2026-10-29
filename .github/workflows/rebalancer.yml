@@ -1,0 +1,68 @@
+name: rebalancer
+
+# ADR-0006: the off-chain rebalancer bot against a single-node
+# solana-test-validator: four listed keys on disjoint shard pairs, a calm
+# phase (every rebalance must land, the gap must close to the fee band) and
+# a phase with concurrent trader swaps (failures must only mean a stale
+# snapshot). See docs/bench/rebalancer.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      noise:
+        description: "Trader swaps during the noisy phase"
+        default: "200"
+  push:
+    paths:
+      - ".github/workflows/rebalancer.yml"
+      - "scripts/rebalancer-validator.sh"
+      - "tests/svm/examples/**"
+      - "crates/router/**"
+      - "programs/sharded-amm/src/**"
+
+permissions:
+  contents: read
+
+env:
+  AGAVE_VERSION: "4.3.2"
+  AGAVE_SHA256: "5c9599d7fa397375df69d58e8d4f550ee45463dd6d1ecad9e5a1f053ce8e0933"
+  NOISE: ${{ github.event.inputs.noise || '200' }}
+  CARGO_TERM_COLOR: never
+
+jobs:
+  bot:
+    name: rebalancer bot on a local validator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Agave (checksum verified)
+        run: |
+          set -euo pipefail
+          [[ "$NOISE" =~ ^[0-9]+$ ]] || { echo 'noise must be an integer'; exit 1; }
+          url="https://github.com/anza-xyz/agave/releases/download/v${AGAVE_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 "$url" -o agave.tar.bz2
+          echo "${AGAVE_SHA256}  agave.tar.bz2" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/agave"
+          tar -xjf agave.tar.bz2 -C "$RUNNER_TEMP/agave"
+          rm agave.tar.bz2
+          echo "$RUNNER_TEMP/agave/solana-release/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/solana
+            ~/.cargo/registry
+            ~/.cargo/git
+            tests/svm/target
+          key: ${{ runner.os }}-bench-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml') }}
+      - run: cargo build-sbf --manifest-path programs/sharded-amm/Cargo.toml --tools-version v1.58
+      - name: Rebalancer bot
+        run: |
+          set -euo pipefail
+          bash scripts/rebalancer-validator.sh target/bench/rebalancer.md "$NOISE"
+          cat target/bench/rebalancer.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rebalancer
+          path: target/bench/

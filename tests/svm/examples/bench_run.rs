@@ -20,10 +20,13 @@
 
 #[path = "../tests/common/mod.rs"]
 mod common;
+#[path = "shared/rpc.rs"]
+mod rpc;
 
 use anchor_lang::{InstructionData, ToAccountMetas};
 use base64::Engine;
 use common::{with_remaining, Pubkey, TOKEN_PROGRAM};
+use rpc::Rpc;
 use serde_json::{json, Value};
 use sharded_amm::instructions::SwapArgs;
 use solana_instruction::Instruction;
@@ -41,50 +44,6 @@ const SENDERS: usize = 16;
 
 fn key(v: &Value) -> Pubkey {
     Pubkey::from_str(v.as_str().unwrap()).unwrap()
-}
-
-struct Rpc {
-    url: String,
-    agent: ureq::Agent,
-}
-
-impl Rpc {
-    /// Retries transport errors and "block not available yet" (-32004).
-    fn call(&self, method: &str, params: Value) -> Value {
-        const ATTEMPTS: usize = 40;
-        for attempt in 1..=ATTEMPTS {
-            let r = self.agent.post(&self.url).send_json(json!({
-                "jsonrpc": "2.0", "id": 1, "method": method, "params": params
-            }));
-            let retry = match r {
-                Ok(resp) => {
-                    let v: Value = resp.into_json().unwrap();
-                    match v.get("error") {
-                        None => return v["result"].clone(),
-                        Some(e) if e["code"] == -32004 => format!("{e}"),
-                        Some(e) => panic!("{method}: {e}"),
-                    }
-                }
-                Err(e) => format!("{e}"),
-            };
-            if attempt == ATTEMPTS {
-                panic!("{method}: {retry}");
-            }
-            std::thread::sleep(Duration::from_millis(300));
-        }
-        unreachable!()
-    }
-
-    fn blockhash(&self) -> Hash {
-        let r = self.call("getLatestBlockhash", json!([{"commitment": "confirmed"}]));
-        Hash::from_str(r["value"]["blockhash"].as_str().unwrap()).unwrap()
-    }
-
-    fn slot(&self) -> u64 {
-        self.call("getSlot", json!([{"commitment": "processed"}]))
-            .as_u64()
-            .unwrap()
-    }
 }
 
 struct Trader {
@@ -345,29 +304,11 @@ fn run(rpc: &Arc<Rpc>, shards: &[Shard], traders: &[Trader], load: Load) -> Outc
     }
 }
 
-/// Reads `keys` from the validator (base64 account data).
-fn fetch(rpc: &Rpc, keys: &[Pubkey]) -> Vec<Vec<u8>> {
-    let r = rpc.call(
-        "getMultipleAccounts",
-        json!([keys.iter().map(|k| k.to_string()).collect::<Vec<_>>(), {"encoding": "base64", "commitment": "confirmed"}]),
-    );
-    r["value"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|a| {
-            base64::engine::general_purpose::STANDARD
-                .decode(a["data"][0].as_str().unwrap())
-                .unwrap()
-        })
-        .collect()
-}
-
 /// The router's view of the 8-lane market right now: every client of the
 /// next burst reads this same snapshot, which is what makes herding likely.
 fn books(rpc: &Rpc, lanes: &[Shard]) -> (Vec<amm_router::Book>, amm_router::MarketCfg) {
     use anchor_lang::AccountDeserialize;
-    let market = fetch(rpc, &[lanes[0].market]).remove(0);
+    let market = rpc.fetch(&[lanes[0].market]).remove(0);
     let cfg = amm_router::MarketCfg::from_config(
         &sharded_amm::state::MarketConfig::try_deserialize(&mut market.as_slice()).unwrap(),
     );
@@ -381,7 +322,7 @@ fn books(rpc: &Rpc, lanes: &[Shard]) -> (Vec<amm_router::Book>, amm_router::Mark
                     keys.push(*k);
                 }
             }
-            let data = fetch(rpc, &keys);
+            let data = rpc.fetch(&keys);
             let state =
                 sharded_amm::state::ShardState::try_deserialize(&mut data[0].as_slice()).unwrap();
             let arrays =
@@ -487,12 +428,7 @@ fn main() {
             }
         })
         .collect();
-    let rpc = Arc::new(Rpc {
-        url,
-        agent: ureq::AgentBuilder::new()
-            .timeout(Duration::from_secs(10))
-            .build(),
-    });
+    let rpc = Arc::new(Rpc::new(url));
 
     // Warm-up: one swap per shard, so program loading is not measured.
     let warm = run(
