@@ -350,4 +350,23 @@ fn account_sizes_match_layout_doc() {
         env.raw(&shard_addrs(&m, 0, 0).shard).unwrap().data.len(),
         296
     );
+    env.send(
+        &[Env::ix_initialize_price(&m, &keeper.pubkey(), 0, Q64)],
+        &[&keeper],
+    )
+    .unwrap();
+    let lp = env.user(&m, 1_000_000_000);
+    env.add_liquidity(&m, &lp, 0, -60, 60, 1_000).unwrap();
+    let shard = shard_addrs(&m, 0, 0).shard;
+    assert_eq!(
+        env.raw(&tick_array_pda(&shard, -1920)).unwrap().data.len(),
+        3128
+    );
+    assert_eq!(
+        env.raw(&position_pda(&shard, &lp.kp.pubkey(), -60, 60))
+            .unwrap()
+            .data
+            .len(),
+        177
+    );
 }

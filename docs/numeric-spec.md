@@ -33,7 +33,7 @@ Burimi: [`tools/reference/tick_vectors.py`](../tools/reference/tick_vectors.py) 
 python3 -I tools/reference/tick_vectors.py > docs/vectors/tick_vectors.json
 ```
 
-`sqrt_price_at_tick` (ENG-05) shumëzon fuqitë Q128 `floor(2^128·√(1.0001^(2^i)))` nga tabela e gjeneruar [`tools/reference/tick_table.py`](../tools/reference/tick_table.py) (rrënjë katrore e plotë ekzakte) dhe për tick negativ llogarit `2^192 / R`. Kontrata: rezultati është **floor-i ekzakt** `floor(√(1.0001^t)·2^64)`. Kjo është verifikuar për 400 ticks (kufijtë, fuqitë e 2 dhe ticks të rastësishme) kundrejt referencës, dhe për 6 000 ticks me testin e inversit. Konstantet `MIN/MAX_SQRT_PRICE_X64` janë dalja e funksionit në kufij.
+`sqrt_price_at_tick` shumëzon mantisa 128-bit të normalizuara të `√(1.0001^(±2^i))`. Ato vijnë nga dy tabela të gjeneruara nga [`tools/reference/tick_table.py`](../tools/reference/tick_table.py), me rrënjë katrore të plotë ekzakte, `M ∈ [2^127, 2^128)` dhe eksponent `E`. Llogaritja bëhet vetëm me `u128`, pa U512 dhe pa pjesëtim, dhe në fund zhvendoset në Q64.64. Kontrata është që rezultati të jetë **floor-i ekzakt** `floor(√(1.0001^t)·2^64)`, e verifikuar për **të gjitha 887 273 ticks** e domain-it. Referenca e pavarur është [`tools/reference/all_tick_prices.py`](../tools/reference/all_tick_prices.py), me fallback me rrënjë ekzakte pranë numrave të plotë. Testi është `full_tick_table` dhe ekzekutohet në CI. `tick_at_sqrt_price` llogarit fillimisht një `log2` me pikë fikse (20 bit thyesë). Ky vlerësim bie brenda ±1 tick, gjë që testohet për çdo të 5-tin tick. Rezultati i saktë vendoset pastaj me funksionin përpara, kështu që përgjigjja është ekzakte pavarësisht gabimit të vlerësimit. Konstantet `MIN/MAX_SQRT_PRICE_X64` janë dalja e funksionit në kufij.
 
 `get_tick_at_sqrt_price(s)` kthen tick-un më të madh `t` me `sqrt_price_at(t) ≤ s`. Kjo është konventa e kufirit në barazi:
 
@@ -137,6 +137,27 @@ vault_a ≥ Σ principal_a(pozicionet, rrumbullakuar lart) + Σ owed_a + protoco
 | `amount · fee_rate_ppm` | `2^64 · 2^17` | 81 |
 
 Rreshtat 288-bit janë arsyeja pse `mul_div` kërkon ndërmjetës 512-bit. Specifikimi i handoff-it përmend deri në 320 bit për produkte naive me faktorin `2^64` shtesë; formulat e mësipërme e shmangin atë rend duke mos shumëzuar kurrë tre faktorë 128/96/64 pa pjesëtim të ndërmjetëm të saktë.
+
+`mul_div` jep gjithmonë rezultatin ekzakt, por zgjedh rrugën më të ngushtë që mjafton:
+
+- produkt ≤ 256 bit me pjesëtues fuqi të 2-shit: zhvendosje;
+- produkt dhe pjesëtues ≤ 128 bit: pjesëtim `u128`;
+- produkt ≤ 256 bit: pjesëtim U256;
+- përndryshe: U512.
+
+Një test diferencial e krahason çdo rrugë me referencën U512 për 200 000 raste me gjerësi të rastësishme bitësh. `amount_b_delta` (`L·Δ/2^64`) llogaritet me një produkt 128×128 dhe zhvendosje, pa pjesëtim.
+
+## 8b. Kostoja në SBF (e matur në LiteSVM, Agave 4.3.2)
+
+| Operacioni | CU |
+|---|---:|
+| `initialize_price` | ~9 300 |
+| `increase_liquidity` (pozicion i ri) | ~38 000 |
+| `swap_exact_in`, një hap brenda intervalit (2 transferta CPI) | ~42 500 |
+| çdo tick i inicializuar i kaluar | ~9 000 |
+| swap me 10 kalime | ~131 600 (brenda 200k default) |
+
+Një swap që kalon më shumë se ~15 ticks të inicializuar kërkon `SetComputeUnitLimit`. Testi `swap_compute_units_per_step_and_crossing` (eng06) mbron këto kufij.
 
 ## 9. Pragjet operative (jo matematikë kontrate)
 
