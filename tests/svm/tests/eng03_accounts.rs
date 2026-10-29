@@ -344,7 +344,7 @@ fn account_sizes_match_layout_doc() {
     let m = env.market();
     let keeper = env.keeper.insecure_clone();
     env.prepare(&m, &keeper, 0).unwrap();
-    assert_eq!(env.raw(&m.market).unwrap().data.len(), 360);
+    assert_eq!(env.raw(&m.market).unwrap().data.len(), 625);
     assert_eq!(env.raw(&m.registry).unwrap().data.len(), 65);
     assert_eq!(
         env.raw(&shard_addrs(&m, 0, 0).shard).unwrap().data.len(),

@@ -15,7 +15,7 @@ use crate::state::{check_array_start, MarketConfig, ShardState, TickArray};
 pub struct InitTickArray<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
     #[account(has_one = market)]
     pub shard: Account<'info, ShardState>,
     #[account(

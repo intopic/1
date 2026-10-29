@@ -28,7 +28,7 @@ pub struct OpenPosition<'info> {
     pub owner: Signer<'info>,
     #[account(mut)]
     pub payer: Signer<'info>,
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
     #[account(has_one = market)]
     pub shard: Account<'info, ShardState>,
     #[account(
@@ -75,7 +75,7 @@ pub fn handle_open_position(
 pub struct ModifyLiquidity<'info> {
     pub owner: Signer<'info>,
     #[account(has_one = token_program)]
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
     #[account(mut, has_one = market, has_one = vault_a, has_one = vault_b)]
     pub shard: Box<Account<'info, ShardState>>,
     #[account(mut, has_one = shard, has_one = owner)]

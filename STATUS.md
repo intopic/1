@@ -24,7 +24,7 @@ Përditësuar: 29 tetor 2026. Repository: `github.com/intopic/1`, branch `claude
 | ENG-10 Stres dhe sulme | **PASS** | `eng10_attacks` (5 skenarë sulmi) dhe [`stress.yml`](.github/workflows/stress.yml): 16 + 16 punë paralele. Rezultatet janë në seksionin më poshtë. |
 | A-10 Benchmark në validator | **PASS (lokal)** | [validator-bench.md](docs/bench/validator-bench.md), workflow `bench`: 1 shard 923 swap/slot, 2 shard-e 1.9×, 4–8 shard-e 2.5× (kufiri i bllokut), payer i përbashkët 0.98×. Validator me një nyje, jo mainnet. |
 | ADR-0005 Tarifa dinamike për shard | **PASS (implementuar, simuluar)** | `engine::dynamic_fee`, `eng11_dynamic_fee`, eng06 krahason host me onchain. Kufijtë 0,03%–0,80%, vetëm me timelock; fikur si parazgjedhje. [Rezultatet e simulimit](docs/sim/dynamic-fee-results.md). |
-| ADR-0006 `rebalance_pair` + pauza | **PASS** | `engine::rebalance`, `eng12_rebalance`: pa kapital, i hapur për këdo, fitimi i parashikuar saktë; bit-e pauze që s'bllokojnë kurrë daljet e LP-ve. ~69k CU. |
+| ADR-0006 `rebalance_pair` + pauza | **PASS** | `engine::rebalance`, `eng12_rebalance`: pa kapital, vetëm për rebalancer-at e listuar (keeper-i në krijim, ndryshim me timelock 24h), fitimi i parashikuar saktë; bit-e pauze që s'bllokojnë kurrë daljet e LP-ve. ~69k CU. |
 | ADR-0007 Router me prag | **PASS** | `crates/router`, `eng13_router`: urdhri i vogël në 1 shard, i madhi në disa; dalja e planit = dalja onchain; `find_rebalance` jep fitimin e saktë. |
 | Krahasimi publik | **I rishkruar** | [comparison.md](docs/comparison.md): vetëm pretendime të matura, Raydium/Orca me burime në commit të fiksuar. |
 

@@ -1,8 +1,8 @@
-//! `rebalance_pair` — capital-free rebalancing between two shards, open to
-//! anyone (ADR-0006).
+//! `rebalance_pair` — capital-free rebalancing between two shards, by the
+//! market's listed rebalancers only (ADR-0006).
 //!
 //! Accounts (R/W/signer):
-//! - `caller` signer; `market` R; `registry` R
+//! - `caller` signer, one of `market.rebalancers`; `market` R; `registry` R
 //! - for shard x and shard y: `shard_*` W, `vault_*_a`, `vault_*_b` W,
 //!   `vault_authority_*` R (PDA signer)
 //! - `caller_token` W — receives the profit, mint of the input token
@@ -82,6 +82,10 @@ pub fn handle_rebalance_pair<'info>(
     require!(
         acc.shard_x.key() != acc.shard_y.key(),
         AmmError::DuplicateAccount
+    );
+    require!(
+        acc.market.is_rebalancer(&acc.caller.key()),
+        AmmError::NotRebalancer
     );
     acc.market.check_rebalance()?;
     for s in [&acc.shard_x, &acc.shard_y] {

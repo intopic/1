@@ -9,8 +9,9 @@ use anchor_lang::prelude::*;
 
 use crate::constants::{
     FEE_TIMELOCK_SECONDS, MAX_ACTIVATION_DEVIATION_BPS, MAX_DYNAMIC_COEFF_PPM,
-    MAX_DYNAMIC_FEE_RATE_PPM, MAX_FEE_RATE_PPM, MAX_PROTOCOL_SHARE_BPS, MAX_TICK_SPACING,
-    MAX_VOL_ACCUMULATOR, PAUSE_DEPOSITS, PAUSE_FLAGS_MASK, PAUSE_REBALANCE, PAUSE_SWAPS,
+    MAX_DYNAMIC_FEE_RATE_PPM, MAX_FEE_RATE_PPM, MAX_PROTOCOL_SHARE_BPS, MAX_REBALANCERS,
+    MAX_TICK_SPACING, MAX_VOL_ACCUMULATOR, PAUSE_DEPOSITS, PAUSE_FLAGS_MASK, PAUSE_REBALANCE,
+    PAUSE_SWAPS,
 };
 use crate::errors::AmmError;
 use crate::state::MarketStatus;
@@ -43,6 +44,11 @@ pub struct MarketConfig {
     pub pending_fees: PendingFees,
     /// Selective pauses (`PAUSE_*`, ADR-0006); none blocks LP exits.
     pub pause_flags: u8,
+    /// The only keys that may call `rebalance_pair` (ADR-0006). Starts as
+    /// `[keeper, empty, empty, empty]`.
+    pub rebalancers: [Pubkey; MAX_REBALANCERS],
+    /// Rebalancer change waiting for `FEE_TIMELOCK_SECONDS`.
+    pub pending_rebalancers: PendingRebalancers,
     /// Zeroed space for future fields without a realloc.
     pub reserved: [u8; 14],
 }
@@ -87,6 +93,16 @@ pub struct PendingFees {
     pub fee_rate_ppm: u32,
     pub protocol_share_bps: u16,
     pub dynamic: DynamicFeeParams,
+    /// Earliest unix time at which the change can be applied.
+    pub eta: i64,
+    pub active: bool,
+}
+
+#[derive(
+    AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, Default, PartialEq, Eq,
+)]
+pub struct PendingRebalancers {
+    pub keys: [Pubkey; MAX_REBALANCERS],
     /// Earliest unix time at which the change can be applied.
     pub eta: i64,
     pub active: bool,
@@ -330,6 +346,76 @@ impl MarketConfig {
         Ok(())
     }
 
+    /// Signer is a listed rebalancer; empty slots match no one.
+    pub fn is_rebalancer(&self, signer: &Pubkey) -> bool {
+        *signer != Pubkey::default() && self.rebalancers.contains(signer)
+    }
+
+    /// Admin proposes a new rebalancer list, applied after
+    /// `FEE_TIMELOCK_SECONDS`. Empty slots are `Pubkey::default()`; an
+    /// all-empty list stops rebalancing. A new proposal restarts the delay.
+    pub fn propose_rebalancers(
+        &mut self,
+        signer: &Pubkey,
+        keys: [Pubkey; MAX_REBALANCERS],
+        now: i64,
+    ) -> std::result::Result<PendingRebalancers, AmmError> {
+        if *signer != self.admin {
+            return Err(AmmError::Unauthorized);
+        }
+        for (i, k) in keys.iter().enumerate() {
+            if *k != Pubkey::default() && keys[..i].contains(k) {
+                return Err(AmmError::InvalidRebalancers);
+            }
+        }
+        let eta = now
+            .checked_add(FEE_TIMELOCK_SECONDS)
+            .ok_or(AmmError::MathOverflow)?;
+        self.pending_rebalancers = PendingRebalancers {
+            keys,
+            eta,
+            active: true,
+        };
+        Ok(self.pending_rebalancers)
+    }
+
+    /// Admin applies the pending list once the delay has passed. Returns
+    /// the previous list.
+    pub fn apply_rebalancers(
+        &mut self,
+        signer: &Pubkey,
+        now: i64,
+    ) -> std::result::Result<[Pubkey; MAX_REBALANCERS], AmmError> {
+        if *signer != self.admin {
+            return Err(AmmError::Unauthorized);
+        }
+        let p = self.pending_rebalancers;
+        if !p.active {
+            return Err(AmmError::NoPendingChange);
+        }
+        if now < p.eta {
+            return Err(AmmError::TimelockNotElapsed);
+        }
+        let old = self.rebalancers;
+        self.rebalancers = p.keys;
+        self.pending_rebalancers = PendingRebalancers::default();
+        Ok(old)
+    }
+
+    pub fn cancel_rebalancers_change(
+        &mut self,
+        signer: &Pubkey,
+    ) -> std::result::Result<(), AmmError> {
+        if *signer != self.admin {
+            return Err(AmmError::Unauthorized);
+        }
+        if !self.pending_rebalancers.active {
+            return Err(AmmError::NoPendingChange);
+        }
+        self.pending_rebalancers = PendingRebalancers::default();
+        Ok(())
+    }
+
     /// Admin cancels a market that never opened; LPs can still withdraw.
     pub fn cancel_setup(&mut self, signer: &Pubkey) -> std::result::Result<(), AmmError> {
         if *signer != self.admin {
@@ -436,6 +522,13 @@ mod tests {
             },
             pending_fees: PendingFees::default(),
             pause_flags: 0,
+            rebalancers: [
+                Pubkey::new_from_array([2; 32]),
+                Pubkey::default(),
+                Pubkey::default(),
+                Pubkey::default(),
+            ],
+            pending_rebalancers: PendingRebalancers::default(),
             reserved: [0; 14],
         }
     }
@@ -728,5 +821,57 @@ mod tests {
         assert_eq!(check_mint_order(&a, &b), Ok(()));
         assert_eq!(check_mint_order(&b, &a), Err(AmmError::MintsNotCanonical));
         assert_eq!(check_mint_order(&a, &a), Err(AmmError::MintsNotCanonical));
+    }
+
+    #[test]
+    fn rebalancer_list_behind_the_timelock() {
+        let mut c = config(MarketStatus::Open);
+        let (admin, keeper) = (c.admin, c.keeper);
+        let bot = Pubkey::new_from_array([9; 32]);
+        assert!(c.is_rebalancer(&keeper), "keeper starts listed");
+        assert!(!c.is_rebalancer(&bot));
+        assert!(
+            !c.is_rebalancer(&Pubkey::default()),
+            "empty slot matches no one"
+        );
+        let none = Pubkey::default();
+        assert_eq!(
+            c.propose_rebalancers(&keeper, [bot, none, none, none], 0),
+            Err(AmmError::Unauthorized)
+        );
+        assert_eq!(
+            c.propose_rebalancers(&admin, [bot, none, bot, none], 0),
+            Err(AmmError::InvalidRebalancers)
+        );
+        assert_eq!(
+            c.apply_rebalancers(&admin, 0),
+            Err(AmmError::NoPendingChange)
+        );
+        c.propose_rebalancers(&admin, [bot, keeper, none, none], 1_000)
+            .unwrap();
+        assert!(!c.is_rebalancer(&bot), "nothing changes before the delay");
+        assert_eq!(
+            c.apply_rebalancers(&admin, 1_000 + FEE_TIMELOCK_SECONDS - 1),
+            Err(AmmError::TimelockNotElapsed)
+        );
+        assert_eq!(
+            c.apply_rebalancers(&keeper, 1_000 + FEE_TIMELOCK_SECONDS),
+            Err(AmmError::Unauthorized)
+        );
+        let old = c
+            .apply_rebalancers(&admin, 1_000 + FEE_TIMELOCK_SECONDS)
+            .unwrap();
+        assert_eq!(old, [keeper, none, none, none]);
+        assert!(c.is_rebalancer(&bot) && c.is_rebalancer(&keeper));
+        // An all-empty list stops rebalancing; cancel drops a proposal.
+        c.propose_rebalancers(&admin, [none; 4], 0).unwrap();
+        c.cancel_rebalancers_change(&admin).unwrap();
+        assert_eq!(
+            c.cancel_rebalancers_change(&admin),
+            Err(AmmError::NoPendingChange)
+        );
+        c.propose_rebalancers(&admin, [none; 4], 0).unwrap();
+        c.apply_rebalancers(&admin, FEE_TIMELOCK_SECONDS).unwrap();
+        assert!(!c.is_rebalancer(&bot) && !c.is_rebalancer(&keeper));
     }
 }

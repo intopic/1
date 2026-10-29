@@ -18,7 +18,7 @@ use crate::errors::AmmError;
 use crate::events::MarketInitialized;
 use crate::state::{
     check_mint_order, DynamicFeeParams, MarketConfig, MarketParams, MarketStatus, PendingFees,
-    ReadinessParams, ShardRegistry,
+    PendingRebalancers, ReadinessParams, ShardRegistry,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -51,7 +51,7 @@ pub struct InitializeMarket<'info> {
         ],
         bump,
     )]
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
     #[account(
         init,
         payer = admin,
@@ -94,6 +94,13 @@ pub fn handle_initialize_market(
         readiness: args.readiness,
         pending_fees: PendingFees::default(),
         pause_flags: 0,
+        rebalancers: [
+            args.keeper,
+            Pubkey::default(),
+            Pubkey::default(),
+            Pubkey::default(),
+        ],
+        pending_rebalancers: PendingRebalancers::default(),
         reserved: [0; 14],
     });
     ctx.accounts.registry.set_inner(ShardRegistry {

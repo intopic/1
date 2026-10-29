@@ -24,7 +24,7 @@ Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Sh
 
 **Versionimi:** versioni i ABI-së mbahet në seed-in e market-it (`schema_u16_le`). Shard-i lidhet me market-in, pozicioni me shard-in, prandaj çdo ndryshim i seed-eve të pozicionit kërkon `SCHEMA_VERSION = 2`, që jep market, shard dhe pozicione me adresa të reja. Varianti `position_id_u64_le` në dokumentet e vjetra **nuk është ABI** dhe nuk është implementuar.
 
-## `MarketConfig` — 360 bajt
+## `MarketConfig` — 625 bajt
 
 | Fusha | Lloji | Bajt |
 |---|---|---:|
@@ -40,9 +40,11 @@ Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Sh
 | readiness.min_liquidity / min_reserve_a / min_reserve_b / max_activation_deviation_bps | u128 / u64 / u64 / u16 | 34 |
 | pending_fees.fee_rate_ppm / protocol_share_bps / dynamic / eta / active | u32 / u16 / DynamicFeeParams / i64 / bool | 37 |
 | pause_flags | u8 (bit 0 swap-e, 1 depozita, 2 rebalancim; ADR-0006) | 1 |
+| rebalancers | Pubkey ×4 (bosh = `Pubkey::default()`; ADR-0006) | 128 |
+| pending_rebalancers.keys / eta / active | Pubkey ×4 / i64 / bool | 137 |
 | reserved | [u8; 14] | 14 |
 
-`readiness` dhe `pending_fees` (timelock 24 orë për tarifat) zunë 49 bajt nga `reserved`; madhësia mbeti 316. Tarifa dinamike ([ADR-0005](adr/0005-dynamic-fee-per-shard.md), 2026-10-29) shtoi `dynamic_fees` dhe `pending_fees.dynamic` (44 bajt) dhe e çoi tregun në 360 bajt, para çdo deploy-i; prandaj `SCHEMA_VERSION` mbetet 1. Gjatë swap-it tregu mbetet vetëm për lexim.
+`readiness` dhe `pending_fees` (timelock 24 orë për tarifat) zunë 49 bajt nga `reserved`; madhësia mbeti 316. Tarifa dinamike ([ADR-0005](adr/0005-dynamic-fee-per-shard.md), 2026-10-29) shtoi `dynamic_fees` dhe `pending_fees.dynamic` (44 bajt) dhe e çoi tregun në 360 bajt. Lista e rebalancer-ave dhe ndryshimi i saj me timelock (ADR-0006, 2026-10-29) shtuan 265 bajt, deri në 625. Të dyja ndodhën para çdo deploy-i; prandaj `SCHEMA_VERSION` mbetet 1. Gjatë swap-it tregu mbetet vetëm për lexim.
 
 ## `ShardRegistry` — 65 bajt
 

@@ -5,6 +5,8 @@
 //!   end exactly where the host predicts and the other six are untouched.
 //! - Equivalent to two plain swaps with the same amounts and limits, run by
 //!   a funded trader in an identical market.
+//! - Only listed rebalancers (keeper at creation, changed by the admin
+//!   behind the timelock) may call it.
 //! - Refused: same shard twice, no price gap, no profit, wrong profit
 //!   account, paused.
 //! - Pause flags: roles, swaps/deposits/rebalance bits; LP exits never
@@ -147,6 +149,7 @@ fn capital_free_and_exactly_as_predicted() {
         let (pl, ph, profit) = predict(&env, &m, lo, hi, input_is_a, amount).unwrap();
         assert!(profit > 0);
         let caller = env.user(&m, 0);
+        env.set_rebalancers(&m, &[caller.kp.pubkey()]);
         let token = if input_is_a {
             caller.token_a
         } else {
@@ -198,6 +201,9 @@ fn equals_two_plain_swaps() {
         let (mut e2, m2, _) = diverged();
         let amount = 2_000_000_000;
         let caller = e1.user(&m1, 0);
+        e1.set_rebalancers(&m1, &[caller.kp.pubkey()]);
+        // Same clock and slot in the twin market.
+        e2.set_rebalancers(&m2, &[Pubkey::new_unique()]);
         let token = if input_is_a {
             caller.token_a
         } else {
@@ -278,6 +284,36 @@ fn refused_cases() {
         let i = ix_rebalance(&m, &kp.pubkey(), x, y, token, a, &ax, &ay);
         env.send(&[i], &[&kp])
     };
+    // Only listed rebalancers; the keeper is the only one at first.
+    assert_eq!(
+        env.market_state(&m).rebalancers[0],
+        env.keeper.pubkey(),
+        "keeper listed at creation"
+    );
+    expect_custom(
+        send(
+            &mut env,
+            0,
+            1,
+            caller.token_b,
+            args(false, 2_000_000_000, 0),
+        ),
+        amm_code(AmmError::NotRebalancer),
+    );
+    // Not the admin either.
+    let admin = env.admin.insecure_clone();
+    let i = ix_rebalance(
+        &m,
+        &admin.pubkey(),
+        0,
+        1,
+        caller.token_b,
+        args(false, 2_000_000_000, 0),
+        &[],
+        &[],
+    );
+    expect_custom(env.send(&[i], &[&admin]), amm_code(AmmError::NotRebalancer));
+    env.set_rebalancers(&m, &[Pubkey::new_unique(), caller.kp.pubkey()]);
     let r = send(&mut env, 0, 0, caller.token_b, args(false, 1_000_000, 0));
     assert!(r.is_err(), "same shard twice");
     // Shards 1 and 2 are at the same price.
@@ -352,6 +388,12 @@ fn refused_cases() {
         args(false, 2_000_000_000, 0),
     )
     .unwrap();
+    // Taken off the list (after the timelock), it is refused again.
+    env.set_rebalancers(&m, &[]);
+    expect_custom(
+        send(&mut env, 0, 1, caller.token_b, args(false, 1_000, 0)),
+        amm_code(AmmError::NotRebalancer),
+    );
 }
 
 fn ix_flags(m: &Market, authority: &Pubkey, flags: u8) -> solana_instruction::Instruction {

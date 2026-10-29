@@ -398,6 +398,42 @@ impl Env {
         )
     }
 
+    pub fn ix_update_rebalancers(m: &Market, admin: &Pubkey, keys: &[Pubkey]) -> Instruction {
+        let mut k = [Pubkey::default(); sharded_amm::constants::MAX_REBALANCERS];
+        k[..keys.len()].copy_from_slice(keys);
+        ix(
+            sharded_amm::accounts::UpdateFees {
+                admin: *admin,
+                market: m.market,
+            },
+            sharded_amm::instruction::UpdateRebalancers { keys: k },
+        )
+    }
+
+    pub fn ix_apply_rebalancers(m: &Market, admin: &Pubkey) -> Instruction {
+        ix(
+            sharded_amm::accounts::UpdateFees {
+                admin: *admin,
+                market: m.market,
+            },
+            sharded_amm::instruction::ApplyRebalancers {},
+        )
+    }
+
+    /// Lists `keys` as the market's rebalancers: propose, wait out the
+    /// timelock, apply.
+    pub fn set_rebalancers(&mut self, m: &Market, keys: &[Pubkey]) {
+        let admin = self.admin.insecure_clone();
+        self.send(
+            &[Self::ix_update_rebalancers(m, &admin.pubkey(), keys)],
+            &[&admin],
+        )
+        .expect("update_rebalancers");
+        self.warp(sharded_amm::constants::FEE_TIMELOCK_SECONDS);
+        self.send(&[Self::ix_apply_rebalancers(m, &admin.pubkey())], &[&admin])
+            .expect("apply_rebalancers");
+    }
+
     pub fn ix_update_fees_dynamic(
         m: &Market,
         admin: &Pubkey,

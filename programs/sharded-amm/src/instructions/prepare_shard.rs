@@ -31,7 +31,7 @@ pub struct PrepareShard<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(has_one = mint_a, has_one = mint_b, has_one = token_program)]
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
     #[account(
         mut,
         seeds = [REGISTRY_SEED, market.key().as_ref()],

@@ -15,7 +15,7 @@ use crate::state::{MarketConfig, MarketStatus};
 pub struct SetPaused<'info> {
     pub authority: Signer<'info>,
     #[account(mut)]
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
 }
 
 pub fn handle_set_pause_flags(ctx: Context<SetPaused>, flags: u8) -> Result<()> {

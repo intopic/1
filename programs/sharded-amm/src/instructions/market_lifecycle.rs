@@ -41,7 +41,7 @@ fn shard_ready(
 pub struct OpenMarket<'info> {
     pub authority: Signer<'info>,
     #[account(mut)]
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
     #[account(mut, seeds = [REGISTRY_SEED, market.key().as_ref()], bump = registry.bump, has_one = market)]
     pub registry: Account<'info, ShardRegistry>,
 }
@@ -96,7 +96,7 @@ pub fn handle_open_market<'info>(ctx: Context<'info, OpenMarket<'info>>) -> Resu
 pub struct CancelSetup<'info> {
     pub admin: Signer<'info>,
     #[account(mut)]
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
 }
 
 pub fn handle_cancel_setup(ctx: Context<CancelSetup>) -> Result<()> {
@@ -112,7 +112,7 @@ pub fn handle_cancel_setup(ctx: Context<CancelSetup>) -> Result<()> {
 #[derive(Accounts)]
 pub struct ActivateShard<'info> {
     pub keeper: Signer<'info>,
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
     #[account(mut, seeds = [REGISTRY_SEED, market.key().as_ref()], bump = registry.bump, has_one = market)]
     pub registry: Account<'info, ShardRegistry>,
     #[account(mut, has_one = market, has_one = vault_a, has_one = vault_b)]

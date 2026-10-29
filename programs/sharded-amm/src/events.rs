@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 
+use crate::constants::MAX_REBALANCERS;
 use crate::state::{DynamicFeeParams, MarketParams};
 
 #[event]
@@ -35,6 +36,22 @@ pub struct RebalanceExecuted {
     pub fee_hi_ppm: u32,
     pub sqrt_price_lo_x64: u128,
     pub sqrt_price_hi_x64: u128,
+}
+
+#[event]
+pub struct RebalancersChangeProposed {
+    pub market: Pubkey,
+    pub keys: [Pubkey; MAX_REBALANCERS],
+    pub eta: i64,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct RebalancersUpdated {
+    pub market: Pubkey,
+    pub old: [Pubkey; MAX_REBALANCERS],
+    pub new: [Pubkey; MAX_REBALANCERS],
+    pub by: Pubkey,
 }
 
 #[event]

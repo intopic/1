@@ -59,5 +59,8 @@ pub const PAUSE_SWAPS: u8 = 1 << 0;
 pub const PAUSE_DEPOSITS: u8 = 1 << 1;
 pub const PAUSE_REBALANCE: u8 = 1 << 2;
 pub const PAUSE_FLAGS_MASK: u8 = PAUSE_SWAPS | PAUSE_DEPOSITS | PAUSE_REBALANCE;
+/// Keys allowed to call `rebalance_pair` (ADR-0006); `Pubkey::default()`
+/// marks an empty slot. Changed only through the fee timelock delay.
+pub const MAX_REBALANCERS: usize = 4;
 /// Upper bound on the activation price tolerance.
 pub const MAX_ACTIVATION_DEVIATION_BPS: u16 = 10_000;

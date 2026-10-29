@@ -126,4 +126,8 @@ pub enum AmmError {
     RebalanceUnprofitable,
     #[msg("Rebalance needs two shards with different prices")]
     RebalanceNoPriceGap,
+    #[msg("Signer is not one of the market's rebalancers")]
+    NotRebalancer,
+    #[msg("Rebalancer list has a duplicate key")]
+    InvalidRebalancers,
 }

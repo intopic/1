@@ -5,7 +5,7 @@
 //! shard ends where the router's own books say. A small order uses one
 //! shard, a large one several. `find_rebalance` finds a profitable
 //! `rebalance_pair` that pays exactly the predicted profit to a caller with
-//! no tokens.
+//! no tokens, once it is a listed rebalancer.
 
 mod common;
 
@@ -107,10 +107,11 @@ fn found_rebalance_pays_the_predicted_profit() {
     let (mut env, m) = market();
     let t = env.user(&m, 1_000_000_000_000);
     env.swap(&m, &t, 5, false, 30_000_000_000).unwrap();
+    let caller = env.user(&m, 0);
+    env.set_rebalancers(&m, &[caller.kp.pubkey()]);
     let (mut bs, cfg, slot) = books(&env, &m);
     let r = find_rebalance(&bs, &cfg, slot, 0).expect("a gap to close");
     assert_eq!(r.hi, 5, "shard 5 got dearer");
-    let caller = env.user(&m, 0);
     let token = if r.input_is_a {
         caller.token_a
     } else {

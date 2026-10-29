@@ -15,7 +15,7 @@ use crate::state::{MarketConfig, MarketStatus, ShardState, ShardStatus};
 #[derive(Accounts)]
 pub struct InitializePrice<'info> {
     pub authority: Signer<'info>,
-    pub market: Account<'info, MarketConfig>,
+    pub market: Box<Account<'info, MarketConfig>>,
     #[account(mut, has_one = market)]
     pub shard: Account<'info, ShardState>,
 }

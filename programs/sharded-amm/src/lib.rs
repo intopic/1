@@ -66,6 +66,23 @@ pub mod sharded_amm {
         handle_cancel_fee_change(ctx)
     }
 
+    /// Proposes the keys allowed to call `rebalance_pair`; applied by
+    /// `apply_rebalancers` after the timelock.
+    pub fn update_rebalancers(
+        ctx: Context<UpdateFees>,
+        keys: [Pubkey; constants::MAX_REBALANCERS],
+    ) -> Result<()> {
+        handle_update_rebalancers(ctx, keys)
+    }
+
+    pub fn apply_rebalancers(ctx: Context<UpdateFees>) -> Result<()> {
+        handle_apply_rebalancers(ctx)
+    }
+
+    pub fn cancel_rebalancers_change(ctx: Context<UpdateFees>) -> Result<()> {
+        handle_cancel_rebalancers_change(ctx)
+    }
+
     pub fn initialize_price(ctx: Context<InitializePrice>, sqrt_price_x64: u128) -> Result<()> {
         handle_initialize_price(ctx, sqrt_price_x64)
     }
@@ -127,7 +144,7 @@ pub mod sharded_amm {
         handle_swap_exact_in(ctx, args)
     }
 
-    /// Capital-free rebalancing between two shards, open to anyone (ADR-0006).
+    /// Capital-free rebalancing between two shards, by the listed rebalancers only (ADR-0006).
     pub fn rebalance_pair<'info>(
         ctx: Context<'info, RebalancePair<'info>>,
         args: RebalanceArgs,
