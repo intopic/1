@@ -118,13 +118,17 @@ checkpoint    = inside(now)
 
 ## 7. Dust dhe pajtimi i vault-it
 
-Mbetjet nga `floor` (growth, output, shumat e remove) mbeten në vault dhe **nuk i përkasin askujt** në v1: nuk mblidhen nga protokolli dhe nuk u jepen LP-ve. Invarianti që testohet pas çdo operacioni:
+Mbetjet nga `floor` (growth, output, shumat e remove) mbeten në vault dhe **nuk i përkasin askujt** në v1: nuk mblidhen nga protokolli dhe nuk u jepen LP-ve. Invarianti që testohet pas çdo operacioni (`engine_model`, e korrigjuar pas auditimit F-05):
 
 ```text
-vault_a ≥ Σ principal_a(pozicionet, rrumbullakuar lart) + Σ owed_a + protocol_fee_a
+claims_a = Σ_p principal_a(p)            // sa do të merrte p po ta hiqte tani: floor, me çmimin aktual
+         + Σ_p owed_a(p)                 // tarifat e kredituara tashmë
+         + Σ_p earned_a(p)               // floor(L_p · (inside_now − checkpoint_p) / 2^128), lexuar pa ndryshuar gjendjen
+         + protocol_fee_a
+vault_a  = claims_a + dust_a,   dust_a ≥ 0
 ```
 
-(e njëjta për B). Donacionet direkte në vault rrisin vetëm dust-in; nuk krijojnë L ose shares.
+(e njëjta për B). Versioni i mëparshëm i këtij seksioni shkruante "principal rrumbullakuar lart" dhe nuk numëronte `earned` që nga checkpoint-i i fundit; testi nuk e kontrollonte atë që thoshte dokumenti. Tani testi kontrollon më shumë se pabarazinë: në 1/8 e operacioneve dhe në fund, një kopje e botës del plotësisht (të gjithë LP-të dhe protokolli) në rend të rastit, të kundërt ose të drejtë, me tarifat para ose pas principal-it dhe protokollin para ose pas LP-ve. Çdo dalje duhet të paguajë **saktësisht** `claims` dhe të lërë **saktësisht** `dust`. Një mutacion që heq `earned` nga `claims` e rrëzon testin. Donacionet direkte në vault rrisin vetëm dust-in; nuk krijojnë L ose shares.
 
 ## 8. Pse 512 bit dhe jo “U256 kudo” — përmbledhje e provave
 

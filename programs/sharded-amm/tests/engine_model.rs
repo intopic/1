@@ -4,13 +4,22 @@
 //! the reference for active liquidity and per-tick sums. After every
 //! operation the invariants below must hold, a failed operation must leave
 //! every byte unchanged, and at the end every LP and the protocol must be
-//! able to withdraw everything they are owed from the vaults.
+//! able to withdraw everything they are owed from the vaults, in any order.
+//!
+//! Solvency (audit F-05) is checked exactly after every operation: each vault
+//! must cover the principal every position would get by removing all its
+//! liquidity now, the fees already credited (`owed`), the fees earned since
+//! the position's last checkpoint (computed read-only from the ticks, the
+//! same way the next poke would credit them) and the protocol fees. On a
+//! random share of operations, a copy of the world also exits completely in
+//! a random order to prove those claims can really be paid.
 //!
 //! Scale with AMM_STRESS_CASES / AMM_STRESS_SEED.
 
 use anchor_lang::prelude::Pubkey;
 use sharded_amm::engine::{modify_position, swap, Pool, PositionState, SwapParams};
 use sharded_amm::errors::AmmError;
+use sharded_amm::math::fee_math::{fees_owed, growth_inside};
 use sharded_amm::math::liquidity_math::amounts_for_liquidity;
 use sharded_amm::math::tick_math::sqrt_price_at_tick;
 use sharded_amm::math::wide::U256;
@@ -164,11 +173,99 @@ impl World {
         Ok((o.amount_in, o.amount_out))
     }
 
+    /// Fees a position has earned since its checkpoint and not yet credited,
+    /// computed without touching any state.
+    fn pending(&self, q: &PositionState) -> (u64, u64) {
+        if q.liquidity == 0 {
+            return (0, 0);
+        }
+        let tick = |t: i32| {
+            *self
+                .arrays
+                .iter()
+                .find(|a| a.contains(t, self.spacing))
+                .unwrap()
+                .tick(t, self.spacing)
+                .unwrap()
+        };
+        let (lo, hi) = (tick(q.lower), tick(q.upper));
+        let p = &self.pool;
+        let ia = growth_inside(
+            q.lower,
+            q.upper,
+            p.tick,
+            p.growth_a,
+            lo.outside_a(),
+            hi.outside_a(),
+        )
+        .unwrap();
+        let ib = growth_inside(
+            q.lower,
+            q.upper,
+            p.tick,
+            p.growth_b,
+            lo.outside_b(),
+            hi.outside_b(),
+        )
+        .unwrap();
+        (
+            fees_owed(q.liquidity, ia, q.inside_last_a).unwrap(),
+            fees_owed(q.liquidity, ib, q.inside_last_b).unwrap(),
+        )
+    }
+
+    /// Removes everything and pays every claim in `order`; `fees_first`
+    /// collects all fees before any liquidity is removed, `protocol_first`
+    /// pays the protocol before the LPs. Panics if a vault would go negative.
+    /// Returns the dust left in the vaults.
+    fn exit_all(mut self, order: &[usize], fees_first: bool, protocol_first: bool) -> (u128, u128) {
+        let pay = |w: &mut World, a: u64, b: u64, what: &str| {
+            w.vault_a = w
+                .vault_a
+                .checked_sub(u128::from(a))
+                .unwrap_or_else(|| panic!("{what} A"));
+            w.vault_b = w
+                .vault_b
+                .checked_sub(u128::from(b))
+                .unwrap_or_else(|| panic!("{what} B"));
+        };
+        if protocol_first {
+            let (a, b) = (self.pool.protocol_a, self.pool.protocol_b);
+            pay(&mut self, a, b, "protocol");
+            (self.pool.protocol_a, self.pool.protocol_b) = (0, 0);
+        }
+        let collect = |w: &mut World, i: usize| {
+            w.modify(i, 0).unwrap();
+            let (a, b) = (w.positions[i].owed_a, w.positions[i].owed_b);
+            pay(w, a, b, "fees");
+            (w.positions[i].owed_a, w.positions[i].owed_b) = (0, 0);
+        };
+        if fees_first {
+            for &i in order {
+                collect(&mut self, i);
+            }
+        }
+        for &i in order {
+            let l = self.positions[i].liquidity as i128;
+            let (a, b) = self.modify(i, -l).unwrap();
+            pay(&mut self, a, b, "principal");
+            collect(&mut self, i);
+        }
+        if !protocol_first {
+            let (a, b) = (self.pool.protocol_a, self.pool.protocol_b);
+            pay(&mut self, a, b, "protocol");
+        }
+        assert_eq!(self.pool.liquidity, 0);
+        assert!(self.arrays.iter().all(|a| a.initialized_count == 0));
+        (self.vault_a, self.vault_b)
+    }
+
     fn snapshot(&self) -> (Pool, Vec<TickArray>, Vec<PositionState>) {
         (self.pool, self.arrays.clone(), self.positions.clone())
     }
 
-    fn check(&self, ctx: &str) {
+    /// Checks every invariant and returns the dust `vault - claims` per token.
+    fn check(&self, ctx: &str) -> (u128, u128) {
         let p = &self.pool;
         // Price and tick agree.
         let (s_t, s_t1) = (
@@ -223,7 +320,8 @@ impl World {
             }
             assert_eq!(a.initialized_count, count, "{ctx}: initialized_count");
         }
-        // Vaults cover principal (as paid on removal), credited fees and protocol fees.
+        // Vaults cover principal (as paid on removal), credited fees, fees
+        // earned since the last checkpoint and protocol fees.
         let (mut need_a, mut need_b) = (u128::from(p.protocol_a), u128::from(p.protocol_b));
         for q in &self.positions {
             let (sa, sb) = (
@@ -231,8 +329,9 @@ impl World {
                 sqrt_price_at_tick(q.upper).unwrap(),
             );
             let (a, b) = amounts_for_liquidity(p.sqrt_price, sa, sb, q.liquidity, false).unwrap();
-            need_a += u128::from(a) + u128::from(q.owed_a);
-            need_b += u128::from(b) + u128::from(q.owed_b);
+            let (fa, fb) = self.pending(q);
+            need_a += u128::from(a) + u128::from(q.owed_a) + u128::from(fa);
+            need_b += u128::from(b) + u128::from(q.owed_b) + u128::from(fb);
         }
         assert!(
             self.vault_a >= need_a,
@@ -244,6 +343,7 @@ impl World {
             "{ctx}: vault B {} < {need_b}",
             self.vault_b
         );
+        (self.vault_a - need_a, self.vault_b - need_b)
     }
 }
 
@@ -450,36 +550,38 @@ fn run_case(case: u64, r: &mut Rng) {
             w = saved;
             continue;
         }
-        w.check(&ctx);
+        let dust = w.check(&ctx);
+        if r.below(8) == 0 {
+            let mut order: Vec<usize> = (0..w.positions.len()).collect();
+            for i in (1..order.len()).rev() {
+                order.swap(i, r.below(i as u64 + 1) as usize);
+            }
+            // Paying every claim leaves exactly the dust: the claims the
+            // check counts are exactly what an exit pays, in any order.
+            let left = w.clone().exit_all(&order, r.below(2) == 0, r.below(2) == 0);
+            assert_eq!(left, dust, "{ctx}: exit paid a different amount");
+        }
     }
-    // Everyone exits: remove all liquidity, collect all fees, then protocol.
-    for i in 0..w.positions.len() {
-        let l = w.positions[i].liquidity as i128;
-        let (a, b) = w.modify(i, -l).unwrap();
-        w.vault_a = w.vault_a.checked_sub(u128::from(a)).expect("final A");
-        w.vault_b = w.vault_b.checked_sub(u128::from(b)).expect("final B");
-        let q = w.positions[i];
-        w.vault_a = w
-            .vault_a
-            .checked_sub(u128::from(q.owed_a))
-            .expect("final fee A");
-        w.vault_b = w
-            .vault_b
-            .checked_sub(u128::from(q.owed_b))
-            .expect("final fee B");
-        w.positions[i].owed_a = 0;
-        w.positions[i].owed_b = 0;
+    // Everyone exits, in several orders: forward, reverse and random, with
+    // fees collected first or last and the protocol paid first or last.
+    // Every order must succeed and leave exactly the dust the check counts.
+    let dust = w.check("final");
+    let n = w.positions.len();
+    let forward: Vec<usize> = (0..n).collect();
+    let mut reverse = forward.clone();
+    reverse.reverse();
+    let mut shuffled = forward.clone();
+    for i in (1..n).rev() {
+        shuffled.swap(i, r.below(i as u64 + 1) as usize);
     }
-    w.vault_a = w
-        .vault_a
-        .checked_sub(u128::from(w.pool.protocol_a))
-        .expect("protocol A");
-    w.vault_b = w
-        .vault_b
-        .checked_sub(u128::from(w.pool.protocol_b))
-        .expect("protocol B");
-    assert_eq!(w.pool.liquidity, 0);
-    assert!(w.arrays.iter().all(|a| a.initialized_count == 0));
+    for (order, fees_first, protocol_first) in [
+        (&forward, false, false),
+        (&reverse, true, false),
+        (&shuffled, false, true),
+        (&shuffled, true, true),
+    ] {
+        assert_eq!(w.clone().exit_all(order, fees_first, protocol_first), dust);
+    }
     let _ = U256::zero();
 }
 
