@@ -146,7 +146,17 @@ pub fn mint_data(decimals: u8, authority: &Pubkey, freeze: Option<&Pubkey>) -> V
 
 impl Env {
     pub fn new() -> Self {
-        let mut svm = LiteSVM::new();
+        Self::with_svm(LiteSVM::new())
+    }
+
+    /// Like `new`, but with only the feature gates active on mainnet-beta
+    /// (LiteSVM's snapshot), so cluster limits such as the 64 account locks
+    /// per transaction apply.
+    pub fn mainnet() -> Self {
+        Self::with_svm(LiteSVM::new().with_mainnet_features())
+    }
+
+    pub fn with_svm(mut svm: LiteSVM) -> Self {
         svm.add_program_from_file(sharded_amm::ID, program_so())
             .expect("load target/deploy/sharded_amm.so (run cargo build-sbf first)");
         let env = Env {

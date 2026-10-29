@@ -38,9 +38,14 @@ simple one and is the main limit on what the numbers mean.
      identical to a single pool with the same total liquidity.
    - Conclusion: the SDK router must split large orders across shards.
      Sending each order to one shard is not acceptable for traders.
-   - A transaction that touches 8 shards needs about 8 × 45k CU base, plus
-     the cost of each tick crossing. It also needs an address lookup table,
-     because 8 swaps reference more than 64 accounts. In practice the router
+   - A transaction that touches 8 shards needs about 8 × 33k CU base
+     (measured), plus about 9k per tick crossing. It needs an address lookup
+     table to fit the 1232-byte packet. The lookup table does **not** raise
+     the 64-account lock limit: 8 shards with 3 tick arrays each plus
+     ComputeBudget is exactly 64 accounts, so anything extra (a SOL wrap, an
+     ATA creation) needs fewer tick arrays or fewer shards. See
+     [tx-budget.md](../tx-budget.md). (Corrected after audit F-04; an earlier
+     version said the lookup table solves the account limit.) In practice the router
      should split across the fewest shards that bring the price impact down.
      Smaller orders can go to one shard.
 

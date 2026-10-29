@@ -43,7 +43,7 @@ Ekzekutimi riprodhohet nga GitHub Actions → stress → Run workflow, me `scale
 - **Pa auditim.** Testet zbulojnë gabime, por nuk provojnë mungesën e tyre.
 - Program ID `B6rXDCwiXe1CyXyCS4JS1Tn9J5yud87cREWapUoD5hEy` është placeholder; keypair-i nuk është në repo. Deploy-i në devnet kërkon një sekret GitHub nga pronari.
 - Swap-et që kalojnë më shumë se ~15 ticks të inicializuar kërkojnë `SetComputeUnitLimit`.
-- Një transaksion që prek 8 shard-e i kalon 64 llogari, prandaj kërkon address lookup table. Router-i/SDK (split routing) nuk është shkruar ende.
+- Një swap i ndarë në 8 shard-e kërkon address lookup table për **madhësinë e paketës** (1 232 bajt). ALT **nuk** e rrit kufirin prej 64 llogarish: 8 shard-e × 3 tick arrays + ComputeBudget janë saktësisht 64, dhe çdo llogari shtesë (p.sh. System Program për wrap SOL) refuzohet. Llogaritja dhe testet reale v0 janë në [tx-budget.md](docs/tx-budget.md). Router-i/SDK (split routing) nuk është shkruar ende.
 - Token-2022 refuzohet me qëllim në v1.
 - `upgrade authority` dhe `freeze authority` janë vendime para mainnet (ADR-0004).
 

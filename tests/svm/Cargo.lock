@@ -4289,6 +4289,7 @@ dependencies = [
  "serde_json",
  "sharded-amm",
  "solana-account",
+ "solana-address-lookup-table-interface",
  "solana-bpf-loader-program",
  "solana-builtins",
  "solana-builtins-default-costs",
