@@ -15,9 +15,14 @@
 //! - [`find_rebalance`]: the most profitable `rebalance_pair` between the
 //!   cheapest and the dearest shard (ADR-0006), for any keeper or bot.
 //!
+//! - [`recovery`]: what to do when a planned swap fails, from the program's
+//!   error: refresh the snapshot, skip the shard, spread wider, or stop.
+//!
 //! Limits: the split is even across the chosen shards, which is optimal when
 //! they hold the same liquidity at the same price (what rebalancing keeps
 //! them close to) and approximate otherwise.
+
+pub mod recovery;
 
 use sharded_amm::constants::MAX_SWAP_TICK_ARRAYS;
 use sharded_amm::engine::{
@@ -557,7 +562,7 @@ mod tests {
 
     const SPACING: u16 = 60;
 
-    fn cfg() -> MarketCfg {
+    pub(crate) fn cfg() -> MarketCfg {
         MarketCfg {
             base_fee_ppm: 1_000,
             protocol_share_bps: 2_000,
@@ -567,7 +572,7 @@ mod tests {
     }
 
     /// `n` identical shards at tick 0 with one position over +-6000 ticks.
-    fn books(n: u8, liquidity: u128) -> Vec<Book> {
+    pub(crate) fn books(n: u8, liquidity: u128) -> Vec<Book> {
         let span = array_span(SPACING);
         (0..n)
             .map(|id| {

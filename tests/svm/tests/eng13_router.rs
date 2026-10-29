@@ -5,16 +5,21 @@
 //! shard ends where the router's own books say. A small order uses one
 //! shard, a large one several. `find_rebalance` finds a profitable
 //! `rebalance_pair` that pays exactly the predicted profit to a caller with
-//! no tokens, once it is a listed rebalancer.
+//! no tokens, once it is a listed rebalancer. A plan made on a stale
+//! snapshot fails with an error the router classifies as "refresh", and the
+//! plan made after refreshing lands.
 
 mod common;
 
+use amm_router::recovery::{classify, decode, replan, Next, Recovery};
 use amm_router::{apply_rebalance, find_rebalance, plan, Book, MarketCfg, RouterConfig};
 use common::*;
 use sharded_amm::engine::Pool;
+use sharded_amm::errors::AmmError;
 use sharded_amm::instructions::RebalanceArgs;
 use sharded_amm::state::array_span;
 use solana_signer::Signer;
+use solana_transaction_error::TransactionError;
 
 fn compute_limit(units: u32) -> solana_instruction::Instruction {
     let mut data = vec![2u8];
@@ -168,4 +173,69 @@ fn found_rebalance_pays_the_predicted_profit() {
         let b = bs.iter().find(|b| b.id == id).unwrap();
         assert_eq!(Pool::load(&env.shard_state(&m, id)).unwrap(), b.pool);
     }
+}
+
+#[test]
+fn stale_plan_is_classified_and_the_refreshed_plan_lands() {
+    let (mut env, m) = market();
+    let (bs, cfg, slot) = books(&env, &m);
+    let amount = 1_000_000_000u64;
+    let p = plan(&bs, &cfg, slot, false, amount, RouterConfig::default(), 9).unwrap();
+    let leg = p.legs[0].clone();
+    // Someone else trades on the same shard first, in the same direction
+    // (price up from tick 0, so the planned tick arrays stay valid).
+    let other = env.user(&m, 1_000_000_000_000);
+    env.swap(&m, &other, leg.id, false, 1_000_000_000).unwrap();
+    let t = env.user(&m, 1_000_000_000_000);
+    let shard = shard_addrs(&m, leg.id, 0).shard;
+    let arrays: Vec<Pubkey> = leg
+        .array_starts
+        .iter()
+        .map(|s| tick_array_pda(&shard, *s))
+        .collect();
+    let mut args = env.swap_args(false, leg.amount_in);
+    args.min_amount_out = leg.amount_out;
+    let kp = t.kp.insecure_clone();
+    let ix = env.ix_swap(&m, &t, leg.id, args, &arrays);
+    let err = match env.send(&[ix], &[&kp]) {
+        Err(TransactionError::InstructionError(_, InstructionError::Custom(c))) => {
+            decode(c).unwrap()
+        }
+        other => panic!("expected a program error, got {other:?}"),
+    };
+    assert_eq!(err, AmmError::SlippageExceeded);
+    assert_eq!(classify(err, arrays.len()), Recovery::Refresh);
+    assert_eq!(
+        replan(
+            &bs,
+            &cfg,
+            slot,
+            false,
+            amount,
+            RouterConfig::default(),
+            9,
+            leg.id,
+            err,
+            arrays.len()
+        ),
+        Next::Refresh
+    );
+    // Refresh and plan again: the new quote is exact.
+    let (bs, cfg, slot) = books(&env, &m);
+    let q = plan(&bs, &cfg, slot, false, amount, RouterConfig::default(), 9).unwrap();
+    let mut ixs = vec![compute_limit(1_400_000)];
+    for l in &q.legs {
+        let shard = shard_addrs(&m, l.id, 0).shard;
+        let arrays: Vec<Pubkey> = l
+            .array_starts
+            .iter()
+            .map(|s| tick_array_pda(&shard, *s))
+            .collect();
+        let mut args = env.swap_args(false, l.amount_in);
+        args.min_amount_out = l.amount_out;
+        ixs.push(env.ix_swap(&m, &t, l.id, args, &arrays));
+    }
+    let before = env.balance(&t.token_a);
+    env.send(&ixs, &[&kp]).unwrap();
+    assert_eq!(env.balance(&t.token_a) - before, q.amount_out);
 }
