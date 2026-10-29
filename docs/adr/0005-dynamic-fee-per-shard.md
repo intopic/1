@@ -75,6 +75,11 @@ Router-i ose SDK-ja llogarit të njëjtën tarifë nga `ShardState`, `MarketConf
 - `eng11_dynamic_fee`: i fikur si parazgjedhje, parametra të këqij refuzohen, lëvizja rrit tarifën vetëm në atë shard (të tjerët byte-për-byte të njëjtë), kuota = tarifa e paguar, kthim te baza pas zbehjes, termi i ngarkesës dhe tavani.
 - Simulimi: [dynamic-fee-results.md](../sim/dynamic-fee-results.md). Me forcë "+0,20% për 1% lëvizje" në tregun normal (4%/ditë), tarifë bazë 10 bps, s=60 ±20%: PnL i LP-ve kundrejt HODL nga +1,09% në +1,66% në ditë, kosto e tregtarëve nga 25,9 në 29,5 bps, vëllimi i arbitrazhit −18%. Në volatilitet 4 herë më të lartë fitimi i LP-ve është më i madh.
 - Kufiri kryesor i simulimit: nuk ka pishina konkurruese, prandaj tregtarët nuk largohen kur tarifa rritet. Në treg real një pjesë e flukseve do të shkonte gjetiu. Rezultati tregon drejtimin, jo madhësinë.
+- Manipulimi (`amm-router`, `fee_manipulation`, 29 tetor 2026). Testet përdorin motorin e programit me një forcë më të lartë se në simulim (+0,06% për çdo `tick_spacing`):
+  - 800 vajtje-ardhje të rastit, me tarifë fikse dhe dinamike, humbin gjithmonë.
+  - Në 400 sandwich-e të rastit, fitimi me tarifën dinamike nuk e kalon kurrë atë me tarifën fikse me të njëjtën bazë, dhe në shumicën e rasteve është më i ulët. Arsyeja: viktima dhe back-run-i paguajnë tarifën e ngritur.
+  - Kur dikush e lëviz çmimin dhe e kthen brenda episodit, tarifa për tregtarin tjetër nuk mbetet e ngritur, por kthehet brenda një `tick_spacing` nga baza. Akumulatori mat largësinë nga referenca e episodit, jo rrugën. Për ta mbajtur tarifën lart, sulmuesi duhet ta mbajë çmimin larg, dhe atje e pret arbitrazhi ose rebalanceri.
+- Kufi i njohur: tarifa caktohet kur fillon swap-i. Një swap i vetëm i madh paguan tarifën e fillimit edhe kur e lëviz çmimin larg, ndërsa të tjerët pas tij paguajnë më shumë. Ndikimi në çmim mbetet kostoja e tij kryesore. Ndryshimi i kësaj sjelljeje, p.sh. tarifa e rritur gjatë hapave, si DLMM-ja e Meteora-s për çdo bin, do të ishte ndryshim në program.
 - CU: rreth 700 CU më shumë për swap ([tx-budget.md](../tx-budget.md)).
 
 ## Rekomandimi

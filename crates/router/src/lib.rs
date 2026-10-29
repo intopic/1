@@ -22,6 +22,8 @@
 //! they hold the same liquidity at the same price (what rebalancing keeps
 //! them close to) and approximate otherwise.
 
+#[cfg(test)]
+mod fee_manipulation;
 pub mod recovery;
 
 use sharded_amm::constants::MAX_SWAP_TICK_ARRAYS;
