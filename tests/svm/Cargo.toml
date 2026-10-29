@@ -9,6 +9,8 @@ publish = false
 [dependencies]
 
 [dev-dependencies]
+base64 = "0.22"
+serde_json = "1"
 litesvm = "=0.18.1"
 sharded-amm = { path = "../../programs/sharded-amm", features = ["no-entrypoint"] }
 solana-account = "^4.3.0"

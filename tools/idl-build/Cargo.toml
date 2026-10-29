@@ -1,0 +1,11 @@
+[package]
+name = "idl-build"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "Builds a program IDL with Anchor's own IdlBuilder (the code path `anchor idl build` uses)"
+
+[dependencies]
+# Same version anchor-lang 1.2.1 pins for its idl-build feature.
+anchor-lang-idl = { version = "=0.1.4", features = ["build"] }
+serde_json = "1"
