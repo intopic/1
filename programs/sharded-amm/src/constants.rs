@@ -44,5 +44,15 @@ pub const MAX_SWAP_TICK_ARRAYS: usize = 3;
 pub const MAX_SWAP_STEPS: u32 = 128;
 /// Delay between proposing and applying a fee change (ADR-0004: admin delay).
 pub const FEE_TIMELOCK_SECONDS: i64 = 86_400;
+/// Ceiling of a dynamic fee, 0.80% (ADR-0005). The base fee may be higher
+/// only when the dynamic fee is off.
+pub const MAX_DYNAMIC_FEE_RATE_PPM: u32 = 8_000;
+/// Volatility accumulator units per `tick_spacing` moved (ADR-0005).
+pub const VOL_UNIT: u64 = 1_000;
+/// Upper bound on `max_vol_accumulator`: 100 000 spacings.
+pub const MAX_VOL_ACCUMULATOR: u32 = 100_000_000;
+/// Upper bound on the volatility and load coefficients, so no term can
+/// overflow `u64` before the clamp.
+pub const MAX_DYNAMIC_COEFF_PPM: u32 = 1_000_000;
 /// Upper bound on the activation price tolerance.
 pub const MAX_ACTIVATION_DEVIATION_BPS: u16 = 10_000;

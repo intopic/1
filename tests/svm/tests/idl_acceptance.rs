@@ -233,6 +233,8 @@ fn idl_is_complete_and_decodes_real_events() {
     assert_eq!(v["amount_in"], 1_000_000u64);
     assert_eq!(v["sqrt_price_x64"], st.sqrt_price_x64.to_string());
     assert_eq!(v["tick"], st.tick_current);
+    assert_eq!(v["fee_rate_ppm"], default_params().fee_rate_ppm);
+    assert_eq!(v["liquidity"], st.liquidity.to_string());
     assert_eq!(
         v["amount_out"].as_u64().unwrap(),
         env.balance(&t.token_b) - 1_000_000_000

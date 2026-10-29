@@ -28,5 +28,24 @@ pub struct ShardState {
     pub protocol_fees_a: u64,
     pub protocol_fees_b: u64,
     pub bump: u8,
-    pub reserved: [u8; 64],
+    /// Per-shard dynamic fee state (ADR-0005); written only by swaps.
+    pub dynamic_fee: DynamicFeeState,
+    pub reserved: [u8; 42],
+}
+
+/// Volatility and load tracker of one shard (ADR-0005). Lives in the shard,
+/// never in the market, so a swap writes no account another shard reads.
+#[derive(
+    AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, Default, PartialEq, Eq,
+)]
+pub struct DynamicFeeState {
+    /// Volatility after the last swap, in `VOL_UNIT` per `tick_spacing`.
+    pub vol_accumulator: u32,
+    /// Part carried over from the previous episode.
+    pub vol_reference: u32,
+    /// Tick at which the current episode started.
+    pub tick_reference: i32,
+    pub last_update_slot: u64,
+    /// Swaps executed in `last_update_slot`.
+    pub slot_swaps: u16,
 }

@@ -1,7 +1,8 @@
 //! Fee changes behind a timelock (ADR-0004: delay for sensitive changes).
 //!
 //! - `update_fees` — admin proposes `fee_rate_ppm` / `protocol_share_bps`
-//!   within bounds; nothing changes for `FEE_TIMELOCK_SECONDS`.
+//!   and the dynamic fee parameters (ADR-0005) within bounds; nothing
+//!   changes for `FEE_TIMELOCK_SECONDS`.
 //! - `apply_fees` — admin applies the pending change after the delay.
 //! - `cancel_fee_change` — admin drops the pending change.
 //!
@@ -11,7 +12,7 @@
 use anchor_lang::prelude::*;
 
 use crate::events::{FeeChangeProposed, FeesUpdated};
-use crate::state::MarketConfig;
+use crate::state::{DynamicFeeParams, MarketConfig};
 
 #[derive(Accounts)]
 pub struct UpdateFees<'info> {
@@ -24,17 +25,19 @@ pub fn handle_update_fees(
     ctx: Context<UpdateFees>,
     fee_rate_ppm: u32,
     protocol_share_bps: u16,
+    dynamic: DynamicFeeParams,
 ) -> Result<()> {
     let by = ctx.accounts.admin.key();
     let now = Clock::get()?.unix_timestamp;
-    let pending = ctx
-        .accounts
-        .market
-        .propose_fees(&by, fee_rate_ppm, protocol_share_bps, now)?;
+    let pending =
+        ctx.accounts
+            .market
+            .propose_fees(&by, fee_rate_ppm, protocol_share_bps, dynamic, now)?;
     emit!(FeeChangeProposed {
         market: ctx.accounts.market.key(),
         fee_rate_ppm,
         protocol_share_bps,
+        dynamic,
         eta: pending.eta,
         by,
     });
@@ -44,11 +47,14 @@ pub fn handle_update_fees(
 pub fn handle_apply_fees(ctx: Context<UpdateFees>) -> Result<()> {
     let by = ctx.accounts.admin.key();
     let now = Clock::get()?.unix_timestamp;
+    let old_dynamic = ctx.accounts.market.dynamic_fees;
     let (old, new) = ctx.accounts.market.apply_fees(&by, now)?;
     emit!(FeesUpdated {
         market: ctx.accounts.market.key(),
         old,
         new,
+        old_dynamic,
+        new_dynamic: ctx.accounts.market.dynamic_fees,
         by
     });
     Ok(())

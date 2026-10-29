@@ -112,4 +112,6 @@ pub enum AmmError {
     InvalidReadinessParams,
     #[msg("Wrong number of accounts for this instruction")]
     InvalidAccountCount,
+    #[msg("Invalid dynamic fee parameters")]
+    InvalidDynamicFeeParams,
 }

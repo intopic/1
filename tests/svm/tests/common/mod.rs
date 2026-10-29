@@ -382,11 +382,28 @@ impl Env {
         }
     }
 
+    /// Fee change with the dynamic fee off.
     pub fn ix_update_fees(
         m: &Market,
         admin: &Pubkey,
         fee_rate_ppm: u32,
         protocol_share_bps: u16,
+    ) -> Instruction {
+        Self::ix_update_fees_dynamic(
+            m,
+            admin,
+            fee_rate_ppm,
+            protocol_share_bps,
+            sharded_amm::state::DynamicFeeParams::disabled(fee_rate_ppm),
+        )
+    }
+
+    pub fn ix_update_fees_dynamic(
+        m: &Market,
+        admin: &Pubkey,
+        fee_rate_ppm: u32,
+        protocol_share_bps: u16,
+        dynamic: sharded_amm::state::DynamicFeeParams,
     ) -> Instruction {
         let accounts = sharded_amm::accounts::UpdateFees {
             admin: *admin,
@@ -398,6 +415,7 @@ impl Env {
             data: sharded_amm::instruction::UpdateFees {
                 fee_rate_ppm,
                 protocol_share_bps,
+                dynamic,
             }
             .data(),
         }

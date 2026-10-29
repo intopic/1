@@ -24,7 +24,7 @@ Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Sh
 
 **Versionimi:** versioni i ABI-së mbahet në seed-in e market-it (`schema_u16_le`). Shard-i lidhet me market-in, pozicioni me shard-in, prandaj çdo ndryshim i seed-eve të pozicionit kërkon `SCHEMA_VERSION = 2`, që jep market, shard dhe pozicione me adresa të reja. Varianti `position_id_u64_le` në dokumentet e vjetra **nuk është ABI** dhe nuk është implementuar.
 
-## `MarketConfig` — 316 bajt
+## `MarketConfig` — 360 bajt
 
 | Fusha | Lloji | Bajt |
 |---|---|---:|
@@ -34,13 +34,14 @@ Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Sh
 | mint_a, mint_b, token_program | Pubkey ×3 | 96 |
 | admin, keeper, revenue_authority, pauser | Pubkey ×4 | 128 |
 | params.fee_rate_ppm / protocol_share_bps / tick_spacing | u32 / u16 / u16 | 8 |
+| dynamic_fees.max_fee_rate_ppm / vol_coeff_ppm / load_coeff_ppm / max_vol_accumulator / filter_slots / decay_slots / reduction_bps | u32 ×4 / u16 ×3 | 22 |
 | status | MarketStatus (u8: 0 Initializing, 1 Open, 2 Paused, 3 Cancelled) | 1 |
 | bump | u8 | 1 |
 | readiness.min_liquidity / min_reserve_a / min_reserve_b / max_activation_deviation_bps | u128 / u64 / u64 / u16 | 34 |
-| pending_fees.fee_rate_ppm / protocol_share_bps / eta / active | u32 / u16 / i64 / bool | 15 |
+| pending_fees.fee_rate_ppm / protocol_share_bps / dynamic / eta / active | u32 / u16 / DynamicFeeParams / i64 / bool | 37 |
 | reserved | [u8; 15] | 15 |
 
-`readiness` dhe `pending_fees` (timelock 24 orë për tarifat) zunë 49 bajt nga `reserved`; madhësia mbeti 316.
+`readiness` dhe `pending_fees` (timelock 24 orë për tarifat) zunë 49 bajt nga `reserved`; madhësia mbeti 316. Tarifa dinamike ([ADR-0005](adr/0005-dynamic-fee-per-shard.md), 2026-10-29) shtoi `dynamic_fees` dhe `pending_fees.dynamic` (44 bajt) dhe e çoi tregun në 360 bajt, para çdo deploy-i; prandaj `SCHEMA_VERSION` mbetet 1. Gjatë swap-it tregu mbetet vetëm për lexim.
 
 ## `ShardRegistry` — 65 bajt
 
@@ -63,7 +64,10 @@ market (32), prepared_mask u64, active_mask u64, registry_version u64, bump u8.
 | fee_growth_global_a/b_x128 | [u64; 4] ×2 (U256 little-endian, Q128, checked, pa wrap) | 64 |
 | protocol_fees_a/b | u64 ×2 | 16 |
 | bump | u8 | 1 |
-| reserved | [u8; 64] | 64 |
+| dynamic_fee.vol_accumulator / vol_reference / tick_reference / last_update_slot / slot_swaps | u32 / u32 / i32 / u64 / u16 | 22 |
+| reserved | [u8; 42] | 42 |
+
+Gjendja e tarifës dinamike (ADR-0005) zuri 22 bajt nga `reserved`; madhësia mbeti 296. Shkruhet vetëm nga swap-et e këtij shard-i.
 
 Fee growth u ndryshua nga u128 Q64 në U256 Q128 më 2026-10-28 (ENG-05, kërkimi N07), para çdo deploy-i; prandaj `SCHEMA_VERSION` mbetet 1.
 

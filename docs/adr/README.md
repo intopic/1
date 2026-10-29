@@ -8,3 +8,4 @@
 | [0002](0002-registry-lifecycle.md) | Bitmask `u64`, lifecycle i tregut/shard-eve, politika e daljes | PROPOSED (implementuar si logjikë host, ENG-02) |
 | [0003](0003-provenance-and-licensing.md) | Provenance, Raydium/Orca, `upstream-lock.json` | ACCEPTED |
 | [0004](0004-open-product-decisions.md) | Konfigurimi eksperimental: WSOL/USDC, tarifat 0,05–0,30%, spacing 10/60, rolet | ACCEPTED (eksperimental); disa pika OPEN |
+| [0005](0005-dynamic-fee-per-shard.md) | Tarifa dinamike për shard: gjendja në `ShardState`, parametrat me timelock, 0,80% maksimum | PROPOSED (implementuar; pret simulimin) |

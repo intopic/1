@@ -48,8 +48,9 @@ pub mod sharded_amm {
         ctx: Context<UpdateFees>,
         fee_rate_ppm: u32,
         protocol_share_bps: u16,
+        dynamic: state::DynamicFeeParams,
     ) -> Result<()> {
-        handle_update_fees(ctx, fee_rate_ppm, protocol_share_bps)
+        handle_update_fees(ctx, fee_rate_ppm, protocol_share_bps, dynamic)
     }
 
     pub fn apply_fees(ctx: Context<UpdateFees>) -> Result<()> {

@@ -13,7 +13,7 @@
 mod common;
 
 use common::*;
-use sharded_amm::engine::{swap, Pool, SwapOutcome, SwapParams};
+use sharded_amm::engine::{dynamic_fee, swap, Pool, SwapOutcome, SwapParams};
 use sharded_amm::errors::AmmError;
 use sharded_amm::math::tick_math::{sqrt_price_at_tick, MAX_SQRT_PRICE_X64, MIN_SQRT_PRICE_X64};
 use sharded_amm::state::{array_span, ShardState, TickArray};
@@ -68,6 +68,7 @@ fn compute_budget(units: u32) -> solana_instruction::Instruction {
 struct Prediction {
     out: SwapOutcome,
     pool: Pool,
+    fee_state: sharded_amm::state::DynamicFeeState,
     arrays: Vec<TickArray>,
 }
 
@@ -79,9 +80,20 @@ fn predict(
     args: &sharded_amm::instructions::SwapArgs,
     arrays: &[Pubkey],
 ) -> Result<Prediction, AmmError> {
-    let params = env.market_state(m).params;
+    let market = env.market_state(m);
+    let params = market.params;
     let st: ShardState = env.shard_state(m, id);
     let mut pool = Pool::load(&st)?;
+    let slot = env.svm.get_sysvar::<anchor_lang::prelude::Clock>().slot;
+    let mut fee_state = st.dynamic_fee;
+    let fee_rate_ppm = dynamic_fee::begin(
+        &mut fee_state,
+        &market.dynamic_fees,
+        params.fee_rate_ppm,
+        params.tick_spacing,
+        pool.tick,
+        slot,
+    );
     if arrays.is_empty() || arrays.len() > 3 {
         return Err(AmmError::InvalidAccountCount);
     }
@@ -94,11 +106,18 @@ fn predict(
             a_to_b: args.a_to_b,
             amount_in: args.amount_in,
             sqrt_price_limit: args.sqrt_price_limit_x64,
-            fee_rate_ppm: params.fee_rate_ppm,
+            fee_rate_ppm,
             protocol_share_bps: params.protocol_share_bps,
             tick_spacing: params.tick_spacing,
         },
     )?;
+    dynamic_fee::finish(
+        &mut fee_state,
+        &market.dynamic_fees,
+        params.tick_spacing,
+        pool.tick,
+        slot,
+    );
     if out.amount_out < args.min_amount_out {
         return Err(AmmError::SlippageExceeded);
     }
@@ -108,6 +127,7 @@ fn predict(
     Ok(Prediction {
         out,
         pool,
+        fee_state,
         arrays: copies,
     })
 }
@@ -149,6 +169,7 @@ fn checked_swap(
             assert_eq!(p.out.amount_in, args.amount_in, "no partial fills");
             let st = env.shard_state(m, id);
             assert_eq!(Pool::load(&st).unwrap(), p.pool, "shard state");
+            assert_eq!(st.dynamic_fee, p.fee_state, "dynamic fee state");
             for (k, want) in arrays.iter().zip(&p.arrays) {
                 assert_eq!(&env.tick_array(k), want, "tick array {k}");
             }
@@ -202,6 +223,38 @@ fn random_workload_matches_host_engine_and_conserves_tokens() {
     let mut rng = Rng(seed);
     let mut env = Env::new();
     let (m, seed_lp) = env.open_seeded_market();
+    // Even seeds (the default included) run with the dynamic fee on
+    // (ADR-0005), so the host engine and the program must also agree on the
+    // fee from swap to swap; odd seeds keep the fixed fee.
+    let dynamic = seed.is_multiple_of(2);
+    if dynamic {
+        let admin = env.admin.insecure_clone();
+        let base = env.market_state(&m).params.fee_rate_ppm;
+        let p = sharded_amm::state::DynamicFeeParams {
+            max_fee_rate_ppm: sharded_amm::constants::MAX_DYNAMIC_FEE_RATE_PPM,
+            vol_coeff_ppm: 1 + rng.below(500) as u32,
+            load_coeff_ppm: rng.below(300) as u32,
+            max_vol_accumulator: 1 + rng.below(1_000_000) as u32,
+            filter_slots: 1 + rng.below(10) as u16,
+            decay_slots: 20 + rng.below(100) as u16,
+            reduction_bps: rng.below(10_001) as u16,
+        };
+        env.send(
+            &[Env::ix_update_fees_dynamic(
+                &m,
+                &admin.pubkey(),
+                base,
+                2_000,
+                p,
+            )],
+            &[&admin],
+        )
+        .unwrap();
+        env.warp(sharded_amm::constants::FEE_TIMELOCK_SECONDS);
+        env.send(&[Env::ix_apply_fees(&m, &admin.pubkey())], &[&admin])
+            .unwrap();
+    }
+    println!("dynamic fee: {dynamic}");
     let spacing = env.market_state(&m).params.tick_spacing as i32;
     let span = array_span(spacing as u16);
     // Arrays across +-4 spans on every shard so swaps can travel and cross.
@@ -297,6 +350,10 @@ fn random_workload_matches_host_engine_and_conserves_tokens() {
                 if rng.below(10) == 0 {
                     args.max_rounding_dust = rng.below(2);
                 }
+                // Slots advance by 0..=3 between swaps: some share a slot.
+                let mut clock = env.svm.get_sysvar::<anchor_lang::prelude::Clock>();
+                clock.slot += rng.below(4);
+                env.svm.set_sysvar(&clock);
                 let arrays = env.swap_arrays(&m, id, a_to_b);
                 match checked_swap(&mut env, &m, u, id, args, &arrays) {
                     Ok(c) => {

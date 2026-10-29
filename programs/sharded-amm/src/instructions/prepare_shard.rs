@@ -22,7 +22,7 @@ use anchor_spl::token::{Mint, Token, TokenAccount};
 use crate::constants::{REGISTRY_SEED, SHARD_SEED, VAULT_AUTH_SEED, VAULT_SEED};
 use crate::errors::AmmError;
 use crate::events::ShardPrepared;
-use crate::state::{MarketConfig, ShardRegistry, ShardState, ShardStatus};
+use crate::state::{DynamicFeeState, MarketConfig, ShardRegistry, ShardState, ShardStatus};
 
 #[derive(Accounts)]
 #[instruction(id: u8, generation: u64)]
@@ -104,7 +104,8 @@ pub fn handle_prepare_shard(ctx: Context<PrepareShard>, id: u8, generation: u64)
         protocol_fees_a: 0,
         protocol_fees_b: 0,
         bump: ctx.bumps.shard,
-        reserved: [0; 64],
+        dynamic_fee: DynamicFeeState::default(),
+        reserved: [0; 42],
     });
 
     emit!(ShardPrepared {

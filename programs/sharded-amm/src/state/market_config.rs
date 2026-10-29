@@ -8,8 +8,9 @@
 use anchor_lang::prelude::*;
 
 use crate::constants::{
-    FEE_TIMELOCK_SECONDS, MAX_ACTIVATION_DEVIATION_BPS, MAX_FEE_RATE_PPM, MAX_PROTOCOL_SHARE_BPS,
-    MAX_TICK_SPACING,
+    FEE_TIMELOCK_SECONDS, MAX_ACTIVATION_DEVIATION_BPS, MAX_DYNAMIC_COEFF_PPM,
+    MAX_DYNAMIC_FEE_RATE_PPM, MAX_FEE_RATE_PPM, MAX_PROTOCOL_SHARE_BPS, MAX_TICK_SPACING,
+    MAX_VOL_ACCUMULATOR,
 };
 use crate::errors::AmmError;
 use crate::state::MarketStatus;
@@ -32,6 +33,8 @@ pub struct MarketConfig {
     /// Pauses risky operations; never blocks valid LP exits.
     pub pauser: Pubkey,
     pub params: MarketParams,
+    /// Dynamic fee bounds and coefficients (ADR-0005); state is per shard.
+    pub dynamic_fees: DynamicFeeParams,
     pub status: MarketStatus,
     pub bump: u8,
     /// Thresholds a shard must meet, re-checked on-chain, before it is routable.
@@ -81,6 +84,7 @@ impl ReadinessParams {
 pub struct PendingFees {
     pub fee_rate_ppm: u32,
     pub protocol_share_bps: u16,
+    pub dynamic: DynamicFeeParams,
     /// Earliest unix time at which the change can be applied.
     pub eta: i64,
     pub active: bool,
@@ -105,6 +109,62 @@ impl MarketParams {
         }
         if self.tick_spacing == 0 || self.tick_spacing > MAX_TICK_SPACING {
             return Err(AmmError::InvalidTickSpacing);
+        }
+        Ok(())
+    }
+}
+
+/// Dynamic fee parameters (ADR-0005). `fee_rate_ppm` of `MarketParams` is
+/// the base and the minimum; `max_fee_rate_ppm == fee_rate_ppm` turns the
+/// dynamic part off.
+#[derive(
+    AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, Default, PartialEq, Eq,
+)]
+pub struct DynamicFeeParams {
+    pub max_fee_rate_ppm: u32,
+    /// Fee added per `tick_spacing` of accumulated volatility.
+    pub vol_coeff_ppm: u32,
+    /// Fee added per swap already executed in the same slot.
+    pub load_coeff_ppm: u32,
+    pub max_vol_accumulator: u32,
+    /// Slots after the last swap during which the episode continues.
+    pub filter_slots: u16,
+    /// Slots after the last swap after which nothing carries over.
+    pub decay_slots: u16,
+    /// Share of the accumulator carried into the next episode.
+    pub reduction_bps: u16,
+}
+
+impl DynamicFeeParams {
+    /// Dynamic part off: the fee is always `base`.
+    pub const fn disabled(base: u32) -> Self {
+        Self {
+            max_fee_rate_ppm: base,
+            vol_coeff_ppm: 0,
+            load_coeff_ppm: 0,
+            max_vol_accumulator: 0,
+            filter_slots: 1,
+            decay_slots: 1,
+            reduction_bps: 0,
+        }
+    }
+
+    pub fn is_enabled(&self, base: u32) -> bool {
+        self.max_fee_rate_ppm > base
+    }
+
+    pub fn validate(&self, base: u32) -> std::result::Result<(), AmmError> {
+        let ceiling_ok = self.max_fee_rate_ppm == base
+            || (self.max_fee_rate_ppm > base && self.max_fee_rate_ppm <= MAX_DYNAMIC_FEE_RATE_PPM);
+        if !ceiling_ok
+            || self.vol_coeff_ppm > MAX_DYNAMIC_COEFF_PPM
+            || self.load_coeff_ppm > MAX_DYNAMIC_COEFF_PPM
+            || self.max_vol_accumulator > MAX_VOL_ACCUMULATOR
+            || self.filter_slots == 0
+            || self.filter_slots > self.decay_slots
+            || self.reduction_bps > 10_000
+        {
+            return Err(AmmError::InvalidDynamicFeeParams);
         }
         Ok(())
     }
@@ -153,6 +213,7 @@ impl MarketConfig {
         signer: &Pubkey,
         fee_rate_ppm: u32,
         protocol_share_bps: u16,
+        dynamic: DynamicFeeParams,
         now: i64,
     ) -> std::result::Result<PendingFees, AmmError> {
         if *signer != self.admin {
@@ -164,12 +225,14 @@ impl MarketConfig {
             ..self.params
         }
         .validate()?;
+        dynamic.validate(fee_rate_ppm)?;
         let eta = now
             .checked_add(FEE_TIMELOCK_SECONDS)
             .ok_or(AmmError::MathOverflow)?;
         self.pending_fees = PendingFees {
             fee_rate_ppm,
             protocol_share_bps,
+            dynamic,
             eta,
             active: true,
         };
@@ -200,7 +263,9 @@ impl MarketConfig {
             ..old
         };
         new.validate()?;
+        p.dynamic.validate(new.fee_rate_ppm)?;
         self.params = new;
+        self.dynamic_fees = p.dynamic;
         self.pending_fees = PendingFees::default();
         Ok((old, new))
     }
@@ -311,6 +376,7 @@ mod tests {
                 protocol_share_bps: 2_000,
                 tick_spacing: 60,
             },
+            dynamic_fees: DynamicFeeParams::disabled(3_000),
             status,
             bump: 255,
             readiness: ReadinessParams {
@@ -361,20 +427,27 @@ mod tests {
         let admin = c.admin;
         for who in [c.keeper, c.revenue_authority, c.pauser] {
             assert_eq!(
-                c.propose_fees(&who, 500, 2_000, 0),
+                c.propose_fees(&who, 500, 2_000, DynamicFeeParams::disabled(500), 0),
                 Err(AmmError::Unauthorized)
             );
         }
         assert_eq!(
-            c.propose_fees(&admin, 100_001, 2_000, 0),
+            c.propose_fees(
+                &admin,
+                100_001,
+                2_000,
+                DynamicFeeParams::disabled(100_001),
+                0
+            ),
             Err(AmmError::InvalidFeeRate)
         );
         assert_eq!(
-            c.propose_fees(&admin, 500, 5_001, 0),
+            c.propose_fees(&admin, 500, 5_001, DynamicFeeParams::disabled(500), 0),
             Err(AmmError::InvalidProtocolShare)
         );
         assert_eq!(c.apply_fees(&admin, 0), Err(AmmError::NoPendingChange));
-        c.propose_fees(&admin, 500, 1_000, 1_000).unwrap();
+        c.propose_fees(&admin, 500, 1_000, DynamicFeeParams::disabled(500), 1_000)
+            .unwrap();
         assert_eq!(
             c.params.fee_rate_ppm, 3_000,
             "nothing changes before the delay"
@@ -402,16 +475,106 @@ mod tests {
             c.apply_fees(&admin, i64::MAX),
             Err(AmmError::NoPendingChange)
         );
-        c.propose_fees(&admin, 0, 0, 5).unwrap();
+        c.propose_fees(&admin, 0, 0, DynamicFeeParams::disabled(0), 5)
+            .unwrap();
         c.cancel_fee_change(&admin).unwrap();
         assert_eq!(
             c.apply_fees(&admin, i64::MAX),
             Err(AmmError::NoPendingChange)
         );
         assert_eq!(
-            c.propose_fees(&admin, 0, 0, i64::MAX),
+            c.propose_fees(&admin, 0, 0, DynamicFeeParams::disabled(0), i64::MAX),
             Err(AmmError::MathOverflow)
         );
+    }
+
+    fn dynamic(base: u32) -> DynamicFeeParams {
+        DynamicFeeParams {
+            max_fee_rate_ppm: MAX_DYNAMIC_FEE_RATE_PPM,
+            vol_coeff_ppm: 100,
+            load_coeff_ppm: 0,
+            max_vol_accumulator: 100_000,
+            filter_slots: 10,
+            decay_slots: 120,
+            reduction_bps: 5_000,
+        }
+        .clamp_base(base)
+    }
+
+    impl DynamicFeeParams {
+        fn clamp_base(mut self, base: u32) -> Self {
+            self.max_fee_rate_ppm = self.max_fee_rate_ppm.max(base);
+            self
+        }
+    }
+
+    #[test]
+    fn dynamic_fee_params_bounds() {
+        let base = 300;
+        assert_eq!(dynamic(base).validate(base), Ok(()));
+        assert_eq!(DynamicFeeParams::disabled(base).validate(base), Ok(()));
+        assert!(!DynamicFeeParams::disabled(base).is_enabled(base));
+        assert!(dynamic(base).is_enabled(base));
+        // A base fee above the dynamic ceiling is allowed only with the
+        // dynamic part off.
+        assert_eq!(DynamicFeeParams::disabled(50_000).validate(50_000), Ok(()));
+        let bad = [
+            DynamicFeeParams {
+                max_fee_rate_ppm: base - 1,
+                ..dynamic(base)
+            },
+            DynamicFeeParams {
+                max_fee_rate_ppm: MAX_DYNAMIC_FEE_RATE_PPM + 1,
+                ..dynamic(base)
+            },
+            DynamicFeeParams {
+                vol_coeff_ppm: MAX_DYNAMIC_COEFF_PPM + 1,
+                ..dynamic(base)
+            },
+            DynamicFeeParams {
+                load_coeff_ppm: MAX_DYNAMIC_COEFF_PPM + 1,
+                ..dynamic(base)
+            },
+            DynamicFeeParams {
+                max_vol_accumulator: MAX_VOL_ACCUMULATOR + 1,
+                ..dynamic(base)
+            },
+            DynamicFeeParams {
+                filter_slots: 0,
+                ..dynamic(base)
+            },
+            DynamicFeeParams {
+                filter_slots: 121,
+                ..dynamic(base)
+            },
+            DynamicFeeParams {
+                reduction_bps: 10_001,
+                ..dynamic(base)
+            },
+        ];
+        for p in bad {
+            assert_eq!(
+                p.validate(base),
+                Err(AmmError::InvalidDynamicFeeParams),
+                "{p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dynamic_fee_change_goes_through_the_timelock() {
+        let mut c = config(MarketStatus::Open);
+        let admin = c.admin;
+        // The ceiling is checked against the proposed base, not the current one.
+        assert_eq!(
+            c.propose_fees(&admin, 9_000, 2_000, dynamic(300), 0),
+            Err(AmmError::InvalidDynamicFeeParams)
+        );
+        c.propose_fees(&admin, 300, 2_000, dynamic(300), 0).unwrap();
+        assert_eq!(c.dynamic_fees, DynamicFeeParams::disabled(3_000));
+        c.apply_fees(&admin, FEE_TIMELOCK_SECONDS).unwrap();
+        assert_eq!(c.dynamic_fees, dynamic(300));
+        assert_eq!(c.params.fee_rate_ppm, 300);
     }
 
     #[test]

@@ -14,16 +14,22 @@
 //! random share of operations, a copy of the world also exits completely in
 //! a random order to prove those claims can really be paid.
 //!
+//! Half of the worlds run the per-shard dynamic fee (ADR-0005), so every
+//! invariant is also checked with a fee that changes from swap to swap.
+//!
 //! Scale with AMM_STRESS_CASES / AMM_STRESS_SEED.
 
 use anchor_lang::prelude::Pubkey;
-use sharded_amm::engine::{modify_position, swap, Pool, PositionState, SwapParams};
+use sharded_amm::constants::MAX_DYNAMIC_FEE_RATE_PPM;
+use sharded_amm::engine::{dynamic_fee, modify_position, swap, Pool, PositionState, SwapParams};
 use sharded_amm::errors::AmmError;
 use sharded_amm::math::fee_math::{fees_owed, growth_inside};
 use sharded_amm::math::liquidity_math::amounts_for_liquidity;
 use sharded_amm::math::tick_math::sqrt_price_at_tick;
 use sharded_amm::math::wide::U256;
-use sharded_amm::state::{array_span, array_start_for, TickArray};
+use sharded_amm::state::{
+    array_span, array_start_for, DynamicFeeParams, DynamicFeeState, TickArray,
+};
 
 const MAX_SWAP_ARRAYS: usize = 3;
 
@@ -70,6 +76,10 @@ struct World {
     spacing: u16,
     fee: u32,
     share: u16,
+    /// Dynamic fee parameters, state and the current slot.
+    dynamic: DynamicFeeParams,
+    fee_state: DynamicFeeState,
+    slot: u64,
     pool: Pool,
     arrays: Vec<TickArray>, // contiguous, ascending start
     positions: Vec<PositionState>,
@@ -89,10 +99,32 @@ impl World {
             .collect();
         let s0 = sqrt_price_at_tick(centre_tick).unwrap();
         let s1 = sqrt_price_at_tick(centre_tick + 1).unwrap();
+        let fee = [0, 100, 500, 1000, 3000, 10_000][r.below(6) as usize];
+        let share = [0, 2000, 5000][r.below(3) as usize];
+        let dynamic = if fee < MAX_DYNAMIC_FEE_RATE_PPM && r.below(2) == 0 {
+            let filter = 1 + r.below(20) as u16;
+            DynamicFeeParams {
+                max_fee_rate_ppm: fee
+                    + 1
+                    + r.below(u64::from(MAX_DYNAMIC_FEE_RATE_PPM - fee)) as u32,
+                vol_coeff_ppm: r.below(2_000) as u32,
+                load_coeff_ppm: r.below(500) as u32,
+                max_vol_accumulator: r.below(1_000_000) as u32,
+                filter_slots: filter,
+                decay_slots: filter + r.below(200) as u16,
+                reduction_bps: r.below(10_001) as u16,
+            }
+        } else {
+            DynamicFeeParams::disabled(fee)
+        };
+        assert_eq!(dynamic.validate(fee), Ok(()));
         Self {
             spacing,
-            fee: [0, 100, 500, 1000, 3000, 10_000][r.below(6) as usize],
-            share: [0, 2000, 5000][r.below(3) as usize],
+            fee,
+            share,
+            dynamic,
+            fee_state: DynamicFeeState::default(),
+            slot: r.below(1_000_000),
             pool: Pool::at_price(s0 + u128::from(r.next()) % (s1 - s0)).unwrap(),
             arrays,
             positions: Vec::new(),
@@ -153,15 +185,38 @@ impl World {
                 .take(MAX_SWAP_ARRAYS)
                 .collect()
         };
+        // A few swaps share a slot, the rest are spread out.
+        let slot = self.slot + amount % 4;
+        let mut fee_state = self.fee_state;
+        let fee_rate_ppm = dynamic_fee::begin(
+            &mut fee_state,
+            &self.dynamic,
+            self.fee,
+            self.spacing,
+            self.pool.tick,
+            slot,
+        );
+        assert!(fee_rate_ppm >= self.fee);
+        assert!(fee_rate_ppm <= self.fee.max(self.dynamic.max_fee_rate_ppm));
         let p = SwapParams {
             a_to_b,
             amount_in: amount,
             sqrt_price_limit: limit,
-            fee_rate_ppm: self.fee,
+            fee_rate_ppm,
             protocol_share_bps: self.share,
             tick_spacing: self.spacing,
         };
         let o = swap(&mut self.pool, &mut refs, p)?;
+        // Like the program, the fee state changes only if the swap succeeds.
+        dynamic_fee::finish(
+            &mut fee_state,
+            &self.dynamic,
+            self.spacing,
+            self.pool.tick,
+            slot,
+        );
+        self.fee_state = fee_state;
+        self.slot = slot;
         STATS.with(|c| {
             let mut c = c.borrow_mut();
             c.0 += 1;

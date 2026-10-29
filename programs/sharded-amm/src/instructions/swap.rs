@@ -8,6 +8,10 @@
 //! - remaining: 1..=3 writable tick arrays of this shard, starting with the
 //!   one containing the current tick, in swap direction
 //!
+//! The fee is the base fee or, when enabled, the shard's dynamic fee for the
+//! current slot (ADR-0005); its state is in `shard`, so nothing shared is
+//! written.
+//!
 //! The whole input is consumed or the transaction fails. Checks after the
 //! math and before any transfer: `amount_out >= min_amount_out`,
 //! `rounding_dust <= max_rounding_dust`, `now <= deadline`.
@@ -16,7 +20,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
 
 use crate::constants::{MAX_SWAP_TICK_ARRAYS, REGISTRY_SEED, VAULT_AUTH_SEED};
-use crate::engine::{swap, Pool, SwapParams};
+use crate::engine::{dynamic_fee, swap, Pool, SwapParams};
 use crate::errors::AmmError;
 use crate::events::SwapExecuted;
 use crate::state::{MarketConfig, ShardRegistry, ShardState, ShardStatus};
@@ -85,10 +89,21 @@ pub fn handle_swap_exact_in<'info>(
 
     let shard_key = acc.shard.key();
     let params = acc.market.params;
+    let dynamic = acc.market.dynamic_fees;
+    let slot = Clock::get()?.slot;
     let loaders = load_tick_arrays(ctx.remaining_accounts, &shard_key, MAX_SWAP_TICK_ARRAYS)?;
     let mut refs = borrow_all(&loaders)?;
     let mut arrays: Vec<&mut _> = refs.iter_mut().map(|r| &mut **r).collect();
     let mut pool = Pool::load(&acc.shard)?;
+    let mut fee_state = acc.shard.dynamic_fee;
+    let fee_rate_ppm = dynamic_fee::begin(
+        &mut fee_state,
+        &dynamic,
+        params.fee_rate_ppm,
+        params.tick_spacing,
+        pool.tick,
+        slot,
+    );
     let out = swap(
         &mut pool,
         &mut arrays,
@@ -96,7 +111,7 @@ pub fn handle_swap_exact_in<'info>(
             a_to_b: args.a_to_b,
             amount_in: args.amount_in,
             sqrt_price_limit: args.sqrt_price_limit_x64,
-            fee_rate_ppm: params.fee_rate_ppm,
+            fee_rate_ppm,
             protocol_share_bps: params.protocol_share_bps,
             tick_spacing: params.tick_spacing,
         },
@@ -111,7 +126,15 @@ pub fn handle_swap_exact_in<'info>(
     );
     drop(arrays);
     drop(refs);
+    dynamic_fee::finish(
+        &mut fee_state,
+        &dynamic,
+        params.tick_spacing,
+        pool.tick,
+        slot,
+    );
     pool.store(&mut ctx.accounts.shard);
+    ctx.accounts.shard.dynamic_fee = fee_state;
 
     let acc = &ctx.accounts;
     let bump = acc.shard.vault_authority_bump;
@@ -148,6 +171,8 @@ pub fn handle_swap_exact_in<'info>(
         sqrt_price_x64: pool.sqrt_price,
         tick: pool.tick,
         ticks_crossed: out.ticks_crossed,
+        fee_rate_ppm,
+        liquidity: pool.liquidity,
     });
     Ok(())
 }

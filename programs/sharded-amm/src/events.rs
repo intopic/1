@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::state::MarketParams;
+use crate::state::{DynamicFeeParams, MarketParams};
 
 #[event]
 pub struct MarketInitialized {
@@ -32,6 +32,8 @@ pub struct FeesUpdated {
     pub market: Pubkey,
     pub old: MarketParams,
     pub new: MarketParams,
+    pub old_dynamic: DynamicFeeParams,
+    pub new_dynamic: DynamicFeeParams,
     pub by: Pubkey,
 }
 
@@ -40,6 +42,7 @@ pub struct FeeChangeProposed {
     pub market: Pubkey,
     pub fee_rate_ppm: u32,
     pub protocol_share_bps: u16,
+    pub dynamic: DynamicFeeParams,
     pub eta: i64,
     pub by: Pubkey,
 }
@@ -107,6 +110,10 @@ pub struct SwapExecuted {
     pub sqrt_price_x64: u128,
     pub tick: i32,
     pub ticks_crossed: u32,
+    /// Fee rate this swap paid: the base fee or the shard's dynamic fee.
+    pub fee_rate_ppm: u32,
+    /// Active liquidity after the swap.
+    pub liquidity: u128,
 }
 
 #[event]

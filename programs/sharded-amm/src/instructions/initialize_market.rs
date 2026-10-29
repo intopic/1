@@ -17,8 +17,8 @@ use crate::constants::{MARKET_SEED, REGISTRY_SEED, SCHEMA_VERSION};
 use crate::errors::AmmError;
 use crate::events::MarketInitialized;
 use crate::state::{
-    check_mint_order, MarketConfig, MarketParams, MarketStatus, PendingFees, ReadinessParams,
-    ShardRegistry,
+    check_mint_order, DynamicFeeParams, MarketConfig, MarketParams, MarketStatus, PendingFees,
+    ReadinessParams, ShardRegistry,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -87,6 +87,8 @@ pub fn handle_initialize_market(
         revenue_authority: args.revenue_authority,
         pauser: args.pauser,
         params: args.params,
+        // Off until changed through the fee timelock (ADR-0005).
+        dynamic_fees: DynamicFeeParams::disabled(args.params.fee_rate_ppm),
         status: MarketStatus::Initializing,
         bump: ctx.bumps.market,
         readiness: args.readiness,
