@@ -17,7 +17,7 @@ use sharded_amm::errors::AmmError;
 pub const ERROR_CODE_OFFSET: u32 = 6000;
 
 /// Every program error in code order (codes are append-only).
-const ALL: [AmmError; 67] = [
+const ALL: [AmmError; 72] = [
     AmmError::ShardIdOutOfRange,
     AmmError::ReservedBitsSet,
     AmmError::ActiveNotPrepared,
@@ -85,6 +85,11 @@ const ALL: [AmmError; 67] = [
     AmmError::ShardPaused,
     AmmError::TransferAmountMismatch,
     AmmError::ReopenNeedsPriceCheck,
+    AmmError::InvalidProtocolSettings,
+    AmmError::ProfileNotAllowed,
+    AmmError::StaleRoles,
+    AmmError::FreezeAuthorityNotAllowed,
+    AmmError::NotUpgradeAuthority,
 ];
 
 /// The program error behind a custom instruction error code.

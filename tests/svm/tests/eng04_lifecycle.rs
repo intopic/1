@@ -111,16 +111,16 @@ fn open_market_rejects_wrong_accounts() {
     // Vaults of another shard: real balances, but not this shard's.
     let mut i = env.ix_open_market(&m, &keeper.pubkey(), &all);
     let other = shard_addrs(&m, 7, 0);
-    i.accounts[3 + 1].pubkey = other.vault_a;
+    i.accounts[4 + 1].pubkey = other.vault_a;
     expect_custom(env.send(&[i], &[&keeper]), amm_code(AmmError::InvalidVault));
     // Shard from another market with the same mints.
     let m2 = env.market_with(m.mint_a, m.mint_b, 2);
     env.seed_initial_shards(&m2, 1_000_000_000);
     let mut i = env.ix_open_market(&m, &keeper.pubkey(), &all);
     let foreign = shard_addrs(&m2, 0, 0);
-    i.accounts[3].pubkey = foreign.shard;
-    i.accounts[4].pubkey = foreign.vault_a;
-    i.accounts[5].pubkey = foreign.vault_b;
+    i.accounts[4].pubkey = foreign.shard;
+    i.accounts[5].pubkey = foreign.vault_a;
+    i.accounts[6].pubkey = foreign.vault_b;
     expect_custom(
         env.send(&[i], &[&keeper]),
         amm_code(AmmError::ShardMismatch),

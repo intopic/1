@@ -1,6 +1,7 @@
 //! Sharded-tick CLMM for Solana: one market, 8 initial shards, capacity 56.
 //!
-//! Instructions: market setup (`initialize_market`, `prepare_shard`,
+//! Instructions: protocol roles and rules (`initialize_protocol`, role and
+//! settings timelocks, `sync_market_roles`), market setup (`initialize_market`, `prepare_shard`,
 //! `initialize_price`, `open_market`, `cancel_setup`, `activate_shard`),
 //! liquidity (`init_tick_array`, `open_position`, `increase_liquidity`,
 //! `decrease_liquidity`, `collect_fees`, `close_position`), trading
@@ -27,6 +28,60 @@ declare_id!("B6rXDCwiXe1CyXyCS4JS1Tn9J5yud87cREWapUoD5hEy");
 #[program]
 pub mod sharded_amm {
     use super::*;
+
+    /// Once, by the program's upgrade authority: the protocol's roles and
+    /// the rules for new markets (D-04, D-05, D-07).
+    pub fn initialize_protocol(
+        ctx: Context<InitializeProtocol>,
+        roles: state::Roles,
+        settings: state::ProtocolSettings,
+    ) -> Result<()> {
+        handle_initialize_protocol(ctx, roles, settings)
+    }
+
+    /// Proposes new protocol roles; applied by `apply_roles` after the timelock.
+    pub fn propose_roles(ctx: Context<UpdateProtocol>, roles: state::Roles) -> Result<()> {
+        handle_propose_roles(ctx, roles)
+    }
+
+    pub fn apply_roles(ctx: Context<UpdateProtocol>) -> Result<()> {
+        handle_apply_roles(ctx)
+    }
+
+    pub fn cancel_roles_change(ctx: Context<UpdateProtocol>) -> Result<()> {
+        handle_cancel_roles_change(ctx)
+    }
+
+    /// Second step of an admin handover, signed by the new admin.
+    pub fn accept_admin(ctx: Context<UpdateProtocol>) -> Result<()> {
+        handle_accept_admin(ctx)
+    }
+
+    /// Emergency: the admin removes the pauser without a timelock.
+    pub fn remove_pauser(ctx: Context<UpdateProtocol>) -> Result<()> {
+        handle_remove_pauser(ctx)
+    }
+
+    /// Proposes profiles, creation fee and freeze allowlist; timelocked.
+    pub fn propose_settings(
+        ctx: Context<UpdateProtocol>,
+        settings: state::ProtocolSettings,
+    ) -> Result<()> {
+        handle_propose_settings(ctx, settings)
+    }
+
+    pub fn apply_settings(ctx: Context<UpdateProtocol>) -> Result<()> {
+        handle_apply_settings(ctx)
+    }
+
+    pub fn cancel_settings_change(ctx: Context<UpdateProtocol>) -> Result<()> {
+        handle_cancel_settings_change(ctx)
+    }
+
+    /// Open to anyone: copies the protocol's current roles into a market.
+    pub fn sync_market_roles(ctx: Context<SyncMarketRoles>) -> Result<()> {
+        handle_sync_market_roles(ctx)
+    }
 
     pub fn initialize_market(
         ctx: Context<InitializeMarket>,

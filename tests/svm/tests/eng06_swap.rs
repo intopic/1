@@ -663,7 +663,7 @@ fn protocol_fees_go_only_to_the_revenue_authority() {
     assert!(env.send(&[i], &[&revenue]).is_err());
     // Another shard's vault cannot be drained through shard 0.
     let mut i = Env::ix_collect_protocol(&m, &revenue.pubkey(), 0, rev_a, rev_b);
-    i.accounts[3].pubkey = shard_addrs(&m, 1, 0).vault_a;
+    i.accounts[4].pubkey = shard_addrs(&m, 1, 0).vault_a;
     expect_custom(
         env.send(&[i], &[&revenue]),
         anchor_codes::CONSTRAINT_HAS_ONE,

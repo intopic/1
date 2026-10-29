@@ -153,12 +153,12 @@ fn activation_rules() {
     );
     // Wrong vaults for the shard.
     let mut i = Env::ix_activate(&m, &keeper.pubkey(), 9, 0);
-    i.accounts[4].pubkey = shard_addrs(&m, 0, 0).vault_a;
+    i.accounts[5].pubkey = shard_addrs(&m, 0, 0).vault_a;
     expect_custom(env.send(&[i], &[&keeper]), anchor_codes::CONSTRAINT_HAS_ONE);
     // An active reference shard of another open market.
     let (other, _) = env.open_seeded_market();
     let mut i = Env::ix_activate(&m, &keeper.pubkey(), 9, 0);
-    i.accounts[6].pubkey = shard_addrs(&other, 0, 0).shard;
+    i.accounts[7].pubkey = shard_addrs(&other, 0, 0).shard;
     expect_custom(env.send(&[i], &[&keeper]), anchor_codes::CONSTRAINT_HAS_ONE);
 
     // Paused market: nothing activates; after unpause it does.

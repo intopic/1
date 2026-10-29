@@ -26,6 +26,7 @@ pub const VAULT_AUTH_SEED: &[u8] = b"vault_auth";
 pub const VAULT_SEED: &[u8] = b"vault";
 pub const TICK_ARRAY_SEED: &[u8] = b"ticks";
 pub const POSITION_SEED: &[u8] = b"lp_pos";
+pub const PROTOCOL_SEED: &[u8] = b"protocol";
 
 // Market parameter bounds (docs/numeric-spec.md section 1, ADR-0004).
 pub const FEE_RATE_DENOMINATOR: u32 = 1_000_000;
@@ -70,3 +71,12 @@ pub const MAX_REBALANCERS: usize = 4;
 pub const MAX_DEPTH_IMPACT_BPS: u16 = 2_000;
 /// Upper bound on the activation price tolerance.
 pub const MAX_ACTIVATION_DEVIATION_BPS: u16 = 10_000;
+
+/// Market profiles the protocol allows (`ProtocolSettings::profiles`).
+pub const MAX_PROFILES: usize = 4;
+/// Mints that may keep a freeze authority (`ProtocolSettings::freeze_allowlist`).
+pub const MAX_FREEZE_ALLOWLIST: usize = 4;
+/// `MarketConfig::risk_flags`: the mint still has a mint authority (more
+/// supply can be created). Informational; the market is not refused.
+pub const RISK_MINT_AUTHORITY_A: u8 = 1 << 0;
+pub const RISK_MINT_AUTHORITY_B: u8 = 1 << 1;

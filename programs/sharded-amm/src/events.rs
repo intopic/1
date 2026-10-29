@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::constants::MAX_REBALANCERS;
-use crate::state::{DynamicFeeParams, MarketParams};
+use crate::state::{DynamicFeeParams, MarketParams, ProtocolSettings, Roles};
 
 #[event]
 pub struct MarketInitialized {
@@ -10,6 +10,9 @@ pub struct MarketInitialized {
     pub mint_b: Pubkey,
     pub market_id: u64,
     pub params: MarketParams,
+    pub profile: u8,
+    pub creator: Pubkey,
+    pub risk_flags: u8,
 }
 
 #[event]
@@ -199,4 +202,63 @@ pub struct ProtocolFeesCollected {
     pub amount_a: u64,
     pub amount_b: u64,
     pub by: Pubkey,
+}
+
+#[event]
+pub struct ProtocolInitialized {
+    pub roles: Roles,
+    pub settings: ProtocolSettings,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct RolesChangeProposed {
+    pub roles: Roles,
+    pub eta: i64,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct RolesUpdated {
+    pub old: Roles,
+    pub new: Roles,
+    pub pending_admin: Pubkey,
+    pub roles_version: u32,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct AdminAccepted {
+    pub old: Pubkey,
+    pub new: Pubkey,
+    pub roles_version: u32,
+}
+
+#[event]
+pub struct PauserRemoved {
+    pub removed: Pubkey,
+    pub roles_version: u32,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct SettingsChangeProposed {
+    pub settings: ProtocolSettings,
+    pub eta: i64,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct SettingsUpdated {
+    pub old: ProtocolSettings,
+    pub new: ProtocolSettings,
+    pub by: Pubkey,
+}
+
+#[event]
+pub struct MarketRolesSynced {
+    pub market: Pubkey,
+    pub roles: Roles,
+    pub old_keeper: Pubkey,
+    pub roles_version: u32,
 }

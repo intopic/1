@@ -17,6 +17,9 @@
 //! shards. `vault_authority` is never given to any role.
 
 use anchor_lang::prelude::*;
+
+use crate::constants::PROTOCOL_SEED;
+use crate::state::ProtocolConfig;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 
 use crate::constants::{REGISTRY_SEED, SHARD_SEED, VAULT_AUTH_SEED, VAULT_SEED};
@@ -32,6 +35,13 @@ pub struct PrepareShard<'info> {
     pub payer: Signer<'info>,
     #[account(has_one = mint_a, has_one = mint_b, has_one = token_program)]
     pub market: Box<Account<'info, MarketConfig>>,
+    /// Current protocol roles; the market's copies must match (D-04).
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol.bump,
+        constraint = protocol.roles_version == market.roles_version @ AmmError::StaleRoles,
+    )]
+    pub protocol: Box<Account<'info, ProtocolConfig>>,
     #[account(
         mut,
         seeds = [REGISTRY_SEED, market.key().as_ref()],

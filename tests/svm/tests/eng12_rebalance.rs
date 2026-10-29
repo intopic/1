@@ -404,6 +404,7 @@ fn ix_flags(m: &Market, authority: &Pubkey, flags: u8) -> solana_instruction::In
         sharded_amm::accounts::SetPaused {
             authority: *authority,
             market: m.market,
+            protocol: protocol_pda(),
         },
         sharded_amm::instruction::SetPauseFlags { flags },
     )

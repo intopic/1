@@ -23,6 +23,9 @@
 
 use anchor_lang::prelude::*;
 
+use crate::constants::PROTOCOL_SEED;
+use crate::state::ProtocolConfig;
+
 use crate::constants::{MIN_REOPEN_REFERENCES, PAUSE_SWAPS, REGISTRY_SEED};
 use crate::errors::AmmError;
 use crate::events::{MarketPauseChanged, PauseFlagsChanged, ShardPauseFlagsChanged, ShardReopened};
@@ -35,12 +38,26 @@ pub struct SetPaused<'info> {
     pub authority: Signer<'info>,
     #[account(mut)]
     pub market: Box<Account<'info, MarketConfig>>,
+    /// Current protocol roles; the market's copies must match (D-04).
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol.bump,
+        constraint = protocol.roles_version == market.roles_version @ AmmError::StaleRoles,
+    )]
+    pub protocol: Box<Account<'info, ProtocolConfig>>,
 }
 
 #[derive(Accounts)]
 pub struct SetShardPauseFlags<'info> {
     pub authority: Signer<'info>,
     pub market: Box<Account<'info, MarketConfig>>,
+    /// Current protocol roles; the market's copies must match (D-04).
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol.bump,
+        constraint = protocol.roles_version == market.roles_version @ AmmError::StaleRoles,
+    )]
+    pub protocol: Box<Account<'info, ProtocolConfig>>,
     #[account(mut, seeds = [REGISTRY_SEED, market.key().as_ref()], bump = registry.bump, has_one = market)]
     pub registry: Box<Account<'info, ShardRegistry>>,
     #[account(mut, has_one = market)]
@@ -76,6 +93,13 @@ pub struct ReopenShard<'info> {
     pub admin: Signer<'info>,
     #[account(has_one = admin)]
     pub market: Box<Account<'info, MarketConfig>>,
+    /// Current protocol roles; the market's copies must match (D-04).
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol.bump,
+        constraint = protocol.roles_version == market.roles_version @ AmmError::StaleRoles,
+    )]
+    pub protocol: Box<Account<'info, ProtocolConfig>>,
     #[account(mut, seeds = [REGISTRY_SEED, market.key().as_ref()], bump = registry.bump, has_one = market)]
     pub registry: Box<Account<'info, ShardRegistry>>,
     #[account(mut, has_one = market)]

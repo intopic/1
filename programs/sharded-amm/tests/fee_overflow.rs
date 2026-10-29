@@ -88,7 +88,10 @@ fn run(c: &Case, r: &mut Rng) -> Totals {
     };
     // The whole range in either token must fit a SPL balance (else no vault
     // could hold it): halve L until it does.
-    let (sa, sb) = (sqrt_price_at_tick(lower).unwrap(), sqrt_price_at_tick(upper).unwrap());
+    let (sa, sb) = (
+        sqrt_price_at_tick(lower).unwrap(),
+        sqrt_price_at_tick(upper).unwrap(),
+    );
     let fits = |l: u128| {
         to_u128(amount_a_delta(sa, sb, l, true).unwrap()).unwrap() <= u128::from(u64::MAX)
             && to_u128(amount_b_delta(sa, sb, l, true).unwrap()).unwrap() <= u128::from(u64::MAX)

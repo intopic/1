@@ -13,6 +13,10 @@
 
 use anchor_lang::prelude::*;
 
+use crate::constants::PROTOCOL_SEED;
+use crate::errors::AmmError;
+use crate::state::ProtocolConfig;
+
 use crate::constants::MAX_REBALANCERS;
 use crate::events::{
     FeeChangeProposed, FeesUpdated, RebalancersChangeProposed, RebalancersUpdated,
@@ -24,6 +28,13 @@ pub struct UpdateFees<'info> {
     pub admin: Signer<'info>,
     #[account(mut)]
     pub market: Box<Account<'info, MarketConfig>>,
+    /// Current protocol roles; the market's copies must match (D-04).
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol.bump,
+        constraint = protocol.roles_version == market.roles_version @ AmmError::StaleRoles,
+    )]
+    pub protocol: Box<Account<'info, ProtocolConfig>>,
 }
 
 pub fn handle_update_fees(

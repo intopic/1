@@ -5,6 +5,9 @@
 //! are paid and reset.
 
 use anchor_lang::prelude::*;
+
+use crate::constants::PROTOCOL_SEED;
+use crate::state::ProtocolConfig;
 use anchor_spl::token::{Token, TokenAccount};
 
 use crate::constants::VAULT_AUTH_SEED;
@@ -19,6 +22,13 @@ pub struct CollectProtocolFees<'info> {
     pub revenue_authority: Signer<'info>,
     #[account(has_one = revenue_authority, has_one = token_program)]
     pub market: Box<Account<'info, MarketConfig>>,
+    /// Current protocol roles; the market's copies must match (D-04).
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol.bump,
+        constraint = protocol.roles_version == market.roles_version @ AmmError::StaleRoles,
+    )]
+    pub protocol: Box<Account<'info, ProtocolConfig>>,
     #[account(mut, has_one = market, has_one = vault_a, has_one = vault_b)]
     pub shard: Box<Account<'info, ShardState>>,
     #[account(mut)]

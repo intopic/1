@@ -13,6 +13,9 @@
 //!   already active reference shard.
 
 use anchor_lang::prelude::*;
+
+use crate::constants::PROTOCOL_SEED;
+use crate::state::ProtocolConfig;
 use anchor_spl::token::TokenAccount;
 
 use crate::constants::{INITIAL_SHARDS, REGISTRY_SEED};
@@ -46,6 +49,13 @@ pub struct OpenMarket<'info> {
     pub authority: Signer<'info>,
     #[account(mut)]
     pub market: Box<Account<'info, MarketConfig>>,
+    /// Current protocol roles; the market's copies must match (D-04).
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol.bump,
+        constraint = protocol.roles_version == market.roles_version @ AmmError::StaleRoles,
+    )]
+    pub protocol: Box<Account<'info, ProtocolConfig>>,
     #[account(mut, seeds = [REGISTRY_SEED, market.key().as_ref()], bump = registry.bump, has_one = market)]
     pub registry: Account<'info, ShardRegistry>,
 }
@@ -108,6 +118,13 @@ pub struct CancelSetup<'info> {
     pub admin: Signer<'info>,
     #[account(mut)]
     pub market: Box<Account<'info, MarketConfig>>,
+    /// Current protocol roles; the market's copies must match (D-04).
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol.bump,
+        constraint = protocol.roles_version == market.roles_version @ AmmError::StaleRoles,
+    )]
+    pub protocol: Box<Account<'info, ProtocolConfig>>,
 }
 
 pub fn handle_cancel_setup(ctx: Context<CancelSetup>) -> Result<()> {
@@ -124,6 +141,13 @@ pub fn handle_cancel_setup(ctx: Context<CancelSetup>) -> Result<()> {
 pub struct ActivateShard<'info> {
     pub keeper: Signer<'info>,
     pub market: Box<Account<'info, MarketConfig>>,
+    /// Current protocol roles; the market's copies must match (D-04).
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol.bump,
+        constraint = protocol.roles_version == market.roles_version @ AmmError::StaleRoles,
+    )]
+    pub protocol: Box<Account<'info, ProtocolConfig>>,
     #[account(mut, seeds = [REGISTRY_SEED, market.key().as_ref()], bump = registry.bump, has_one = market)]
     pub registry: Account<'info, ShardRegistry>,
     #[account(mut, has_one = market, has_one = vault_a, has_one = vault_b)]

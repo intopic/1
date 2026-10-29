@@ -138,4 +138,14 @@ pub enum AmmError {
     TransferAmountMismatch,
     #[msg("Lifting a shard's swap pause needs reopen_shard and its price check")]
     ReopenNeedsPriceCheck,
+    #[msg("Invalid protocol settings")]
+    InvalidProtocolSettings,
+    #[msg("Market profile is not allowed by the protocol")]
+    ProfileNotAllowed,
+    #[msg("Market roles are out of date; call sync_market_roles")]
+    StaleRoles,
+    #[msg("Mint has a freeze authority and is not on the protocol allowlist")]
+    FreezeAuthorityNotAllowed,
+    #[msg("Signer is not the program's upgrade authority")]
+    NotUpgradeAuthority,
 }

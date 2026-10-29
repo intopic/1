@@ -9,12 +9,13 @@ use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
 use litesvm::LiteSVM;
 use sharded_amm::{
     constants::{
-        MARKET_SEED, POSITION_SEED, REGISTRY_SEED, SCHEMA_VERSION, SHARD_SEED, TICK_ARRAY_SEED,
-        VAULT_AUTH_SEED, VAULT_SEED,
+        MARKET_SEED, POSITION_SEED, PROTOCOL_SEED, REGISTRY_SEED, SCHEMA_VERSION, SHARD_SEED,
+        TICK_ARRAY_SEED, VAULT_AUTH_SEED, VAULT_SEED,
     },
     instructions::{InitializeMarketArgs, SwapArgs},
     state::{
-        MarketConfig, MarketParams, Position, ReadinessParams, ShardRegistry, ShardState, TickArray,
+        DynamicFeeParams, MarketConfig, MarketParams, MarketProfile, Position, ProtocolConfig,
+        ProtocolSettings, ReadinessParams, Roles, ShardRegistry, ShardState, TickArray,
     },
 };
 use solana_account::Account;
@@ -109,6 +110,36 @@ pub fn shard_addrs(market: &Market, id: u8, generation: u64) -> ShardAddrs {
     }
 }
 
+pub const UPGRADEABLE_LOADER: Pubkey =
+    anchor_lang::pubkey!("BPFLoaderUpgradeab1e11111111111111111111111");
+
+pub fn protocol_pda() -> Pubkey {
+    pda(&[PROTOCOL_SEED])
+}
+
+pub fn program_data_pda() -> Pubkey {
+    Pubkey::find_program_address(&[sharded_amm::ID.as_ref()], &UPGRADEABLE_LOADER).0
+}
+
+/// A profile with exactly these params and the dynamic fee off.
+pub fn profile_of(params: MarketParams) -> MarketProfile {
+    MarketProfile {
+        enabled: true,
+        tick_spacing: params.tick_spacing,
+        fee_rate_ppm: params.fee_rate_ppm,
+        protocol_share_bps: params.protocol_share_bps,
+        dynamic: DynamicFeeParams::disabled(params.fee_rate_ppm),
+    }
+}
+
+/// Settings the harness starts with: one profile (`default_params`), no
+/// creation fee, an empty freeze allowlist.
+pub fn default_settings() -> ProtocolSettings {
+    let mut s = ProtocolSettings::default();
+    s.profiles[0] = profile_of(default_params());
+    s
+}
+
 pub fn default_params() -> MarketParams {
     MarketParams {
         fee_rate_ppm: 3_000,
@@ -173,7 +204,144 @@ impl Env {
         for kp in [&env.admin, &env.keeper, &env.revenue, &env.pauser] {
             env.svm.airdrop(&kp.pubkey(), 100_000_000_000).unwrap();
         }
+        // The deployer (upgrade authority) is the admin and creates the
+        // protocol account with the harness roles.
+        let admin = env.admin.pubkey();
+        env.set_upgrade_authority(Some(&admin));
+        let ix = env.ix_initialize_protocol(&admin, env.roles(), default_settings());
+        let signer = env.admin.insecure_clone();
+        env.send(&[ix], &[&signer]).expect("initialize_protocol");
         env
+    }
+
+    pub fn roles(&self) -> Roles {
+        Roles {
+            admin: self.admin.pubkey(),
+            keeper: self.keeper.pubkey(),
+            pauser: self.pauser.pubkey(),
+            revenue_authority: self.revenue.pubkey(),
+        }
+    }
+
+    /// Rewrites the program's ProgramData upgrade authority (LiteSVM loads
+    /// programs with none).
+    pub fn set_upgrade_authority(&mut self, authority: Option<&Pubkey>) {
+        let key = program_data_pda();
+        let mut acc = self.raw(&key).expect("program data");
+        // UpgradeableLoaderState::ProgramData: tag u32, slot u64, Option<Pubkey>.
+        match authority {
+            Some(a) => {
+                acc.data[12] = 1;
+                acc.data[13..45].copy_from_slice(a.as_ref());
+            }
+            None => {
+                acc.data[12] = 0;
+                acc.data[13..45].fill(0);
+            }
+        }
+        self.svm.set_account(key, acc).unwrap();
+    }
+
+    pub fn ix_initialize_protocol(
+        &self,
+        authority: &Pubkey,
+        roles: Roles,
+        settings: ProtocolSettings,
+    ) -> Instruction {
+        ix(
+            sharded_amm::accounts::InitializeProtocol {
+                authority: *authority,
+                protocol: protocol_pda(),
+                program: sharded_amm::ID,
+                program_data: program_data_pda(),
+                system_program: SYSTEM_PROGRAM,
+            },
+            sharded_amm::instruction::InitializeProtocol { roles, settings },
+        )
+    }
+
+    /// A protocol instruction (`UpdateProtocol` accounts) signed by `authority`.
+    pub fn ix_protocol(authority: &Pubkey, data: impl InstructionData) -> Instruction {
+        ix(
+            sharded_amm::accounts::UpdateProtocol {
+                authority: *authority,
+                protocol: protocol_pda(),
+            },
+            data,
+        )
+    }
+
+    pub fn ix_sync_roles(m: &Market) -> Instruction {
+        ix(
+            sharded_amm::accounts::SyncMarketRoles {
+                protocol: protocol_pda(),
+                market: m.market,
+            },
+            sharded_amm::instruction::SyncMarketRoles {},
+        )
+    }
+
+    /// A classic SPL mint with the given authorities.
+    pub fn create_mint_with(
+        &mut self,
+        decimals: u8,
+        mint_authority: Option<&Pubkey>,
+        freeze: Option<&Pubkey>,
+    ) -> Pubkey {
+        let key = Pubkey::new_unique();
+        let mut data = mint_data(decimals, &Pubkey::default(), freeze);
+        match mint_authority {
+            Some(a) => data[4..36].copy_from_slice(a.as_ref()),
+            None => data[0..36].fill(0),
+        }
+        let lamports = self.svm.minimum_balance_for_rent_exemption(data.len());
+        self.svm
+            .set_account(
+                key,
+                Account {
+                    lamports,
+                    data,
+                    owner: TOKEN_PROGRAM,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .unwrap();
+        key
+    }
+
+    pub fn protocol(&self) -> ProtocolConfig {
+        self.account(&protocol_pda())
+    }
+
+    /// Test shortcut: writes protocol settings in place, skipping the
+    /// timelock (which `protocol_roles.rs` tests through the program).
+    pub fn force_settings(&mut self, settings: ProtocolSettings) {
+        use anchor_lang::AccountSerialize;
+        let mut cfg = self.protocol();
+        cfg.settings = settings;
+        let mut acc = self.raw(&protocol_pda()).unwrap();
+        let mut data = Vec::new();
+        cfg.try_serialize(&mut data).unwrap();
+        acc.data = data;
+        self.svm.set_account(protocol_pda(), acc).unwrap();
+    }
+
+    /// Makes sure each of `params` is an allowed profile.
+    pub fn allow_profiles(&mut self, params: &[MarketParams]) {
+        let mut s = self.protocol().settings;
+        for p in params {
+            if s.profiles.iter().any(|q| q.enabled && q.params() == *p) {
+                continue;
+            }
+            let slot = s
+                .profiles
+                .iter()
+                .position(|q| !q.enabled)
+                .expect("a free profile slot");
+            s.profiles[slot] = profile_of(*p);
+        }
+        self.force_settings(s);
     }
 
     pub fn create_mint(&mut self, decimals: u8, owner_program: Pubkey) -> Pubkey {
@@ -231,27 +399,35 @@ impl Env {
         self.svm.get_account(key)
     }
 
+    /// Args for a market with `params`, which must be an allowed profile
+    /// (`allow_profiles`).
     pub fn init_args(&self, market_id: u64, params: MarketParams) -> InitializeMarketArgs {
+        let profile = self
+            .protocol()
+            .settings
+            .profiles
+            .iter()
+            .position(|q| q.enabled && q.params() == params)
+            .unwrap_or_else(|| panic!("{params:?} is not an allowed profile"))
+            as u8;
         InitializeMarketArgs {
             market_id,
-            params,
-            keeper: self.keeper.pubkey(),
-            revenue_authority: self.revenue.pubkey(),
-            pauser: self.pauser.pubkey(),
+            profile,
             readiness: default_readiness(),
         }
     }
 
     pub fn ix_initialize_market(
         &self,
-        admin: &Pubkey,
+        creator: &Pubkey,
         mint_a: Pubkey,
         mint_b: Pubkey,
         args: InitializeMarketArgs,
     ) -> Instruction {
         let market = market_pda(&mint_a, &mint_b, args.market_id);
         let accounts = sharded_amm::accounts::InitializeMarket {
-            admin: *admin,
+            creator: *creator,
+            protocol: protocol_pda(),
             mint_a,
             mint_b,
             market,
@@ -303,6 +479,7 @@ impl Env {
             authority: *authority,
             payer: *authority,
             market: m.market,
+            protocol: protocol_pda(),
             registry: m.registry,
             mint_a: m.mint_a,
             mint_b: m.mint_b,
@@ -377,6 +554,7 @@ impl Env {
         let accounts = sharded_amm::accounts::SetPaused {
             authority: *authority,
             market: m.market,
+            protocol: protocol_pda(),
         };
         Instruction {
             program_id: sharded_amm::ID,
@@ -408,6 +586,7 @@ impl Env {
             sharded_amm::accounts::UpdateFees {
                 admin: *admin,
                 market: m.market,
+                protocol: protocol_pda(),
             },
             sharded_amm::instruction::UpdateRebalancers { keys: k },
         )
@@ -418,6 +597,7 @@ impl Env {
             sharded_amm::accounts::UpdateFees {
                 admin: *admin,
                 market: m.market,
+                protocol: protocol_pda(),
             },
             sharded_amm::instruction::ApplyRebalancers {},
         )
@@ -447,6 +627,7 @@ impl Env {
         let accounts = sharded_amm::accounts::UpdateFees {
             admin: *admin,
             market: m.market,
+            protocol: protocol_pda(),
         };
         Instruction {
             program_id: sharded_amm::ID,
@@ -838,6 +1019,7 @@ impl Env {
             sharded_amm::accounts::OpenMarket {
                 authority: *authority,
                 market: m.market,
+                protocol: protocol_pda(),
                 registry: m.registry,
             },
             sharded_amm::instruction::OpenMarket {},
@@ -858,6 +1040,7 @@ impl Env {
             sharded_amm::accounts::CancelSetup {
                 admin: *admin,
                 market: m.market,
+                protocol: protocol_pda(),
             },
             sharded_amm::instruction::CancelSetup {},
         )
@@ -869,6 +1052,7 @@ impl Env {
             sharded_amm::accounts::ActivateShard {
                 keeper: *keeper,
                 market: m.market,
+                protocol: protocol_pda(),
                 registry: m.registry,
                 shard: a.shard,
                 vault_a: a.vault_a,
@@ -884,6 +1068,7 @@ impl Env {
             sharded_amm::accounts::UpdateFees {
                 admin: *admin,
                 market: m.market,
+                protocol: protocol_pda(),
             },
             sharded_amm::instruction::ApplyFees {},
         )
@@ -894,6 +1079,7 @@ impl Env {
             sharded_amm::accounts::UpdateFees {
                 admin: *admin,
                 market: m.market,
+                protocol: protocol_pda(),
             },
             sharded_amm::instruction::CancelFeeChange {},
         )
@@ -911,6 +1097,7 @@ impl Env {
             sharded_amm::accounts::CollectProtocolFees {
                 revenue_authority: *revenue,
                 market: m.market,
+                protocol: protocol_pda(),
                 shard: a.shard,
                 vault_a: a.vault_a,
                 vault_b: a.vault_b,
@@ -1052,6 +1239,7 @@ pub fn ix_shard_flags(
         sharded_amm::accounts::SetShardPauseFlags {
             authority: *authority,
             market: m.market,
+            protocol: protocol_pda(),
             registry: m.registry,
             shard: shard_addrs(m, id, 0).shard,
         },
@@ -1071,6 +1259,7 @@ pub fn ix_reopen(
         sharded_amm::accounts::ReopenShard {
             admin: *admin,
             market: m.market,
+            protocol: protocol_pda(),
             registry: m.registry,
             shard: shard_addrs(m, id, 0).shard,
         },

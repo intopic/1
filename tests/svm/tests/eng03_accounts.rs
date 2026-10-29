@@ -79,11 +79,12 @@ fn initialize_market_rejects_token_2022_mint_and_wrong_token_program() {
 }
 
 #[test]
-fn initialize_market_rejects_out_of_bounds_params() {
+fn initialize_market_takes_only_allowed_profiles() {
     let mut env = Env::new();
     let (a, b) = env.sorted_mints();
     let admin = env.admin.insecure_clone();
     let p = default_params();
+    // Out-of-bounds profiles never become allowed: the protocol rejects them.
     for (params, err) in [
         (
             MarketParams {
@@ -114,18 +115,43 @@ fn initialize_market_rejects_out_of_bounds_params() {
             AmmError::InvalidTickSpacing,
         ),
     ] {
-        let ix = env.ix_initialize_market(&admin.pubkey(), a, b, env.init_args(1, params));
+        let mut s = env.protocol().settings;
+        s.profiles[1] = profile_of(params);
+        let ix = Env::ix_protocol(
+            &admin.pubkey(),
+            sharded_amm::instruction::ProposeSettings { settings: s },
+        );
         expect_custom(env.send(&[ix], &[&admin]), amm_code(err));
     }
-    // Candidate fee tiers and spacings from ADR-0004 are accepted.
-    for (id, fee, spacing) in [(10u64, 500u32, 10u16), (11, 1_000, 60), (12, 3_000, 10)] {
-        let params = MarketParams {
+    // A disabled or missing profile index is refused.
+    for profile in [1u8, 4, 255] {
+        let mut args = env.init_args(1, p);
+        args.profile = profile;
+        let ix = env.ix_initialize_market(&admin.pubkey(), a, b, args);
+        expect_custom(
+            env.send(&[ix], &[&admin]),
+            amm_code(AmmError::ProfileNotAllowed),
+        );
+    }
+    // Candidate fee tiers and spacings from ADR-0004 are accepted once allowed.
+    let tiers = [(10u64, 500u32, 10u16), (11, 1_000, 60), (12, 3_000, 10)];
+    let params: Vec<MarketParams> = tiers
+        .iter()
+        .map(|&(_, fee, spacing)| MarketParams {
             fee_rate_ppm: fee,
             protocol_share_bps: 2_000,
             tick_spacing: spacing,
-        };
+        })
+        .collect();
+    env.allow_profiles(&params);
+    for (&(id, ..), params) in tiers.iter().zip(params) {
         let ix = env.ix_initialize_market(&admin.pubkey(), a, b, env.init_args(id, params));
         env.send(&[ix], &[&admin]).expect("valid params");
+        assert_eq!(
+            env.account::<sharded_amm::state::MarketConfig>(&market_pda(&a, &b, id))
+                .params,
+            params
+        );
     }
 }
 
@@ -344,7 +370,8 @@ fn account_sizes_match_layout_doc() {
     let m = env.market();
     let keeper = env.keeper.insecure_clone();
     env.prepare(&m, &keeper, 0).unwrap();
-    assert_eq!(env.raw(&m.market).unwrap().data.len(), 643);
+    assert_eq!(env.raw(&protocol_pda()).unwrap().data.len(), 905);
+    assert_eq!(env.raw(&m.market).unwrap().data.len(), 680);
     assert_eq!(env.raw(&m.registry).unwrap().data.len(), 73);
     assert_eq!(
         env.raw(&shard_addrs(&m, 0, 0).shard).unwrap().data.len(),

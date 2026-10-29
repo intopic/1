@@ -25,6 +25,9 @@ pub struct MarketConfig {
     pub mint_b: Pubkey,
     /// Pinned token program (classic SPL Token in v1).
     pub token_program: Pubkey,
+    /// The roles below are copies of `ProtocolConfig::roles` (never chosen
+    /// by the creator), valid only while `roles_version` matches the
+    /// protocol's; `sync_market_roles` refreshes them.
     /// Parameters within bounds. Cannot move principal.
     pub admin: Pubkey,
     /// Prepares/activates shards only when on-chain readiness checks pass.
@@ -53,6 +56,12 @@ pub struct MarketConfig {
     /// (`apply_fees`); a shard's depth certificate is valid only for the
     /// version it was made under (re-audit P2-5).
     pub config_version: u32,
+    /// Who paid for the market. Holds no role.
+    pub creator: Pubkey,
+    /// `ProtocolConfig::roles_version` the roles above were copied at.
+    pub roles_version: u32,
+    /// `RISK_*` bits found at creation (e.g. a live mint authority).
+    pub risk_flags: u8,
     /// Zeroed space for future fields without a realloc.
     pub reserved: [u8; 10],
 }
@@ -459,6 +468,31 @@ impl MarketConfig {
         Ok(())
     }
 
+    /// Copies the protocol's roles (`sync_market_roles`). A rebalancer slot
+    /// holding the old keeper moves to the new keeper (or is emptied if the
+    /// new keeper is already listed). Returns the old keeper.
+    pub fn sync_roles(&mut self, roles: &crate::state::Roles, version: u32) -> Pubkey {
+        let old_keeper = self.keeper;
+        if old_keeper != roles.keeper {
+            let listed = self.rebalancers.contains(&roles.keeper);
+            for k in self.rebalancers.iter_mut() {
+                if *k == old_keeper {
+                    *k = if listed {
+                        Pubkey::default()
+                    } else {
+                        roles.keeper
+                    };
+                }
+            }
+        }
+        self.admin = roles.admin;
+        self.keeper = roles.keeper;
+        self.pauser = roles.pauser;
+        self.revenue_authority = roles.revenue_authority;
+        self.roles_version = version;
+        old_keeper
+    }
+
     /// Signer may prepare shards: the keeper, or the admin during setup.
     pub fn can_prepare(&self, signer: &Pubkey) -> bool {
         *signer == self.keeper
@@ -564,6 +598,9 @@ mod tests {
             ],
             pending_rebalancers: PendingRebalancers::default(),
             config_version: 0,
+            creator: Pubkey::default(),
+            roles_version: 0,
+            risk_flags: 0,
             reserved: [0; 10],
         }
     }
@@ -924,5 +961,44 @@ mod tests {
         c.propose_rebalancers(&admin, [none; 4], 0).unwrap();
         c.apply_rebalancers(&admin, FEE_TIMELOCK_SECONDS).unwrap();
         assert!(!c.is_rebalancer(&bot) && !c.is_rebalancer(&keeper));
+    }
+
+    #[test]
+    fn sync_copies_roles_and_moves_the_keepers_rebalancer_slot() {
+        let mut c = config(MarketStatus::Open);
+        let bot = Pubkey::new_from_array([9; 32]);
+        c.rebalancers = [c.keeper, bot, Pubkey::default(), Pubkey::default()];
+        let roles = crate::state::Roles {
+            admin: Pubkey::new_from_array([11; 32]),
+            keeper: Pubkey::new_from_array([12; 32]),
+            pauser: Pubkey::default(),
+            revenue_authority: Pubkey::new_from_array([14; 32]),
+        };
+        let old = c.sync_roles(&roles, 7);
+        assert_eq!(old, Pubkey::new_from_array([2; 32]));
+        assert_eq!(
+            (
+                c.admin,
+                c.keeper,
+                c.pauser,
+                c.revenue_authority,
+                c.roles_version
+            ),
+            (
+                roles.admin,
+                roles.keeper,
+                roles.pauser,
+                roles.revenue_authority,
+                7
+            )
+        );
+        assert_eq!(c.rebalancers[..2], [roles.keeper, bot]);
+        // A new keeper that is already listed is not listed twice.
+        let again = crate::state::Roles {
+            keeper: bot,
+            ..roles
+        };
+        c.sync_roles(&again, 8);
+        assert_eq!(c.rebalancers[..2], [Pubkey::default(), bot]);
     }
 }
