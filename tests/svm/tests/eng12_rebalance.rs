@@ -535,19 +535,17 @@ fn shard_pause_stops_one_shard_only() {
         env.send(&[ix_shard_flags(&m, &admin.pubkey(), 1, 0)], &[&admin]),
         amm_code(AmmError::ReopenNeedsPriceCheck),
     );
-    env.send(
-        &[ix_reopen(&m, &admin.pubkey(), 1, 0, &[3, 4, 5])],
-        &[&admin],
-    )
-    .unwrap();
+    let refs = env.open_others(&m, 1);
+    env.send(&[ix_reopen(&m, &admin.pubkey(), 1, 0, &refs)], &[&admin])
+        .unwrap();
     env.swap(&m, &t, 1, true, 1_000_000).unwrap();
     env.add_liquidity(&m, &t, 1, -600, 600, 1_000_000).unwrap();
 }
 
 /// Shard 0's price is more than 1% off the others when its swaps are
 /// paused. It cannot reopen until the listed rebalancer, trading against an
-/// open shard, brings it back; then `reopen_shard` checks the median of the
-/// references in the same transaction.
+/// open shard, brings it back; then `reopen_shard` checks the median of
+/// every open shard in the same transaction (D-09).
 #[test]
 fn controlled_reopen_after_recovery() {
     let (mut env, m, _) = diverged();
@@ -565,24 +563,26 @@ fn controlled_reopen_after_recovery() {
     let reopen = |env: &mut Env, refs: &[u8]| {
         env.send(&[ix_reopen(&m, &admin.pubkey(), 0, 0, refs)], &[&admin])
     };
+    let all = [1u8, 2, 3, 4, 5, 6, 7];
     expect_custom(
-        reopen(&mut env, &[1, 2, 3]),
+        reopen(&mut env, &all),
         amm_code(AmmError::PriceDeviationTooHigh),
     );
+    // Exactly the open shards: not a subset, not itself, no duplicates.
     expect_custom(
-        reopen(&mut env, &[1, 2]),
+        reopen(&mut env, &[1, 2, 3]),
         amm_code(AmmError::InvalidAccountCount),
     );
     expect_custom(
-        reopen(&mut env, &[0, 1, 2]),
-        amm_code(AmmError::DuplicateAccount),
+        reopen(&mut env, &[0, 1, 2, 3, 4, 5, 6]),
+        amm_code(AmmError::ShardMismatch),
     );
     expect_custom(
-        reopen(&mut env, &[1, 1, 2]),
+        reopen(&mut env, &[1, 1, 2, 3, 4, 5, 6]),
         amm_code(AmmError::DuplicateAccount),
     );
     // Only the admin.
-    let i = ix_reopen(&m, &pauser.pubkey(), 0, 0, &[1, 2, 3]);
+    let i = ix_reopen(&m, &pauser.pubkey(), 0, 0, &all);
     assert!(env.send(&[i], &[&pauser]).is_err());
 
     // Recovery: the listed rebalancer, against an open shard only.
@@ -591,9 +591,14 @@ fn controlled_reopen_after_recovery() {
         &[&pauser],
     )
     .unwrap();
+    // A swap-paused shard is no longer a reference.
     expect_custom(
-        reopen(&mut env, &[1, 2, 4]),
-        amm_code(AmmError::ShardPaused),
+        reopen(&mut env, &all),
+        amm_code(AmmError::InvalidAccountCount),
+    );
+    expect_custom(
+        reopen(&mut env, &[1, 2, 3, 4, 5, 6]),
+        amm_code(AmmError::ShardMismatch),
     );
     let caller = env.user(&m, 0);
     env.set_rebalancers(&m, &[caller.kp.pubkey()]);
@@ -625,21 +630,19 @@ fn controlled_reopen_after_recovery() {
     assert!(env.balance(&caller.token_b) > 0, "paid only its profit");
 
     // Back within the deviation of the median: reopens, swaps work.
-    reopen(&mut env, &[1, 2, 3]).unwrap();
+    let open = [1u8, 2, 3, 5, 6, 7];
+    reopen(&mut env, &open).unwrap();
     assert_eq!(env.shard_state(&m, 0).pause_flags, 0);
     env.swap(&m, &t, 0, true, 1_000_000).unwrap();
     // Nothing left to reopen.
-    expect_custom(
-        reopen(&mut env, &[1, 2, 3]),
-        amm_code(AmmError::NoPendingChange),
-    );
+    expect_custom(reopen(&mut env, &open), amm_code(AmmError::NoPendingChange));
 }
 
 /// Re-audit P2-1: reopening never depends on three shards that cannot
 /// reopen themselves. With 1 or 2 trading shards they are the references;
-/// with none, a bootstrap checks the shard against paused ones.
+/// with none, a bootstrap checks the shard against all the paused ones.
 #[test]
-fn reopen_with_fewer_than_three_trading_shards() {
+fn reopen_with_few_or_no_trading_shards() {
     let mut env = Env::new();
     let (m, _) = env.open_seeded_market();
     let (admin, pauser) = (env.admin.insecure_clone(), env.pauser.insecure_clone());
@@ -663,8 +666,8 @@ fn reopen_with_fewer_than_three_trading_shards() {
         amm_code(AmmError::InvalidAccountCount),
     );
     expect_custom(
-        reopen(&mut env, 0, &[1, 6, 7]),
-        amm_code(AmmError::ShardPaused),
+        reopen(&mut env, 0, &[1, 6]),
+        amm_code(AmmError::ShardMismatch),
     );
     reopen(&mut env, 0, &[6, 7]).unwrap();
     assert_eq!(env.registry(&m).swap_paused_mask, 0b11_1110);
@@ -673,7 +676,7 @@ fn reopen_with_fewer_than_three_trading_shards() {
     pause(&mut env, 6);
     reopen(&mut env, 1, &[7]).unwrap();
     pause(&mut env, 1);
-    // None trading: bootstrap against paused active shards, still >= 3.
+    // None trading: bootstrap against every other active shard (all paused).
     pause(&mut env, 7);
     assert_eq!(env.registry(&m).swap_paused_mask, 0xff);
     let t = env.user(&m, 1_000_000_000);
@@ -682,10 +685,10 @@ fn reopen_with_fewer_than_three_trading_shards() {
         amm_code(AmmError::ShardPaused),
     );
     expect_custom(
-        reopen(&mut env, 2, &[3, 4]),
+        reopen(&mut env, 2, &[3, 4, 5]),
         amm_code(AmmError::InvalidAccountCount),
     );
-    reopen(&mut env, 2, &[3, 4, 5]).unwrap();
+    reopen(&mut env, 2, &[0, 1, 3, 4, 5, 6, 7]).unwrap();
     env.swap(&m, &t, 2, true, 1_000).unwrap();
     // From there on the others reopen against the trading shard 2.
     reopen(&mut env, 3, &[2]).unwrap();

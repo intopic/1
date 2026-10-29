@@ -60,9 +60,6 @@ pub const PAUSE_SWAPS: u8 = 1 << 0;
 pub const PAUSE_DEPOSITS: u8 = 1 << 1;
 pub const PAUSE_REBALANCE: u8 = 1 << 2;
 pub const PAUSE_FLAGS_MASK: u8 = PAUSE_SWAPS | PAUSE_DEPOSITS | PAUSE_REBALANCE;
-/// `reopen_shard` compares the shard's price with the median of at least
-/// this many other open, active shards.
-pub const MIN_REOPEN_REFERENCES: usize = 3;
 /// Keys allowed to call `rebalance_pair` (ADR-0006); `Pubkey::default()`
 /// marks an empty slot. Changed only through the fee timelock delay.
 pub const MAX_REBALANCERS: usize = 4;

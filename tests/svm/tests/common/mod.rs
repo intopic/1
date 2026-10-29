@@ -1046,9 +1046,11 @@ impl Env {
         )
     }
 
-    pub fn ix_activate(m: &Market, keeper: &Pubkey, id: u8, reference: u8) -> Instruction {
+    /// `activate_shard` with `refs` as the reference shards (remaining
+    /// accounts). The program requires exactly the open shards.
+    pub fn ix_activate(m: &Market, keeper: &Pubkey, id: u8, refs: &[u8]) -> Instruction {
         let a = shard_addrs(m, id, 0);
-        ix(
+        let mut i = ix(
             sharded_amm::accounts::ActivateShard {
                 keeper: *keeper,
                 market: m.market,
@@ -1057,10 +1059,24 @@ impl Env {
                 shard: a.shard,
                 vault_a: a.vault_a,
                 vault_b: a.vault_b,
-                reference_shard: shard_addrs(m, reference, 0).shard,
             },
             sharded_amm::instruction::ActivateShard {},
-        )
+        );
+        i.accounts.extend(refs.iter().map(|r| {
+            solana_instruction::AccountMeta::new_readonly(shard_addrs(m, *r, 0).shard, false)
+        }));
+        i
+    }
+
+    /// Active, trading shards other than `id` (the references D-09 requires).
+    pub fn open_others(&self, m: &Market, id: u8) -> Vec<u8> {
+        let mask = self.registry(m).open_others(id);
+        (0..56u8).filter(|i| mask & (1 << i) != 0).collect()
+    }
+
+    /// `activate_shard` against every open shard.
+    pub fn ix_activate_open(&self, m: &Market, keeper: &Pubkey, id: u8) -> Instruction {
+        Self::ix_activate(m, keeper, id, &self.open_others(m, id))
     }
 
     pub fn ix_apply_fees(m: &Market, admin: &Pubkey) -> Instruction {

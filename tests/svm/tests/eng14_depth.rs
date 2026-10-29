@@ -172,7 +172,7 @@ fn expansion_shard_needs_the_probe() {
     env.add_liquidity(&m, &lp, 8, -60, 60, 10_000_000_000)
         .unwrap();
     assert!(!env.shard_state(&m, 8).depth_verified);
-    let i = Env::ix_activate(&m, &keeper.pubkey(), 8, 0);
+    let i = env.ix_activate_open(&m, &keeper.pubkey(), 8);
     let res = env.send(&[i], &[&keeper]);
     assert!(res.is_err(), "{res:?}");
     assert_eq!(env.registry(&m).active_mask, 0xff);
@@ -180,7 +180,7 @@ fn expansion_shard_needs_the_probe() {
     env.add_liquidity(&m, &lp, 8, -1200, 1200, 1_000_000_000_000)
         .unwrap();
     assert!(env.shard_state(&m, 8).depth_verified);
-    let i = Env::ix_activate(&m, &keeper.pubkey(), 8, 0);
+    let i = env.ix_activate_open(&m, &keeper.pubkey(), 8);
     env.send(&[i], &[&keeper]).unwrap();
     assert_eq!(env.registry(&m).active_mask, 0x1ff);
 }

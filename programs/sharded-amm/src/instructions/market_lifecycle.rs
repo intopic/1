@@ -9,8 +9,10 @@
 //!   `Cancelled`: no new liquidity, prepares or swaps; every LP can still
 //!   `decrease_liquidity` and `collect_fees` (the refund path).
 //! - `activate_shard` — keeper, market `Open`. Activates one prepared shard
-//!   (ID 8..56) after the same readiness checks plus a price check against an
-//!   already active reference shard.
+//!   (ID 8..56) after the same readiness checks plus a price check against
+//!   the median of **every** open shard (D-09): remaining accounts are
+//!   exactly the active, trading shards, each once, read-only. The caller
+//!   cannot pick a convenient subset.
 
 use anchor_lang::prelude::*;
 
@@ -154,9 +156,39 @@ pub struct ActivateShard<'info> {
     pub shard: Box<Account<'info, ShardState>>,
     pub vault_a: Box<Account<'info, TokenAccount>>,
     pub vault_b: Box<Account<'info, TokenAccount>>,
-    /// Any active shard of the same market, used as the price reference.
-    #[account(has_one = market)]
-    pub reference_shard: Box<Account<'info, ShardState>>,
+}
+
+/// Median `sqrt_price_x64` of exactly the shards in `mask`: `accounts` must
+/// hold each of them once (any order) and nothing else, all active shards
+/// of `market`. For an even count it is the upper median. `None` if `mask`
+/// is empty.
+pub fn median_of<'info>(
+    market: &Pubkey,
+    registry: &ShardRegistry,
+    mask: u64,
+    accounts: &'info [AccountInfo<'info>],
+) -> Result<Option<u128>> {
+    require!(
+        accounts.len() == mask.count_ones() as usize,
+        AmmError::InvalidAccountCount
+    );
+    let mut seen = 0u64;
+    let mut prices = Vec::with_capacity(accounts.len());
+    for ai in accounts {
+        let r: Account<ShardState> = Account::try_from(ai)?;
+        require!(r.market == *market, AmmError::ShardMismatch);
+        let bit = 1u64 << r.id;
+        require!(seen & bit == 0, AmmError::DuplicateAccount);
+        require!(mask & bit != 0, AmmError::ShardMismatch);
+        require!(
+            r.status == ShardStatus::Active && registry.is_active(r.id),
+            AmmError::ShardNotActive
+        );
+        seen |= bit;
+        prices.push(r.sqrt_price_x64);
+    }
+    prices.sort_unstable();
+    Ok(prices.get(prices.len() / 2).copied())
 }
 
 /// `|p / p_ref - 1| <= bps` in both directions, with p = s^2, exactly.
@@ -172,22 +204,26 @@ pub fn within_deviation(s: u128, s_ref: u128, bps: u16) -> bool {
     p * lo <= q * hi && q * lo <= p * hi
 }
 
-pub fn handle_activate_shard(ctx: Context<ActivateShard>) -> Result<()> {
+pub fn handle_activate_shard<'info>(ctx: Context<'info, ActivateShard<'info>>) -> Result<()> {
     let m = &ctx.accounts.market;
     require!(
         ctx.accounts.keeper.key() == m.keeper,
         AmmError::Unauthorized
     );
     let shard = &ctx.accounts.shard;
-    let reference = &ctx.accounts.reference_shard;
     require!(
         shard.status == ShardStatus::Prepared,
         AmmError::ShardAlreadyActive
     );
-    require!(
-        reference.status == ShardStatus::Active && ctx.accounts.registry.is_active(reference.id),
-        AmmError::ShardNotActive
-    );
+    let open = ctx.accounts.registry.open_others(shard.id);
+    require!(open != 0, AmmError::ShardNotActive);
+    let median = median_of(
+        &m.key(),
+        &ctx.accounts.registry,
+        open,
+        ctx.remaining_accounts,
+    )?
+    .ok_or(AmmError::ShardNotActive)?;
     let ready = shard_ready(
         shard,
         &m.key(),
@@ -199,7 +235,7 @@ pub fn handle_activate_shard(ctx: Context<ActivateShard>) -> Result<()> {
     require!(
         within_deviation(
             shard.sqrt_price_x64,
-            reference.sqrt_price_x64,
+            median,
             m.readiness.max_activation_deviation_bps
         ),
         AmmError::PriceDeviationTooHigh

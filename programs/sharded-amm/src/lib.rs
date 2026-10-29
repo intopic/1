@@ -109,7 +109,7 @@ pub mod sharded_amm {
     }
 
     /// Lifts a shard's swap pause only if its price is within the activation
-    /// deviation of the median of at least three other open shards.
+    /// deviation of the median of every other open shard (D-09).
     pub fn reopen_shard<'info>(ctx: Context<'info, ReopenShard<'info>>, flags: u8) -> Result<()> {
         handle_reopen_shard(ctx, flags)
     }
@@ -208,7 +208,8 @@ pub mod sharded_amm {
         handle_cancel_setup(ctx)
     }
 
-    pub fn activate_shard(ctx: Context<ActivateShard>) -> Result<()> {
+    /// Remaining accounts: every open shard, read-only (D-09).
+    pub fn activate_shard<'info>(ctx: Context<'info, ActivateShard<'info>>) -> Result<()> {
         handle_activate_shard(ctx)
     }
 
