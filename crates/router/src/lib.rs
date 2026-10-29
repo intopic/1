@@ -873,4 +873,50 @@ mod tests {
         };
         assert_eq!(legs(1 << 36, costly), 1);
     }
+
+    /// Price quality of power of two against the best of all eight, on shards
+    /// whose prices drifted apart by random trades (as between rebalances):
+    /// the output given up per order, in bps of the best plan's output.
+    #[test]
+    fn power_of_two_gives_up_at_most_the_regret_bound() {
+        let m = cfg();
+        let mut r = 99u64;
+        let (mut worst, mut total, mut n) = (0f64, 0f64, 0u32);
+        for world in 0..40 {
+            let mut bs = books(8, 1 << 40);
+            for b in bs.iter_mut() {
+                let x = 1 + next(&mut r) % (1 << 33);
+                b.apply(&m, 0, next(&mut r).is_multiple_of(2), x, 0)
+                    .unwrap();
+            }
+            for k in 0..50u64 {
+                let a_to_b = next(&mut r).is_multiple_of(2);
+                let amount = 1 + next(&mut r) % (1 << (16 + next(&mut r) % 20));
+                let rc = RouterConfig::default();
+                let p2 = plan(&bs, &m, 0, a_to_b, amount, rc, world * 1000 + k).unwrap();
+                let p8 = plan(
+                    &bs,
+                    &m,
+                    0,
+                    a_to_b,
+                    amount,
+                    RouterConfig { choices: 0, ..rc },
+                    0,
+                )
+                .unwrap();
+                let loss =
+                    (p8.amount_out as f64 - p2.amount_out as f64) / p8.amount_out as f64 * 1e4;
+                worst = worst.max(loss);
+                total += loss;
+                n += 1;
+            }
+        }
+        println!(
+            "power of two vs best of 8: mean {:.3} bps, worst {:.3} bps over {n} orders",
+            total / f64::from(n),
+            worst
+        );
+        // max_regret_bps (1) bounds the first leg's probe quote; allow rounding.
+        assert!(worst <= 1.5, "worst {worst} bps");
+    }
 }
