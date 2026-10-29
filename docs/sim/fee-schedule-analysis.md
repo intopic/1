@@ -1,6 +1,6 @@
 # Simulimi i tarifave: analiza (29 tetor 2026)
 
-Rezultatet: [fee-schedule-results.md](fee-schedule-results.md), nga `cargo run --release -p amm-sim --bin eng09 -- --fees` (8 seed × 1 ditë me hapa 1-minutësh). Në CI: job-i `fees` i workflow-it `stress`. Kodi: [`crates/sim/src/fees.rs`](../../crates/sim/src/fees.rs).
+Rezultatet: [fee-schedule-results.md](fee-schedule-results.md), nga `cargo run --release -p amm-sim --bin eng09 -- --fees` (8 seed × 1 ditë me hapa 1-minutësh). Në CI: job-i `fees` i workflow-it `stress`; [run 40959850115](https://github.com/intopic/1/actions/runs/40959850115) mbi 3fbffdf (sukses) dha të njëjtat numra, shifër për shifër, si kolonat që ekzistonin atëherë (pa kolonat e kapacitetit dhe profilin $10M, të shtuara në 611d528). Kodi: [`crates/sim/src/fees.rs`](../../crates/sim/src/fees.rs).
 
 ## Çfarë simulohet
 
