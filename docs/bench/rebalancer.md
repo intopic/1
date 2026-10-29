@@ -25,11 +25,9 @@ Tregu me 8 shard-e nga `bench_setup`, me 4 çelësa rebalancer të listuar (çdo
 
 **Brezi i tarifave.** Një rebalancim paguan vetëm kur hendeku është më i gjerë se dy tarifat (2 × 30 = 60 bps). Brenda brezit asnjë rebalancim nuk ka fitim, prandaj hendeku mbetet rreth 60 bps. Kjo nuk është defekt: është kufiri ekonomik. Me tarifë 0,05% brezi do të ishte 10 bps.
 
-## Rezultati (lokal, para commit-it)
+## Rezultati (GitHub Actions)
 
-Ekzekutim lokal me 200 swap-e zhurme, Agave 4.3.2, nga pema e punës para commit-it. Tabela me provenancë nga CI zëvendëson këtë sapo të kalojë workflow-i.
-
-**Provenance:** commit `2580214e78cac8ef0be92b854c05c0ccf14abf14` (dirty), `sharded_amm.so` sha256 `e52cf1212bb983c048680f12da4dba2fda223be1715c6c6b86f10bc3fb68f651`, solana-test-validator 4.3.2 (src:a2033000; feat:c9ad34d2, client:Agave), 4 CPU.
+**Provenance:** commit `cc0cdab` (me matching-un), Agave 4.3.2 `solana-test-validator`, runner `ubuntu-24.04`, 200 swap-e zhurme, [CI run 40948357479](https://github.com/intopic/1/actions/runs/40948357479). Hash-i i `sharded_amm.so` është në rreshtin e provenancës brenda artifact-it `rebalancer` të atij run-i.
 
 Floors: 5000 A, 5000 B per transaction. Four rebalancer keys, each its own fee payer. Noise: 200 swaps.
 
@@ -37,36 +35,38 @@ Floors: 5000 A, 5000 B per transaction. Four rebalancer keys, each its own fee p
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | calm | 1 | 179.8 | 62.0 | 4 | 4 | 0 | 0 | 0 | 1 | 4 | 3359226146 | 1025896603 | 74016 | 20000 |
 | calm | 2 | 62.0 | 60.3 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 0 | 540774 | 73072 | 10000 |
-| noisy | 3 | 74.1 | 77.5 | 2 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 31173465 | 72975 | 10000 |
-| noisy | 4 | 77.5 | 57.8 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 458851 | 47819342 | 73902 | 10000 |
-| noisy | 5 | 73.9 | 70.1 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 29909530 | 73471 | 5000 |
-| noisy | 6 | 70.1 | 82.8 | 2 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 1255946 | 73344 | 10000 |
-| noisy | 7 | 82.8 | 85.2 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 165027310 | 58094914 | 73960 | 10000 |
-| noisy | 8 | 85.2 | 77.7 | 2 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 100826741 | 73944 | 10000 |
-| noisy | 9 | 77.7 | 94.4 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 49230299 | 73544 | 5000 |
-| noisy | 10 | 94.4 | 95.9 | 3 | 2 | 1 | 0 | 0 | 1 | 2 | 0 | 49112459 | 73224 | 15000 |
-| noisy | 11 | 95.9 | 74.1 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 204576183 | 72949 | 5000 |
-| noisy | 12 | 74.1 | 63.5 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 28387587 | 0 | 72627 | 5000 |
-| noisy | 13 | 63.5 | 63.3 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 1670463 | 72991 | 5000 |
-| noisy | 14 | 63.3 | 109.7 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 1330080 | 0 | 72801 | 5000 |
-| noisy | 15 | 109.7 | 77.6 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 393539022 | 74513 | 5000 |
-| noisy | 16 | 77.6 | 82.5 | 2 | 1 | 1 | 0 | 0 | 1 | 1 | 109596775 | 0 | 72302 | 10000 |
-| noisy | 17 | 82.5 | 78.1 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 96841278 | 0 | 73646 | 10000 |
-| noisy | 18 | 78.1 | 93.1 | 2 | 1 | 1 | 0 | 0 | 1 | 1 | 14527109 | 0 | 72961 | 10000 |
-| noisy | 19 | 93.1 | 90.1 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 0 | 238334743 | 73264 | 10000 |
-| noisy | 20 | 90.1 | 109.1 | 1 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 65168 | 5000 |
-| noisy | 21 | 109.1 | 96.9 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 459256350 | 73796 | 5000 |
-| noisy | 22 | 96.9 | 72.3 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 322850640 | 0 | 72882 | 5000 |
-| noisy | 23 | 72.3 | 56.6 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 23528484 | 73528 | 5000 |
-| settle | 24 | 65.5 | 60.3 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 4021455 | 0 | 72364 | 5000 |
+| noisy | 3 | 68.1 | 77.1 | 1 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 65959 | 5000 |
+| noisy | 4 | 77.1 | 77.5 | 1 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 64905 | 5000 |
+| noisy | 5 | 77.5 | 66.9 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 5194590 | 48232365 | 73482 | 10000 |
+| noisy | 6 | 66.9 | 65.9 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 12018193 | 74020 | 5000 |
+| noisy | 7 | 65.9 | 82.3 | 2 | 0 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 65480 | 10000 |
+| noisy | 8 | 82.3 | 74.1 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 71415803 | 0 | 73948 | 5000 |
+| noisy | 9 | 74.1 | 79.4 | 3 | 2 | 1 | 0 | 0 | 1 | 2 | 0 | 163778356 | 73995 | 15000 |
+| noisy | 10 | 79.4 | 84.3 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 59276593 | 73675 | 5000 |
+| noisy | 11 | 84.3 | 93.9 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 0 | 93633931 | 73493 | 10000 |
+| noisy | 12 | 93.9 | 71.3 | 3 | 3 | 0 | 0 | 0 | 1 | 3 | 15249510 | 217600873 | 72988 | 15000 |
+| noisy | 13 | 71.3 | 66.3 | 2 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 19867056 | 73522 | 10000 |
+| noisy | 14 | 66.3 | 71.7 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 5395286 | 0 | 72980 | 5000 |
+| noisy | 15 | 71.7 | 77.0 | 2 | 1 | 1 | 0 | 0 | 1 | 1 | 869124 | 0 | 72699 | 10000 |
+| noisy | 16 | 77.0 | 78.1 | 2 | 1 | 1 | 0 | 0 | 1 | 1 | 1521908 | 0 | 72937 | 10000 |
+| noisy | 17 | 78.1 | 105.1 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 51191800 | 73589 | 5000 |
+| noisy | 18 | 105.1 | 88.9 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 352696265 | 0 | 73496 | 10000 |
+| noisy | 19 | 88.9 | 80.0 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 120660443 | 3098467 | 73054 | 10000 |
+| noisy | 20 | 80.0 | 68.2 | 2 | 2 | 0 | 0 | 0 | 1 | 2 | 57139406 | 14758687 | 73465 | 10000 |
+| noisy | 21 | 68.2 | 98.6 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 10075420 | 73165 | 5000 |
+| noisy | 22 | 98.6 | 73.4 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 237345444 | 72447 | 5000 |
+| noisy | 23 | 73.4 | 86.2 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 91589040 | 73807 | 5000 |
+| noisy | 24 | 86.2 | 88.4 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 108879958 | 73210 | 5000 |
+| noisy | 25 | 88.4 | 69.7 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 115922502 | 0 | 73426 | 5000 |
+| noisy | 26 | 69.7 | 53.3 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 14331579 | 73464 | 5000 |
 
 | dështimi → klasa | herë |
 |---|---:|
-| RebalanceUnprofitable → Refresh | 7 |
+| RebalanceUnprofitable → Refresh | 8 |
 
-Hendeku: 179.8 bps pas shtyrjes, 60.3 bps pas fazës së qetë, 60.3 bps në fund. Brezi i tarifave (dy tarifa) është 60.0 bps: brenda tij asnjë rebalancim nuk paguan.
+Hendeku: 179.8 bps pas shtyrjes, 60.3 bps pas fazës së qetë, 53.3 bps në fund. Brezi i tarifave (dy tarifa) është 60.0 bps: brenda tij asnjë rebalancim nuk paguan.
 
-**Lexo kështu.** Në këtë skenar (gjysma poshtë, gjysma lart) matching-u dhe versioni i parë zgjedhin të njëjtat çifte. Në raundin e parë 4 rebalancime në 4 çifte të ndara zbritën në **të njëjtin slot**. Gjatë zhurmës, dështimet (`RebalanceUnprofitable`) ndodhin kur një swap i trader-it zbret para rebalancimit: transaksioni dështon, bot-i humb vetëm tarifën e transaksionit (5 000 lamports), jo tokena. CU për rebalancim: rreth 73k; me limit 300k.
+**Lexo kështu.** Në këtë skenar (gjysma poshtë, gjysma lart) matching-u dhe versioni i parë zgjedhin të njëjtat çifte. Në raundin e parë 4 rebalancime në 4 çifte të ndara zbritën në **të njëjtin slot**. Gjatë zhurmës, dështimet (`RebalanceUnprofitable`) ndodhin kur një swap i trader-it zbret para rebalancimit: transaksioni dështon, bot-i humb vetëm tarifën e transaksionit (5 000 lamports), jo tokena. CU për rebalancim: rreth 73k (me limit 300k); një rebalancim që dështon kushton ~65k CU dhe 5 000 lamports. Gjatë zhurmës, 8 nga 37 transaksione dështuan, të gjitha `RebalanceUnprofitable → Refresh`; asnjë humbje tokenash.
 
 ## Kufijtë
 
