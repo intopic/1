@@ -4,7 +4,7 @@ Përditësuar: 29 tetor 2026. Repository: `github.com/intopic/1`, branch `claude
 
 **Vendimi i produktit:** nisje me **8 shard-e**, ID 0–7, maskë `0xff`; zgjerim me kapital të verifikuar deri në **56**, ID 0–55. Specifikimi i plotë është [docs/DEVELOPER_HANDOFF_8_SHARDS.md](docs/DEVELOPER_HANDOFF_8_SHARDS.md).
 
-**Përmbledhje:** programi onchain ka ciklin e plotë: krijim tregu, përgatitje shard-esh, çmim fillestar, tick arrays, pozicione LP, hapje atomike e 8 shard-eve, anulim me refund, swap exact-in, tarifa me timelock, tarifa protokolli dhe zgjerim deri në 56 shard-e. Gjithçka është testuar në CI: në host, në LiteSVM me programin real SBF, dhe në një workflow stresi paralel. **Nuk ka pasur auditim të jashtëm.** Nuk është bërë deploy në devnet: kjo kërkon një keypair të programit si sekret GitHub, të cilin e jep pronari. Asnjë deklaratë për throughput, paralelizëm të matur onchain, kapje MEV ose fitim nuk është provuar.
+**Përmbledhje:** programi onchain ka ciklin e plotë: krijim tregu, përgatitje shard-esh, çmim fillestar, tick arrays, pozicione LP, hapje atomike e 8 shard-eve, anulim me refund, swap exact-in, tarifa me timelock, tarifa protokolli dhe zgjerim deri në 56 shard-e. Gjithçka është testuar në CI: në host, në LiteSVM me programin real SBF, dhe në një workflow stresi paralel. **Nuk ka pasur auditim sigurie.** Një rishikim i jashtëm inxhinierik (29 tetor 2026) gjeti F-01..F-06; të gjitha u adresuan (seksioni më poshtë). Nuk është bërë deploy në devnet: kjo kërkon një keypair të programit si sekret GitHub, të cilin e jep pronari. Asnjë deklaratë për throughput, paralelizëm të matur onchain, kapje MEV ose fitim nuk është provuar.
 
 ## Milestone-et
 
@@ -36,7 +36,24 @@ Ekzekutimi i parë: [stress #1](https://github.com/intopic/1/actions/runs/407924
 | On-chain (programi SBF real në LiteSVM) | 16 × 20 000 veprime të rastit, dhe të gjitha suitat SVM 16 herë | çdo swap bit-për-bit me motorin host, ruajtja e token-ave, dalja e plotë |
 | Simulimi ENG-09 | 32 seeds | përfundimet e [analizës](docs/sim/eng09-analysis.md) |
 
+Ekzekutimi i tretë, pas rregullimeve të rishikimit: [stress #3](https://github.com/intopic/1/actions/runs/40805983720), seed_base 3, commit `2b7f968`: **35/35 punë kaluan**. Kontrollet e reja të aftësisë paguese (F-05) dhe testet e reja SVM ishin pjesë e tij. Një punë on-chain zgjati 45 minuta në runner, ndërsa me të njëjtin seed kalon lokalisht për 19 sekonda; ajo kaloi pa gabim.
+
 Ekzekutimi riprodhohet nga GitHub Actions → stress → Run workflow, me `scale` (shumëzues) dhe `seed_base`. Çdo punë e shtyp seed-in e vet.
+
+## Rishikimi i jashtëm inxhinierik (F-01..F-06)
+
+Rishikimi u bë mbi commit `0543b9b`. Rregullimet janë në commit-et `a07b569`..`2b7f968`, me CI jeshil ([run 19–24](https://github.com/intopic/1/actions/workflows/ci.yml)).
+
+| ID | Gjetja | Rregullimi | Evidenca |
+|---|---|---|---|
+| F-01 | IDL pa 13 events dhe 54 errors | `tools/idl-build` me IdlBuilder të Anchor-it | `idl_acceptance` dekodon një event real vetëm nga IDL |
+| F-02 | Dy ABI për PDA-në e pozicionit | ABI v1 = seeds sipas range-it; versioni në seed-in e market-it | `pda_abi`, `docs/vectors/pda_fixtures.json` (referencë e pavarur) |
+| F-03 | Formula Q64 e vjetër në handoff | Q128 normative; formula e vjetër e shënuar historike | `math_vectors::{u256_limbs…, fee_inside_modular…}` |
+| F-04 | "ALT zgjidh kufirin 64" | Gabim i korrigjuar: ALT zgjidh vetëm bajtet | `tx_budget`, [tx-budget.md](docs/tx-budget.md) |
+| F-05 | Aftësia paguese pa tarifat që nga checkpoint-i | Invariant ekzakt + dalje në shumë rende | `engine_model` (mutacioni e rrëzon) |
+| F-06 | Dokumente të vjetruara | Indeks normativ/historik, acceptance sipas kriterit, kontroll lidhjesh | [docs/README.md](docs/README.md), [acceptance.md](docs/acceptance.md) |
+
+Ku nuk ndoqëm rekomandimin: `MAX_SWAP_STEPS` mbetet 128 dhe jo 64, sepse 3 tick arrays mund të kërkojnë ~100 hapa (ADR-0004).
 
 ## Kufizime të njohura
 
