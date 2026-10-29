@@ -1,0 +1,68 @@
+name: bench
+
+# A-10: validator benchmark. Same independent swaps over 1, 2, 4 and 8
+# shards on a single-node solana-test-validator; reports swaps per slot and
+# the compute units in the busiest slot. See docs/bench/validator-bench.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "Swaps per trader per run (256 traders)"
+        default: "16"
+      repeats:
+        description: "Repeats of each shard count"
+        default: "3"
+  push:
+    paths:
+      - ".github/workflows/bench.yml"
+      - "scripts/bench-validator.sh"
+      - "tests/svm/examples/**"
+
+permissions:
+  contents: read
+
+env:
+  AGAVE_VERSION: "4.3.2"
+  AGAVE_SHA256: "5c9599d7fa397375df69d58e8d4f550ee45463dd6d1ecad9e5a1f053ce8e0933"
+  ROUNDS: ${{ github.event.inputs.rounds || '16' }}
+  REPEATS: ${{ github.event.inputs.repeats || '3' }}
+  CARGO_TERM_COLOR: never
+
+jobs:
+  validator:
+    name: validator benchmark
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Agave (checksum verified)
+        run: |
+          set -euo pipefail
+          [[ "$ROUNDS" =~ ^[0-9]+$ && "$REPEATS" =~ ^[0-9]+$ ]] || { echo 'rounds and repeats must be integers'; exit 1; }
+          url="https://github.com/anza-xyz/agave/releases/download/v${AGAVE_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 "$url" -o agave.tar.bz2
+          echo "${AGAVE_SHA256}  agave.tar.bz2" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/agave"
+          tar -xjf agave.tar.bz2 -C "$RUNNER_TEMP/agave"
+          rm agave.tar.bz2
+          echo "$RUNNER_TEMP/agave/solana-release/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/solana
+            ~/.cargo/registry
+            ~/.cargo/git
+            tests/svm/target
+          key: ${{ runner.os }}-bench-${{ hashFiles('**/Cargo.lock', '**/rust-toolchain.toml') }}
+      - run: cargo build-sbf --manifest-path programs/sharded-amm/Cargo.toml --tools-version v1.58
+      - name: Benchmark
+        run: |
+          set -euo pipefail
+          bash scripts/bench-validator.sh "$ROUNDS" "$REPEATS" target/bench/validator-bench.md
+          cat target/bench/validator-bench.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validator-bench
+          path: target/bench/

@@ -9,6 +9,7 @@ Përditësuar: 29 tetor 2026. Kur dy dokumente nuk përputhen, vlen dokumenti **
 | [numeric-spec.md](numeric-spec.md) | Q64.64, ticks, formulat, rrumbullakimi, fee growth Q128, invarianti i aftësisë paguese |
 | [account-layout.md](account-layout.md) | ABI v1: llogaritë, madhësitë, PDA-të (me fixture në [vectors/pda_fixtures.json](vectors/pda_fixtures.json)) |
 | [tx-budget.md](tx-budget.md) | Llogaritë, bajtet dhe CU për swap të ndarë nëpër shard-e; ALT dhe kufiri 64 |
+| [bench/validator-bench.md](bench/validator-bench.md) | Benchmark-u në validator (A-10): swap/slot për 1/2/4/8 shard-e dhe kontrolli negativ |
 | [adr/](adr/README.md) | Vendimet e arkitekturës dhe produktit |
 | [acceptance.md](acceptance.md) | Kriteret e pranimit dhe evidenca për secilin |
 | [security.md](security.md) | Modeli i kërcënimeve |
