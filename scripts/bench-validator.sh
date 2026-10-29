@@ -36,7 +36,7 @@ for ((attempt = 0; attempt < 240; attempt++)); do
     {
       commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)
       dirty=$([[ -z $(git status --porcelain 2>/dev/null) ]] && echo clean || echo dirty)
-      liquidity=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["total_liquidity"])' "$run_dir/bench/bench.json")
+      liquidity=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["markets"][0]["total_liquidity"])' "$run_dir/bench/bench.json")
       run=${GITHUB_RUN_ID:+, CI run ${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}/actions/runs/$GITHUB_RUN_ID}
       echo "**Provenance:** commit \`$commit\` ($dirty), \`sharded_amm.so\` sha256 \`$(sha256sum "$program" | cut -d' ' -f1)\`, $(solana-test-validator --version | head -1), $(nproc) CPU, rounds=$rounds, repeats=$repeats, total liquidity per market $liquidity$run."
       echo
