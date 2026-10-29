@@ -1,5 +1,7 @@
 # Rishikimi i kërkimit të ekipit (28 tetor 2026)
 
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](../numeric-spec.md), [account-layout.md](../account-layout.md), [tx-budget.md](../tx-budget.md), [ADR-të](../adr/README.md) dhe [STATUS.md](../../STATUS.md). Indeksi: [docs/README.md](../README.md).
+
 Burimi: raporti JSON i grupit kërkues (36 seksione: F01–F20, ADR01–12, N01–N10, K01–K10, T01–T15, portat A–E, L01–L12, P01–P08). Raporti origjinal nuk është ruajtur në repo; këtu është krahasimi me kodin dhe vendimet që rrjedhin prej tij. Statuset e raportit (PROPOZIM, E PROVUAR NË MODEL) ruhen: asnjë pikë nuk trajtohet si e provuar onchain.
 
 ## 1. Vendimi kryesor i raportit

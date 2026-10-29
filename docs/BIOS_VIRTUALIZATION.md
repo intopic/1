@@ -1,5 +1,7 @@
 # Aktivizimi i virtualizimit — HP ProBook 430 G4
 
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](numeric-spec.md), [account-layout.md](account-layout.md), [tx-budget.md](tx-budget.md), [ADR-të](adr/README.md) dhe [STATUS.md](../STATUS.md). Indeksi: [docs/README.md](README.md).
+
 Kontrolluar pas rinisjes më 28 tetor 2026. Modeli është HP ProBook 430 G4, procesori Intel Core i5-7200U. `VMMonitorModeExtensions=True`, `SecondLevelAddressTranslationExtensions=True`, por `VirtualizationFirmwareEnabled=False`.
 
 WSL 3.0.3.0 funksionon. Instalimi Ubuntu arriti te regjistrimi, pastaj dështoi me `HCS_E_HYPERV_NOT_INSTALLED` dhe mesazhin që virtualizimi nuk është aktiv. Asnjë sesion Ubuntu nuk u nis; konfigurimi Linux/Anchor ende nuk është ekzekutuar.

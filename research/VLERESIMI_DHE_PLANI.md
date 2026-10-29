@@ -1,6 +1,8 @@
 # AMM me shard-e të pavarura dhe motor likuidimi në Solana
 
-> **Shënim versioni:** kjo dosje ruan kërkimin fillestar. Vendimi aktual i përdoruesit është nisje me **8 shard-e** dhe zgjerim deri në **56** me maskë `u64`. Propozimi fillestar me katër shard-e më poshtë është zëvendësuar nga [overview Rust/Anchor 8→56](../sharded_amm/docs/OVERVIEW_RUST_ANCHOR_8_TO_56.md).
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](../docs/numeric-spec.md), [account-layout.md](../docs/account-layout.md), [tx-budget.md](../docs/tx-budget.md), [ADR-të](../docs/adr/README.md) dhe [STATUS.md](../STATUS.md). Indeksi: [docs/README.md](../docs/README.md).
+
+> **Shënim versioni:** kjo dosje ruan kërkimin fillestar. Vendimi aktual i përdoruesit është nisje me **8 shard-e** dhe zgjerim deri në **56** me maskë `u64`. Propozimi fillestar me katër shard-e më poshtë është zëvendësuar nga [overview Rust/Anchor 8→56](../docs/OVERVIEW_RUST_ANCHOR_8_TO_56.md).
 
 Datë: 28 tetor 2026. Dosje kërkimi dhe projektim paraprak; nuk është kontratë e audituar ose provë performance në blockchain.
 

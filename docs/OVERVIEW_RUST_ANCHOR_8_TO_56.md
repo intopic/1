@@ -1,5 +1,7 @@
 # Overview: kontratë AMM Rust/Anchor — nisje me 8 shard-e, zgjerim deri në 56
 
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](numeric-spec.md), [account-layout.md](account-layout.md), [tx-budget.md](tx-budget.md), [ADR-të](adr/README.md) dhe [STATUS.md](../STATUS.md). Indeksi: [docs/README.md](README.md).
+
 **Vendim i përdoruesit, 28 tetor 2026:** tregu hapet me **8 shard-e aktive**, ID `0..=7`. Kapaciteti maksimal është **56**, ID `0..=55`. Zgjerimi bëhet kur ka likuiditet të përdorshëm dhe kalojnë kontrollet e kontratës. Ky dokument zëvendëson propozimin e pilotit me katër shard-e.
 
 **Status:** overview dhe plan implementimi. Struktura dhe fragmentet Rust më poshtë janë të propozuara; programi AMM, maska dhe zgjerimi ende nuk janë implementuar. Kodi aktual i testuar është modeli `crates/amm-model`; `env-smoke` dhe `env-anchor` janë projekte për provën e mjedisit.

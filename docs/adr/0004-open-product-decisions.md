@@ -30,13 +30,13 @@ Tarifat {0,05%, 0,10%, 0,30%} × spacing {10, 60}, me kapital total, shpërndarj
 |---|---|---|
 | Mint me freeze authority | Lejohet me deklarim publik të rrezikut (USDC e ka). Kërkimi i ekipit propozon profil strikt që i refuzon; pret vendimin e pronarit. | ENG-03 |
 | WSOL | `SyncNative`, rezerva e rent-it native, wrap/unwrap në SDK; teste pas mint-eve prove | ENG-03/07 |
-| Kufiri i llogarive | Kufiri aktual 64 (96 draft); router/Jupiter nisin me një shard për swap | ENG-07/09 |
+| Kufiri i llogarive | 64 llogari të kyçura për transaksion (ALT nuk e rrit; zgjidh vetëm madhësinë e paketës). 8 shard-e × 3 tick arrays + ComputeBudget = 64. Matjet: [tx-budget.md](../tx-budget.md) | ENG-07/09 |
 | Çmimi/range fillestar i 8 shard-eve | I njëjti çmim fillestar, range i njëjtë, kapital i barabartë | ENG-04 |
 | Çmimi i shard-it të ri | Çmim nga financuesi brenda tolerancës ndaj medianës së shard-eve aktive | ENG-08 |
 | Pragu i readiness | L aktive ≥ X dhe inventar real ≥ Y në njësi raw, të dy drejtimet | ENG-04/08 |
 | Cooldown aktivizimi | Pa cooldown në v1, vetëm kontrolle aktuale | ENG-08 |
 | Pauzë selektive | Vetëm pauzë tregu në v1; `paused_mask` më vonë | ENG-03 |
-| Kufiri i tick arrays për swap | ≤ 3 vargje, `MAX_SWAP_STEPS = 64` | ENG-06 |
+| Kufiri i tick arrays për swap | ≤ 3 vargje (`MAX_SWAP_TICK_ARRAYS`), `MAX_SWAP_STEPS = 128`. Propozimi fillestar 64 u ngrit në 128: 3 vargje kanë deri në 96 ticks të inicializuar, kështu që një swap i ligjshëm mund të kërkojë ~100 hapa (96 kalime + kufijtë e vargjeve + hapi final); me 64 ai do të dështonte me `TooManySwapSteps` para se të mbaronin vargjet. CU: ~9k për kalim, pra 96 kalime ≈ 0.9M, brenda 1.4M. Vlera normative është `constants.rs` | ENG-06 |
 | Rebalance | Jashtë MVP; vetëm `rebalance_pair` i kufizuar pasi të ketë model ekonomik që nuk prek principal LP | ENG-09 |
 
 Kur një vendim merret, rreshti kalon te tabela e parë me datën dhe kush e mori.

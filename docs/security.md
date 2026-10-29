@@ -1,10 +1,10 @@
 # Modeli i kërcënimeve dhe kufijtë e sigurisë
 
-Data: 28 tetor 2026. Statusi: specifikim kërkimor; nuk është auditim, kontratë e vendosur ose autorizim për kapital real.
+Data: 28 tetor 2026, përditësuar 29 tetor 2026. Statusi: modeli i kërcënimeve; nuk është auditim ose autorizim për kapital real. Statusi i kontrolleve të implementuara dhe testeve përkatëse është në [acceptance.md](acceptance.md).
 
 ## Fusha dhe supozimet
 
-Objektivi aktual i MVP-së është tetë lane fillestare AMM, me specifikim zgjerimi dinamik deri në 56. Secili ka gjendjen, vault-et, tarifat dhe pozicionet LP të veta. Konfigurimi dhe regjistri i përbashkët lexohen gjatë swap-it. Tetë lane-et dhe bitmask-i ende nuk janë implementuar; testi historik E-01 nuk i provon. Huadhënia/likuidimi dhe migrimi i pretendimeve LP janë faza të mëvonshme. Modeli lokal matematikor nuk provon sjelljen e validatorit, CPI-të SPL Token, sigurinë e custody-t apo performancën e rrjetit.
+Objektivi aktual i MVP-së është tetë lane fillestare AMM, me specifikim zgjerimi dinamik deri në 56. Secili ka gjendjen, vault-et, tarifat dhe pozicionet LP të veta. Konfigurimi dhe regjistri i përbashkët lexohen gjatë swap-it. Tetë lane-et, bitmask-i dhe zgjerimi deri në 56 janë implementuar në `programs/sharded-amm` dhe testohen onchain në LiteSVM (shih [acceptance.md](acceptance.md), evidenca E-05). Testi historik E-01 nuk i provon. Huadhënia/likuidimi dhe migrimi i pretendimeve LP janë faza të mëvonshme. Modeli lokal matematikor nuk provon sjelljen e validatorit, CPI-të SPL Token, sigurinë e custody-t apo performancën e rrjetit.
 
 Kundërshtari kontrollon transaksione, renditje ekonomike përmes tarifave/MEV, llogari të kaluara në instruksion, tokenë të dërguar drejtpërdrejt në vault dhe përditësime oracle të zgjedhura prej tij. Ai mund të përdorë flashloan, të përsërisë kërkesa, të konkurrojë me likuidime/migrime dhe të shkaktojë dështim në kufijtë e CU, bajteve e llogarive. Nuk supozojmë komprometim të konsensusit ose thyerje të kriptografisë; komprometimi i administratorit dhe upgrade authority mbetet rrezik operacional që duhet kufizuar.
 

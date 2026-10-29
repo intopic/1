@@ -1,5 +1,7 @@
 # Objektivi i produktit: smart contract me 8 shard-e fillestare, deri në 56
 
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](numeric-spec.md), [account-layout.md](account-layout.md), [tx-budget.md](tx-budget.md), [ADR-të](adr/README.md) dhe [STATUS.md](../STATUS.md). Indeksi: [docs/README.md](README.md).
+
 Përditësuar më 28 tetor 2026 sipas planit të përdoruesit. Ky është specifikim objektivi dhe rishikim fizibiliteti, jo implementim i përfunduar. Arkitekti Solana dhe specialisti AMM shkëmbyen gjetjet; koordinatori verifikoi dokumentet Jupiter/Solana dhe llogaritjet.
 
 ## Çfarë ndërtojmë

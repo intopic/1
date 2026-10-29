@@ -1,17 +1,19 @@
 # Sharded AMM — hapësira e zhvillimit
 
-Produkti është projektuar si smart contract AMM/likuidimi në Solana që **nis me 8 shard-e aktive** dhe lejon zgjerim dinamik deri në **56**. Regjistri përdor maskë `u64`: nisja `0xff`, bitet e lejuara `0..55`. Shard-et e reja aktivizohen pas përgatitjes, financimit dhe kontrolleve të likuiditetit; keeper-i është shërbim ndihmës. Dokumenti kryesor është [overview Rust/Anchor 8→56](docs/OVERVIEW_RUST_ANCHOR_8_TO_56.md). Kontrata dhe bitmask-i ende nuk janë implementuar; modeli aktual dhe programet provuese dallohen nga struktura e propozuar.
+Produkti është projektuar si smart contract AMM/likuidimi në Solana që **nis me 8 shard-e aktive** dhe lejon zgjerim dinamik deri në **56**. Regjistri përdor maskë `u64`: nisja `0xff`, bitet e lejuara `0..55`. Shard-et e reja aktivizohen pas përgatitjes, financimit dhe kontrolleve të likuiditetit; keeper-i është shërbim ndihmës. **Gjendja (29 tetor 2026):** programi Anchor `programs/sharded-amm` është implementuar dhe testuar në CI: treg, bitmask 8→56, shard-e me vault-e të veta, CLMM me tick crossing, pozicione LP, tarifa LP/protokolli dhe swap exact-in. Testet ekzekutojnë programin real SBF në LiteSVM. Nuk është bërë deploy në devnet, nuk ka benchmark në validator dhe nuk ka motor huadhënieje. Një rishikim i jashtëm inxhinierik (29 tetor 2026, gjetjet F-01..F-06) u adresua; ky **nuk** është auditim sigurie. Detajet: [STATUS.md](STATUS.md).
 
-**Gjendja:** kërkim dhe prototip lokal. Nuk ka ende program Solana të deploy-uar, motor huadhënieje ose benchmark blockchain. Modeli Rust nuk përfshin tick crossing, LP accounting, oracle ose transferime SPL.
+**Dokumentet normative** (burimi i vetëm i së vërtetës kur dokumentet ndryshojnë): [numeric-spec.md](docs/numeric-spec.md), [account-layout.md](docs/account-layout.md) (ABI v1 dhe PDA), [tx-budget.md](docs/tx-budget.md), [ADR-të](docs/adr/README.md), [acceptance.md](docs/acceptance.md) dhe [STATUS.md](STATUS.md). Dokumentet e tjera janë **historike** (specifikime para implementimit); indeksi është në [docs/README.md](docs/README.md).
 
 ## Si fillojmë
 
-Në Linux (ose CI):
+Në Linux (ose CI), që është rruga e vetme e mbështetur:
 
 ```bash
 bash scripts/build-linux.sh
 bash scripts/smoke-validator.sh
 ```
+
+Skriptet PowerShell më poshtë janë historike (mjedisi Windows i fazës ENG-00).
 
 
 Nga PowerShell:
@@ -53,7 +55,10 @@ Preflight vetëm kontrollon mjedisin. Nuk instalon programe, nuk ndryshon konfig
 | `docs/toolchain.md` | Build-i SBF, kufizimet native dhe rruga WSL |
 | `env-smoke/` | Program i veçuar ping/pong për provën e mjedisit |
 | `research/` | Kërkimi dhe eksperimenti fillestar Python |
-| `programs/sharded-amm/` | Programi Anchor: konstantet, maska dhe lifecycle i regjistrit (ENG-02); ende pa instruksione |
+| `programs/sharded-amm/` | Programi Anchor i implementuar: 18 instruksione, matematika CLMM, motori i swap-it dhe i likuiditetit |
+| `tests/svm/` | Testet onchain me programin real SBF në LiteSVM (workspace më vete) |
+| `crates/sim/` | Simulimi ENG-09 |
+| `tools/idl-build/` | Gjeneron IDL-në e plotë me IdlBuilder të Anchor-it |
 | `docs/numeric-spec.md`, `docs/adr/` | Specifikimi numerik dhe vendimet e arkitekturës (ENG-01) |
 | `tools/reference/` | Referenca të pavarura (Python stdlib) për teste diferenciale |
 | `scripts/build-linux.sh`, `scripts/smoke-validator.sh` | Build/test/IDL dhe prova e validator-it në Linux/CI (ENG-00) |
@@ -70,4 +75,4 @@ Preflight vetëm kontrollon mjedisin. Nuk instalon programe, nuk ndryshon konfig
 
 Kodi ruhet në `github.com/intopic/1`. `.tools`, `target/`, keypair-et dhe sekretet nuk publikohen (shih `.gitignore`).
 
-Build-i SBF i programit provues ka kaluar. Anchor native është bllokuar nga Windows antivirus dhe validator-i native nuk arriti RPC ready. Pas restart-it WSL funksionon, por Ubuntu nuk niset sepse virtualizimi BIOS është i fikur. Shih `docs/BIOS_VIRTUALIZATION.md` dhe `STATUS.md`; kjo nuk ndryshon statusin e AMM-së së paimplementuar. Projekti `env-anchor` është përgatitur për provën e mëvonshme Anchor/IDL.
+Historikisht, build-i native në Windows u bllokua nga antivirusi dhe virtualizimi BIOS (`docs/BIOS_VIRTUALIZATION.md`). Prandaj i gjithë build-i dhe testimi bëhet në Linux/GitHub Actions.

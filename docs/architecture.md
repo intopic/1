@@ -1,5 +1,7 @@
 # Arkitektura e propozuar — nisje me 8 shard-e dhe zgjerim deri në 56
 
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](numeric-spec.md), [account-layout.md](account-layout.md), [tx-budget.md](tx-budget.md), [ADR-të](adr/README.md) dhe [STATUS.md](../STATUS.md). Indeksi: [docs/README.md](README.md).
+
 Status: specifikim para implementimit, 28 tetor 2026. Ky dokument përshkruan një objektiv për një program të ardhshëm Solana. Modeli referencë dhe simulimet në këtë workspace nuk janë kontratë e deploy-uar dhe nuk provojnë paralelizëm në validator, siguri CPI apo mbulim të plotë të CLMM.
 
 Kodi aktual në `crates/amm-model` është vetëm kernel kërkimor Rust me rezerva virtuale constant-product: `Band::new`, `quote_exact_in`, `swap_exact_in`, dy drejtime, tarifë e rrumbullakosur lart dhe output poshtë me aritmetikë të kontrolluar. Nuk ka kufij intervali, tick crossing, registry 8→56 ose gjendje shard-esh, vault-e, pozicione apo likuidim. Specifikimi më poshtë nuk pretendon se këto janë ndërtuar.

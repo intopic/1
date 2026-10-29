@@ -25,6 +25,7 @@ step "reference: generated table and vectors are reproducible"
 python3 -I tools/reference/tick_table.py | diff -u programs/sharded-amm/src/math/tick_table.rs -
 python3 -I tools/reference/clmm_vectors.py | diff -q docs/vectors/clmm_vectors.json -
 python3 -I tools/reference/pda_fixtures.py | diff -q docs/vectors/pda_fixtures.json -
+python3 -I tools/check_md_links.py .
 
 step "host: fmt, clippy, tests"
 cargo fmt --all -- --check

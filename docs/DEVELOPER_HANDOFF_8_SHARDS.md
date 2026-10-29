@@ -1,5 +1,7 @@
 # Developer handoff — Sharded-Tick AMM, 8 shard-e fillestare dhe kapacitet 56
 
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](numeric-spec.md), [account-layout.md](account-layout.md), [tx-budget.md](tx-budget.md), [ADR-të](adr/README.md) dhe [STATUS.md](../STATUS.md). Indeksi: [docs/README.md](README.md).
+
 **Versioni:** 1.0 · **Data:** 28 tetor 2026 · **Fusha:** specifikim për implementim Rust/Anchor.
 
 Ky dokument i dorëzohet developer-it si përkufizim pune, arkitekture dhe provash. Nuk është kod i përfunduar, auditim ose certifikim sigurie. Nisja me **8 shard-e aktive** është kërkesë e produktit; kapaciteti **56** është kufiri i zgjerimit. Asnjë deklaratë për 8× throughput, fitim automatik ose origjinalitet ekskluziv nuk konsiderohet e provuar.

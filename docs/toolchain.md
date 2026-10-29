@@ -1,5 +1,7 @@
 # Toolchain lokal — build SBF i verifikuar, runtime/Anchor të bllokuara
 
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](numeric-spec.md), [account-layout.md](account-layout.md), [tx-budget.md](tx-budget.md), [ADR-të](adr/README.md) dhe [STATUS.md](../STATUS.md). Indeksi: [docs/README.md](README.md).
+
 Versionet e synuara janë Anchor CLI `1.2.1`, Agave/Solana CLI `4.3.2` dhe platform-tools `1.58` me Rust SBF `1.95.0`/LLVM `22`. URL-të dhe SHA256 e artefakteve janë në [toolchain.versions.json](../toolchain.versions.json). Prania e executable-ve ose kalimi i `--version` nuk provon ende build SBF apo ekzekutim programi; rezultatet konkrete raportohen në [STATUS.md](../STATUS.md).
 
 Gjendja më 28 tetor 2026: hash-et e Anchor dhe Agave u verifikuan. Agave CLI funksionon dhe build-i SBF i `env-smoke` kaloi. Anchor raportoi `1.2.1` një herë; ekzekutimet pasuese u bllokuan nga antivirusi Windows si virus ose software potencialisht i padëshiruar. Validator-i native dështoi përpara hapjes së RPC-së gjatë unpack të genesis-it (`Access is denied`, edhe jashtë sandbox-it). Stack-u i plotë native nuk është pranuar si funksional. Nuk çaktivizohet antivirusi dhe nuk shtohen përjashtime apo mekanizma anashkalimi. Evidenca është në [environment-report.json](environment-report.json).

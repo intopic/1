@@ -1,5 +1,7 @@
 # Plan pune
 
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](docs/numeric-spec.md), [account-layout.md](docs/account-layout.md), [tx-budget.md](docs/tx-budget.md), [ADR-të](docs/adr/README.md) dhe [STATUS.md](STATUS.md). Indeksi: [docs/README.md](docs/README.md).
+
 Përditësuar: 28 tetor 2026. Faza mbyllet me prova, jo vetëm me kod të shkruar. Afatet nga dosja kërkimore janë orientuese; këtu përdorim varësi dhe rezultate konkrete.
 
 **Parametrat e miratuar nga përdoruesi:** `INITIAL_SHARDS=8`, `MAX_SHARDS=56`, `INITIAL_MASK=0xff`, `VALID_MASK=(1u64<<56)-1`. Launch nuk bëhet me 4 ose 56. Dokumenti udhëheqës është `docs/OVERVIEW_RUST_ANCHOR_8_TO_56.md`.

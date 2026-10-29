@@ -1,5 +1,7 @@
 # Modeli i llogarive dhe lock-eve
 
+> **Dokument historik (para implementimit).** Ruhet si kontekst. Kur ndryshon nga kodi ose nga dokumentet normative, vlejnë [numeric-spec.md](numeric-spec.md), [account-layout.md](account-layout.md), [tx-budget.md](tx-budget.md), [ADR-të](adr/README.md) dhe [STATUS.md](../STATUS.md). Indeksi: [docs/README.md](README.md).
+
 Status: projektim paraprak për një program Solana të ardhshëm. Nuk është IDL apo kontratë ekzistuese. `R` = vetëm lexim; `W` = writable; `—` = nuk përfshihet. Roli signer është i veçantë nga R/W. Të gjitha llogaritë e CPI deklarohen nga klienti përpara ekzekutimit.
 
 ## Identitetet PDA të propozuara
