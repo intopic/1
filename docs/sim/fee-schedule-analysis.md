@@ -44,6 +44,21 @@ Rezultatet: [fee-schedule-results.md](fee-schedule-results.md), nga `cargo run -
 
 5. **Stablecoin.** 0,01% është e mjaftueshme. Kosto e tregtarit është 3,5 bps me 1 pool (6,8 me taksë 3 bps), dhe LP-të fitojnë.
 
+## Paralelizmi me urdhra me madhësi reale
+
+Simulimi llogarit edhe sa urdhra hyjnë për slot sipas modelit të kostos së Agave 4.3.2. Kufiri është 40M CU për llogari writable, dhe kostoja e plotë e një transaksioni i ngarkohet çdo shard-i që shkruan. Ky është kufiri që ka rëndësi në mainnet, ku blloku ndahet me gjithë rrjetin. Krahasimi është me një pool të vetëm (895 urdhra/slot):
+
+| SOL/USDC | taksë 10 bps | taksë 3 bps | pa taksë |
+|---|---:|---:|---:|
+| 0,05%, $1M | 1,15× | 0,65× | 0,15× |
+| 0,05% + dinamike, $1M | 2,26× | 1,14× | 0,15× |
+| 0,05%, $10M | 6,63× | 3,91× | 0,15× |
+| 0,05% + dinamike, $10M | 6,83× | 5,76× | 0,15× |
+
+Matja në validator me të njëjtat madhësi, por me shard-e me të njëjtin çmim, jep 1,82× (10 bps) dhe 1,27× (3 bps); shih [validator-bench.md](../bench/validator-bench.md). Modeli jep më pak sepse shard-et lëvizin dhe ngarkesa nuk ndahet njëtrajtësisht. **Leva kryesore është thellësia për shard:** me $10M çdo urdhër ~$2 000 shkon në një shard, dhe paralelizmi është 4–7 herë.
+
+**Vendimi (gerfa, 29 tetor 2026):** taksë 3 bps kur shard-et janë të lira, që ngrihet vetë deri në 10 bps kur janë të ngarkuar (`RouterConfig::for_priority_fee`, ADR-0007). Paralelizmi ka vlerë vetëm kur ka radhë.
+
 ## Rekomandimi
 
 | Tregu | Tarifa | Pse |
@@ -52,7 +67,7 @@ Rezultatet: [fee-schedule-results.md](fee-schedule-results.md), nga `cargo run -
 | SOL/USDC | 0,05% + dinamike deri në 0,30% | Çmim konkurrues kur tregu është i qetë; mbron LP-të kur lëviz. |
 | Memecoin | 1% fikse | E vetmja nga të provuarat ku LP-të nuk humbin mesatarisht. |
 
-**Router-i:** taksa 3 bps e ul koston shtesë të tregtarit nga +11,5 në +4,1 bps (SOL/USDC 0,05%), por urdhri përdor 2,6 shard-e në vend të 1,8. Kjo duhet matur në validator para se ta ndryshojmë: benchmark-u i sotëm mat vetëm urdhra të vegjël që shkojnë në 1 shard.
+**Router-i:** taksa 3 bps e ul koston shtesë të tregtarit nga +11,5 në +4,1 bps (SOL/USDC 0,05%), por urdhri përdor 2,6 shard-e në vend të 1,8. Prandaj taksa ngrihet nën ngarkesë (seksioni më sipër).
 
 ## Kufijtë e modelit
 

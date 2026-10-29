@@ -149,6 +149,9 @@ enum Mode {
     Router,
     /// `amm_router::plan` always taking the global best (`choices = 0`).
     RouterBest,
+    /// Orders of realistic size, planned by `amm_router::plan` with this
+    /// split tax (bps), each one transaction over all its legs (v0 + ALT).
+    Sized { tax: u32 },
 }
 
 #[derive(Clone, Debug)]
@@ -168,6 +171,11 @@ struct Outcome {
     lat_p50: u64,
     lat_p95: u64,
     send_ms: u128,
+    /// Shards per order (1 except in `Mode::Sized`).
+    legs: f64,
+    /// The first few transaction errors, for the log (read through Debug).
+    #[allow(dead_code)]
+    errors: Vec<String>,
 }
 
 /// One measured burst: `rounds` swaps per trader over the first `n_shards`.
@@ -208,6 +216,17 @@ fn run(rpc: &Arc<Rpc>, shards: &[Shard], traders: &[Trader], load: Load) -> Outc
             txs.push(swap_tx(s, t, payer, a_to_b, amount, &blockhash));
         }
     }
+    measure(rpc, txs, n_shards, mode, shared_payer)
+}
+
+/// Sends `txs` from `SENDERS` threads and measures how they landed.
+fn measure(
+    rpc: &Arc<Rpc>,
+    txs: Vec<(String, String)>,
+    n_shards: usize,
+    mode: Mode,
+    shared_payer: bool,
+) -> Outcome {
     let sigs: Vec<String> = txs.iter().map(|t| t.0.clone()).collect();
     let queue = Arc::new(Mutex::new(txs.into_iter().map(|t| t.1).collect::<Vec<_>>()));
     let start_slot = rpc.slot();
@@ -232,6 +251,7 @@ fn run(rpc: &Arc<Rpc>, shards: &[Shard], traders: &[Trader], load: Load) -> Outc
 
     // Wait until every signature has a status, or 40 s pass.
     let mut status: Vec<Option<(u64, bool)>> = vec![None; sigs.len()];
+    let mut errors: Vec<String> = Vec::new();
     let deadline = Instant::now() + Duration::from_secs(40);
     while status.iter().any(Option::is_none) && Instant::now() < deadline {
         for (c, chunk) in sigs.chunks(256).enumerate() {
@@ -247,6 +267,9 @@ fn run(rpc: &Arc<Rpc>, shards: &[Shard], traders: &[Trader], load: Load) -> Outc
                     || v["confirmationStatus"] == "finalized";
                 if done {
                     status[c * 256 + j] = Some((v["slot"].as_u64().unwrap(), v["err"].is_null()));
+                    if !v["err"].is_null() && errors.len() < 3 {
+                        errors.push(v["err"].to_string());
+                    }
                 }
             }
         }
@@ -301,7 +324,160 @@ fn run(rpc: &Arc<Rpc>, shards: &[Shard], traders: &[Trader], load: Load) -> Outc
         missing,
         max_per_slot: per_slot.values().copied().max().unwrap_or(0),
         send_ms,
+        legs: 1.0,
+        errors,
     }
+}
+
+/// Size of every `[round][trader]` order as a multiple of the median: a
+/// log-normal draw (sigma 1, as in the fee simulation) shared by rounds
+/// `2k` and `2k + 1`, which trade in opposite directions, so prices drift
+/// little over a burst.
+fn size_factors(rounds: usize, traders: usize) -> Vec<Vec<f64>> {
+    (0..rounds)
+        .map(|r| {
+            (0..traders)
+                .map(|i| {
+                    let mut x = (i as u64) << 32 | (r / 2) as u64;
+                    let mut u = || {
+                        x = x.wrapping_add(0x9e37_79b9_7f4a_7c15);
+                        let mut z = x;
+                        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+                        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+                        ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
+                    };
+                    let (a, b) = (u().max(1e-300), u());
+                    ((-2.0 * a.ln()).sqrt() * (2.0 * std::f64::consts::PI * b).cos()).exp()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Direction of order `[round][trader]`: opposite within each pair of rounds.
+fn sized_dir(round: usize, trader: usize) -> bool {
+    (round / 2 + trader + round).is_multiple_of(2)
+}
+
+/// Legs `(lane, amount_in, array starts)` of every `[round][trader]` order.
+type SizedPlans = Vec<Vec<Vec<(usize, u64, Vec<i32>)>>>;
+
+/// The router's legs `(lane, amount_in, array starts)` for every
+/// `[round][trader]` order of `median * factor`, from one snapshot. The
+/// router seed is shared within a pair of rounds, like the size.
+fn sized_plans(
+    books: &[amm_router::Book],
+    cfg: &amm_router::MarketCfg,
+    slot: u64,
+    factors: &[Vec<f64>],
+    median: f64,
+    tax: u32,
+) -> SizedPlans {
+    let rc = amm_router::RouterConfig {
+        split_tax_bps: tax,
+        ..amm_router::RouterConfig::default()
+    };
+    factors
+        .iter()
+        .enumerate()
+        .map(|(r, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let amount = (median * f).max(1.0) as u64;
+                    let seed = (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ (r / 2) as u64;
+                    amm_router::plan(books, cfg, slot, sized_dir(r, i), amount, rc, seed)
+                        .expect("plan")
+                        .legs
+                        .into_iter()
+                        .map(|l| (l.id as usize, l.amount_in, l.array_starts))
+                        .collect()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// One order over all its legs in one v0 transaction through the market's
+/// lookup table, the trader as fee payer, 60k CU per leg.
+fn sized_tx(
+    lanes: &[Shard],
+    t: &Trader,
+    a_to_b: bool,
+    legs: &[(usize, u64, Vec<i32>)],
+    alt: &solana_message::AddressLookupTableAccount,
+    blockhash: &Hash,
+) -> (String, String) {
+    let (tin, tout) = if a_to_b {
+        (t.token_a, t.token_b)
+    } else {
+        (t.token_b, t.token_a)
+    };
+    let mut cu = vec![2u8];
+    cu.extend_from_slice(&(CU_LIMIT * legs.len() as u32).to_le_bytes());
+    let mut ixs = vec![Instruction {
+        program_id: COMPUTE_BUDGET,
+        accounts: vec![],
+        data: cu,
+    }];
+    for (lane, amount, starts) in legs {
+        let s = &lanes[*lane];
+        let accounts = sharded_amm::accounts::SwapExactIn {
+            user: t.kp.pubkey(),
+            market: s.market,
+            registry: s.registry,
+            shard: s.shard,
+            vault_a: s.vault_a,
+            vault_b: s.vault_b,
+            user_token_in: tin,
+            user_token_out: tout,
+            vault_authority: s.vault_authority,
+            token_program: TOKEN_PROGRAM,
+        };
+        // The leg is planned at its real size but executed at 1/1000 of
+        // it: the CU of a swap that crosses no initialized tick does not
+        // depend on the amount, so the cost charged to each shard is the
+        // same, while prices stay inside the planned tick arrays (orders
+        // planned from one snapshot land in another order).
+        let args = SwapArgs {
+            a_to_b,
+            amount_in: (*amount / 1_000).max(1_000),
+            min_amount_out: 0,
+            sqrt_price_limit_x64: 0,
+            max_rounding_dust: u64::MAX,
+            deadline: i64::MAX,
+        };
+        let arrays: Vec<Pubkey> = starts
+            .iter()
+            .map(|st| common::tick_array_pda(&s.shard, *st))
+            .collect();
+        ixs.push(with_remaining(
+            Instruction {
+                program_id: sharded_amm::ID,
+                accounts: accounts.to_account_metas(None),
+                data: sharded_amm::instruction::SwapExactIn { args }.data(),
+            },
+            &arrays,
+        ));
+    }
+    let msg = VersionedMessage::V0(
+        solana_message::v0::Message::try_compile(
+            &t.kp.pubkey(),
+            &ixs,
+            std::slice::from_ref(alt),
+            *blockhash,
+        )
+        .unwrap(),
+    );
+    let body = msg.serialize();
+    let sig = t.kp.sign_message(&body);
+    let mut wire = vec![1u8];
+    wire.extend_from_slice(sig.as_ref());
+    wire.extend_from_slice(&body);
+    (
+        sig.to_string(),
+        base64::engine::general_purpose::STANDARD.encode(wire),
+    )
 }
 
 /// The router's view of the 8-lane market right now: every client of the
@@ -410,6 +586,21 @@ fn main() {
             (m["n_shards"].as_u64().unwrap() as usize, shards)
         })
         .collect();
+    let alts: std::collections::BTreeMap<usize, solana_message::AddressLookupTableAccount> = bench
+        ["markets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            (
+                m["n_shards"].as_u64().unwrap() as usize,
+                solana_message::AddressLookupTableAccount {
+                    key: key(&m["alt"]),
+                    addresses: keys(&m["alt_addresses"]),
+                },
+            )
+        })
+        .collect();
     let traders: Vec<Trader> = bench["traders"]
         .as_array()
         .unwrap()
@@ -452,8 +643,14 @@ fn main() {
     }
 
     let mut results: Vec<Outcome> = Vec::new();
+    // BENCH_ONLY_SIZED=1 runs only the sized orders (for iterating locally).
+    let full_repeats = if std::env::var("BENCH_ONLY_SIZED").is_ok() {
+        0
+    } else {
+        repeats
+    };
     let salt = AtomicUsize::new(1);
-    for rep in 0..repeats {
+    for rep in 0..full_repeats {
         // Alternate the order so drift over time does not favour one setting.
         let order: Vec<usize> = if rep % 2 == 0 {
             vec![1, 2, 4, 8]
@@ -485,7 +682,7 @@ fn main() {
 
     // The real router instead of round-robin (parallelism audit P-01): every
     // client of a burst plans from the same fresh snapshot.
-    for rep in 0..repeats {
+    for rep in 0..full_repeats {
         let modes = if rep % 2 == 0 {
             [Mode::Router, Mode::RouterBest]
         } else {
@@ -522,7 +719,7 @@ fn main() {
     // Negative control: 8 shards, but one fee payer for every swap. The
     // payer is a writable account in every transaction, so all swaps contend
     // on it again, as they would on a shared vault.
-    for _ in 0..repeats {
+    for _ in 0..full_repeats {
         let o = run(
             &rpc,
             &markets[&8],
@@ -541,6 +738,76 @@ fn main() {
         let s0 = rpc.slot();
         while rpc.slot() < s0 + 3 {
             std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    // Orders of realistic size (fee simulation, docs/sim/fee-schedule-
+    // analysis.md): sizes are scaled until the router with a 10 bps tax
+    // uses as many shards per order as in the simulation of SOL/USDC 0.05%
+    // with $1M (1.73), then the same orders run with the 3 bps default and
+    // on one shard holding all the capital. Every order is one transaction
+    // over all its legs, so its full cost is charged to every shard it
+    // writes (audit P-02).
+    const TARGET_LEGS: f64 = 1.73;
+    let (bs8, cfg8) = books(&rpc, &markets[&8]);
+    let slot8 = rpc.slot();
+    let factors = size_factors(rounds, traders.len());
+    let mean_legs = |plans: &SizedPlans| {
+        let n: usize = plans.iter().map(Vec::len).sum();
+        plans.iter().flatten().map(Vec::len).sum::<usize>() as f64 / n as f64
+    };
+    let sample = &factors[..2.min(factors.len())];
+    let (mut lo, mut hi) = (1e6f64.ln(), 1e14f64.ln());
+    for _ in 0..30 {
+        let mid = (lo + hi) / 2.0;
+        if mean_legs(&sized_plans(&bs8, &cfg8, slot8, sample, mid.exp(), 10)) < TARGET_LEGS {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    let median_size = lo.exp();
+    println!("sized orders: median {median_size:.0} units");
+    // The lookup tables were written at slot 0; right after start-up they
+    // do not resolve yet (seen on a fresh validator), so wait a few dozen
+    // slots, which the full benchmark has long passed by now.
+    while rpc.slot() < 64 {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let (bs1, cfg1) = books(&rpc, &markets[&1]);
+    for rep in 0..repeats {
+        let mut order = vec![(1usize, 0u32), (8, 10), (8, 3)];
+        if rep % 2 == 1 {
+            order.reverse();
+        }
+        for (n, tax) in order {
+            let (bs, cfg) = if n == 1 { (&bs1, &cfg1) } else { (&bs8, &cfg8) };
+            // Plans from the snapshot before any sized burst; each pair of
+            // rounds leaves prices where they were, up to rounding.
+            let plans = sized_plans(bs, cfg, slot8, &factors, median_size, tax);
+            let legs = mean_legs(&plans);
+            let blockhash = rpc.blockhash();
+            let mut txs = Vec::new();
+            for (r, row) in plans.iter().enumerate() {
+                for (i, l) in row.iter().enumerate() {
+                    txs.push(sized_tx(
+                        &markets[&n],
+                        &traders[i],
+                        sized_dir(r, i),
+                        l,
+                        &alts[&n],
+                        &blockhash,
+                    ));
+                }
+            }
+            let mut o = measure(&rpc, txs, n, Mode::Sized { tax }, false);
+            o.legs = legs;
+            println!("{o:?}");
+            results.push(o);
+            let s0 = rpc.slot();
+            while rpc.slot() < s0 + 3 {
+                std::thread::sleep(Duration::from_millis(100));
+            }
         }
     }
 
@@ -571,7 +838,7 @@ fn main() {
     ];
     let median = |mut v: Vec<usize>| -> usize {
         v.sort_unstable();
-        v[v.len() / 2]
+        v.get(v.len() / 2).copied().unwrap_or(0)
     };
     let base = median(
         results
@@ -615,11 +882,49 @@ fn main() {
             );
         }
     }
+    let sized: Vec<(usize, u32, &str)> = vec![
+        (1, 0, "1 shard (gjithë kapitali)"),
+        (8, 10, "8 shard-e, router taksë 10 bps"),
+        (8, 3, "8 shard-e, router taksë 3 bps"),
+    ];
+    let pick = |n: usize, tax: u32| {
+        results
+            .iter()
+            .filter(move |o| o.shards == n && o.mode == Mode::Sized { tax })
+    };
+    let sized_base = median(pick(1, 0).map(|o| o.max_per_slot).collect());
+    md += &format!(
+        "\nUrdhra me madhësi reale (mediana {median_size:.0} njësi; router-i me 10 bps përdor {TARGET_LEGS} shard-e për urdhër, si në simulimin e tarifave), çdo urdhër 1 transaksion v0 me ALT. Çdo hap ekzekutohet me 1/1000 e shumës së planifikuar: CU-të janë të njëjta (asnjë tick i inicializuar nuk kalohet), çmimet mbeten brenda tick arrays të planifikuara:\n\n| konfigurimi | shard-e për urdhër | urdhra/slot maks. (mediana) | herë sa 1 shard | të suksesshme / dërguara | CU në slot-in maks. (M) |\n|---|---:|---:|---:|---:|---:|\n"
+    );
+    for &(n, tax, label) in &sized {
+        let m = median(pick(n, tax).map(|o| o.max_per_slot).collect());
+        let legs = pick(n, tax).map(|o| o.legs).sum::<f64>() / repeats as f64;
+        let ok: usize = pick(n, tax).map(|o| o.ok).sum();
+        let sent: usize = pick(n, tax).map(|o| o.sent).sum();
+        let cu = pick(n, tax).map(|o| o.busiest_cu).max().unwrap_or(0);
+        md += &format!(
+            "| {label} | {legs:.2} | {m} | {:.2} | {ok} / {sent} | {:.1} |\n",
+            m as f64 / sized_base.max(1) as f64,
+            cu as f64 / 1e6
+        );
+    }
     print!("{md}");
     if let Some(path) = out {
         std::fs::write(path, md).unwrap();
     }
     // A failed swap means the benchmark itself is wrong (bad accounts or
     // state), not that the network was slow.
-    assert!(results.iter().all(|o| o.failed == 0), "some swaps failed");
+    assert!(
+        results.iter().all(|o| o.failed == 0),
+        "some swaps failed: {:?}",
+        results.iter().find(|o| o.failed > 0)
+    );
+    // Sized orders are planned from one snapshot and land in another order,
+    // so a few may leave their tick arrays; more than 2% means a bad setup.
+    for o in results
+        .iter()
+        .filter(|o| matches!(o.mode, Mode::Sized { .. }))
+    {
+        assert!(o.failed * 50 <= o.sent, "sized orders failed: {o:?}");
+    }
 }

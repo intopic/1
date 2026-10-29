@@ -219,12 +219,41 @@ pub struct RouterConfig {
     pub max_regret_bps: u32,
 }
 
+/// Split tax when the shards are idle, and when they are congested.
+pub const QUIET_SPLIT_TAX_BPS: u32 = 3;
+pub const BUSY_SPLIT_TAX_BPS: u32 = 10;
+/// Priority fee (micro-lamports per CU) on the shard accounts at or below
+/// which they count as idle, and at or above which as congested.
+pub const QUIET_PRIORITY_FEE: u64 = 1_000;
+pub const BUSY_PRIORITY_FEE: u64 = 100_000;
+
+impl RouterConfig {
+    /// The default config with the split tax set from how congested the
+    /// shards are, measured by the recent priority fee paid to write them
+    /// (e.g. the median of `getRecentPrioritizationFees` over the shard
+    /// accounts). Parallelism only matters when the shards are full: idle,
+    /// an order may split for the best price (3 bps tax); congested, each
+    /// extra shard it writes costs other orders their slot, so the tax rises
+    /// to 10 bps, linearly in the fee's logarithm between the two marks.
+    /// gerfa, 2026-10-29 (fee simulation, docs/sim/fee-schedule-analysis.md).
+    pub fn for_priority_fee(micro_lamports_per_cu: u64) -> Self {
+        let f = micro_lamports_per_cu.clamp(QUIET_PRIORITY_FEE, BUSY_PRIORITY_FEE) as f64;
+        let (q, b) = (QUIET_PRIORITY_FEE as f64, BUSY_PRIORITY_FEE as f64);
+        let t = (f / q).ln() / (b / q).ln();
+        let span = f64::from(BUSY_SPLIT_TAX_BPS - QUIET_SPLIT_TAX_BPS);
+        Self {
+            split_tax_bps: QUIET_SPLIT_TAX_BPS + (t * span).round() as u32,
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for RouterConfig {
     fn default() -> Self {
         Self {
             max_shards: 8,
             min_gain_bps: 2,
-            split_tax_bps: 10,
+            split_tax_bps: QUIET_SPLIT_TAX_BPS,
             leg_cost_out: 0,
             choices: 2,
             max_regret_bps: 1,
@@ -1332,6 +1361,25 @@ mod tests {
     }
 
     #[test]
+    fn split_tax_rises_with_congestion() {
+        let tax = |f| RouterConfig::for_priority_fee(f).split_tax_bps;
+        assert_eq!(tax(0), QUIET_SPLIT_TAX_BPS);
+        assert_eq!(tax(QUIET_PRIORITY_FEE), QUIET_SPLIT_TAX_BPS);
+        assert_eq!(tax(BUSY_PRIORITY_FEE), BUSY_SPLIT_TAX_BPS);
+        assert_eq!(tax(u64::MAX), BUSY_SPLIT_TAX_BPS);
+        assert_eq!(tax(10_000), 7, "halfway on a log scale");
+        let mut last = 0;
+        for f in (0..=200_000).step_by(500) {
+            assert!(tax(f) >= last);
+            last = tax(f);
+        }
+        assert_eq!(
+            RouterConfig::for_priority_fee(0).split_tax_bps,
+            RouterConfig::default().split_tax_bps
+        );
+    }
+
+    #[test]
     fn split_tax_keeps_most_orders_on_one_or_two_shards() {
         let bs = books(8, 1 << 40);
         let legs = |amount: u64, rc: RouterConfig| {
@@ -1344,16 +1392,25 @@ mod tests {
             split_tax_bps: 0,
             ..RouterConfig::default()
         };
-        // Up to ~80 bps of price impact on one shard (2^32 here).
+        let ten = RouterConfig {
+            split_tax_bps: 10,
+            ..RouterConfig::default()
+        };
+        // Up to ~80 bps of price impact on one shard (2^32 here): a 10 bps
+        // tax keeps orders on one or two shards; the default 3 bps tax
+        // (gerfa, 2026-10-29: price over parallelism, fee simulation) splits
+        // more, never more than no tax, and never a small order.
         for e in [20u32, 26, 30, 32] {
             let a = 1u64 << e;
-            assert!(legs(a, RouterConfig::default()) <= legs(a, free), "2^{e}");
-            assert!(
-                legs(a, RouterConfig::default()) <= 2,
-                "2^{e}: {}",
-                legs(a, RouterConfig::default())
+            let (t10, t3, t0) = (
+                legs(a, ten),
+                legs(a, RouterConfig::default()),
+                legs(a, free),
             );
+            assert!(t10 <= t3 && t3 <= t0, "2^{e}: {t10} {t3} {t0}");
+            assert!(t10 <= 2, "2^{e}: {t10}");
         }
+        assert_eq!(legs(1 << 20, RouterConfig::default()), 1);
         // Very large orders still split widely.
         assert!(legs(1 << 38, RouterConfig::default()) >= 4);
         // A per-leg cost larger than any gain keeps everything on one shard.

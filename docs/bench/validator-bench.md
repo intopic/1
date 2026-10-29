@@ -54,6 +54,25 @@ Matja është **për slot**. Në mainnet slot-et janë tani 200 ms (SIMD-0525, q
 
 Asnjë swap nuk dështoi. "Pa status" janë transaksione që nuk morën status brenda 40 sekondave të pritjes (`maxRetries: 0`, pa ridërgim). Rezultati i tyre është i **panjohur**: matja nuk provon që nuk u ekzekutuan, vetëm që nuk u panë. Ato nuk numërohen si sukses, kështu që swap/slot mund të jetë pak më i ulët se në realitet, por kurrë më i lartë. Tarifa e çdo transaksioni është tarifa bazë 5 000 lamports, pa priority fee. Swap-i kërkon 60 000 CU dhe përdor rreth 40 000.
 
+## Urdhra me madhësi reale (shumë shard-e në një transaksion)
+
+Swap-et e vegjël më sipër shkojnë gjithmonë në 1 shard. Urdhrat realë ndahen ndonjëherë. Atëherë kostoja e plotë e transaksionit i ngarkohet çdo shard-i që shkruan (auditimi P-02), dhe kjo e ul paralelizmin. Kjo pjesë e mat atë efekt.
+
+- **Madhësitë.** Log-normale (sigma 1, si në simulimin e tarifave), të shkallëzuara derisa router-i me taksë 10 bps të përdorë 1,73 shard-e për urdhër. Ky është numri nga simulimi i SOL/USDC 0,05% me $1M.
+- **Të njëjtat urdhra** dërgohen me router-in me taksë 3 bps, dhe te tregu me 1 shard që ka gjithë kapitalin.
+- **Çdo urdhër është 1 transaksion v0** me address lookup table (ALT), me të gjitha hapat e tij brenda.
+- **Shumat e ekzekutimit.** Çdo hap planifikohet me madhësinë e plotë, por ekzekutohet me 1/1000 e saj. CU-të janë të njëjta, sepse asnjë tick i inicializuar nuk kalohet. Çmimet mbeten brenda tick arrays që planifikoi router-i, ndërsa urdhrat e planifikuar nga një snapshot zbresin me rend tjetër. Pa këtë, 65% e urdhrave dështonin me `TickArrayMismatch`.
+
+Rezultati lokal (Agave 4.3.2, 4 CPU, `rounds=16`, 1 përsëritje, pemë pune para commit-it): 
+
+| konfigurimi | shard-e për urdhër | urdhra/slot maks. | herë sa 1 shard | CU në slot-in maks. (M) |
+|---|---:|---:|---:|---:|
+| 1 shard (gjithë kapitali) | 1,00 | 887 | 1,00 | 37,0 |
+| 8 shard-e, router taksë 10 bps | 1,81 | 1 613 | 1,82 | 67,6 |
+| 8 shard-e, router taksë 3 bps | 2,73 | 1 129 | 1,27 | 83,0 |
+
+Me taksë 3 bps tregu mban 1,27 herë urdhrat e një pool-i, kundrejt 1,82 me 10 bps. Prandaj taksa ngrihet vetë nën ngarkesë (ADR-0007, `RouterConfig::for_priority_fee`). Këtu shard-et kanë të njëjtin çmim. Modeli i kostos në simulim, me shard-e që lëvizin dhe ngarkesë të pabarabartë, jep më pak: 1,15× dhe 0,67× ([fee-schedule-analysis.md](../sim/fee-schedule-analysis.md)). Tabela me provenancë nga CI do ta zëvendësojë këtë.
+
 ## Si shpjegohet
 
 Agave 4.3.2 kufizon CU-të për bllok dhe CU-të për çdo llogari writable brenda bllokut ([`block_cost_limits.rs`](https://github.com/anza-xyz/agave/blob/v4.3.2/cost-model/src/block_cost_limits.rs), [`slot_params.rs`](https://github.com/anza-xyz/agave/blob/v4.3.2/runtime/src/slot_params.rs)): 60M për bllok dhe 24M për llogari, ose 100M dhe 40M kur është aktiv feature-i `raise_block_limits_to_100m` (SIMD-0286). Test validator-i aktivizon të gjitha feature-t, prandaj këtu vlejnë 100M dhe 40M.

@@ -16,7 +16,44 @@ use base64::Engine;
 use common::*;
 use serde_json::json;
 use sharded_amm::math::tick_math::sqrt_price_at_tick;
+use solana_address_lookup_table_interface::state::{AddressLookupTable, LookupTableMeta};
 use solana_signer::Signer;
+use std::borrow::Cow;
+
+const ALT_PROGRAM: Pubkey = anchor_lang::pubkey!("AddressLookupTab1e1111111111111111111111111");
+
+/// An address lookup table holding `addresses`, written straight into the
+/// ledger (active from slot 1: last extended at slot 0). Lets a swap split
+/// over up to 8 shards fit the 1 232-byte packet (docs/tx-budget.md).
+fn lookup_table(env: &mut Env, addresses: &[Pubkey]) -> Pubkey {
+    let table = Pubkey::new_unique();
+    let data = AddressLookupTable {
+        meta: LookupTableMeta {
+            deactivation_slot: u64::MAX,
+            last_extended_slot: 0,
+            last_extended_slot_start_index: 0,
+            authority: None,
+            _padding: 0,
+        },
+        addresses: Cow::Owned(addresses.to_vec()),
+    }
+    .serialize_for_tests()
+    .unwrap();
+    let lamports = env.svm.minimum_balance_for_rent_exemption(data.len());
+    env.svm
+        .set_account(
+            table,
+            solana_account::Account {
+                lamports,
+                data,
+                owner: ALT_PROGRAM,
+                executable: false,
+                rent_epoch: 0,
+            },
+        )
+        .unwrap();
+    table
+}
 
 /// Price sits in the middle of the tick array starting at 0 (spacing 60,
 /// span 1920), so small swaps never leave it and every swap can list the
@@ -88,13 +125,16 @@ fn main() {
         let span = sharded_amm::state::array_span(spacing);
         keys.extend([m.market, m.registry]);
         let mut shards = Vec::new();
+        let mut alt_addrs = vec![m.market, m.registry, TOKEN_PROGRAM];
         for id in 0..n {
             let a = shard_addrs(&m, id, 0);
+            alt_addrs.extend([a.shard, a.vault_a, a.vault_b, a.vault_authority]);
             let mut start = -2 * span;
             while start <= 3 * span {
                 let k = tick_array_pda(&a.shard, start);
                 if env.raw(&k).is_some() {
                     keys.push(k);
+                    alt_addrs.push(k);
                 }
                 start += span;
             }
@@ -116,8 +156,12 @@ fn main() {
             keys.extend([a.shard, a.vault_a, a.vault_b]);
             assert_eq!(env.shard_state(&m, id).tick_current, START_TICK);
         }
+        let alt = lookup_table(&mut env, &alt_addrs);
+        keys.push(alt);
         markets.push(json!({
             "n_shards": n,
+            "alt": alt.to_string(),
+            "alt_addresses": alt_addrs.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
             "market": m.market.to_string(),
             "registry": m.registry.to_string(),
             "total_liquidity": TOTAL_LIQUIDITY.to_string(),
@@ -130,7 +174,8 @@ fn main() {
 
     let mut trader_rows = Vec::new();
     for _ in 0..traders {
-        let t = env.user(&m, 1_000_000_000_000);
+        // Enough for the sized orders of bench_run (ALT mode) too.
+        let t = env.user(&m, 1_000_000_000_000_000);
         keys.extend([t.kp.pubkey(), t.token_a, t.token_b]);
         trader_rows.push(json!({
             "secret": t.kp.to_bytes().to_vec(),
