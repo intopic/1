@@ -179,3 +179,20 @@ jobs:
           path: |
             ${{ runner.temp }}/eng09.md
             ${{ runner.temp }}/dynamic-fee.md
+
+  fees:
+    name: Fee schedule (8 shards, router, rebalancer)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run
+        run: |
+          set -euo pipefail
+          [[ "$SCALE" =~ ^[0-9]+$ ]] || { echo 'scale must be an integer'; exit 1; }
+          SIM_SEEDS=$(( 8 * SCALE )) cargo run --release -p amm-sim --bin eng09 -- --fees "$RUNNER_TEMP/fee-schedule.md"
+          cat "$RUNNER_TEMP/fee-schedule.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fee-schedule
+          path: ${{ runner.temp }}/fee-schedule.md

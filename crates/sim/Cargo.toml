@@ -11,5 +11,6 @@ path = "src/main.rs"
 
 [dependencies]
 amm-model = { path = "../amm-model" }
+amm-router = { path = "../router" }
 sharded-amm = { path = "../../programs/sharded-amm", features = ["no-entrypoint"] }
 anchor-lang = { version = "=1.2.1", default-features = false, features = ["solana-v4"] }

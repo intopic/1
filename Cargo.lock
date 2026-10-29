@@ -28,6 +28,7 @@ name = "amm-sim"
 version = "0.1.0"
 dependencies = [
  "amm-model",
+ "amm-router",
  "anchor-lang",
  "sharded-amm",
 ]

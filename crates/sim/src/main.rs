@@ -16,11 +16,16 @@
 //! USDC 6 decimals). Usage: `eng09 [output.md]`; `SIM_SEEDS`, `SIM_STEPS`
 //! scale the run.
 //!
+//! `eng09 --fees [output.md]`: the launch fee schedule on 8 shards with the
+//! real router and rebalancer bot, three markets (see `fees.rs`).
+//!
 //! `eng09 --dynamic [output.md]` compares the fixed fee with the per-shard
 //! dynamic fee (ADR-0005), run by the real `engine::dynamic_fee`, at normal
 //! and at four times the volatility. A step is one minute = 150 slots; the
 //! arbitrageur trades at the start of the step and each uninformed trade
 //! lands 3 slots after the previous one.
+
+mod fees;
 
 use amm_model::cpmm;
 use anchor_lang::prelude::Pubkey;
@@ -590,6 +595,15 @@ fn main() {
         median_trade_usd: 2_000.0,
     };
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--fees") {
+        args.remove(0);
+        let out = fees::fee_report(seeds, sc.steps);
+        match args.first() {
+            Some(path) => std::fs::write(path, out).expect("write results"),
+            None => print!("{out}"),
+        }
+        return;
+    }
     if args.first().map(String::as_str) == Some("--dynamic") {
         args.remove(0);
         let out = dynamic_report(seeds, &sc);
