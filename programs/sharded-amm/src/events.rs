@@ -84,6 +84,18 @@ pub struct ShardPauseFlagsChanged {
 }
 
 #[event]
+pub struct ShardReopened {
+    pub market: Pubkey,
+    pub shard: Pubkey,
+    pub shard_id: u8,
+    pub old: u8,
+    pub new: u8,
+    pub sqrt_price_x64: u128,
+    pub median_sqrt_price_x64: u128,
+    pub references: u8,
+}
+
+#[event]
 pub struct MarketPauseChanged {
     pub market: Pubkey,
     pub paused: bool,

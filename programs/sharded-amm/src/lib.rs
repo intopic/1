@@ -53,6 +53,12 @@ pub mod sharded_amm {
         handle_set_shard_pause_flags(ctx, flags)
     }
 
+    /// Lifts a shard's swap pause only if its price is within the activation
+    /// deviation of the median of at least three other open shards.
+    pub fn reopen_shard<'info>(ctx: Context<'info, ReopenShard<'info>>, flags: u8) -> Result<()> {
+        handle_reopen_shard(ctx, flags)
+    }
+
     /// Proposes a fee change; applied by `apply_fees` after the timelock.
     pub fn update_fees(
         ctx: Context<UpdateFees>,

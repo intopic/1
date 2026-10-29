@@ -136,4 +136,6 @@ pub enum AmmError {
     ShardPaused,
     #[msg("A token transfer did not move exactly the requested amount")]
     TransferAmountMismatch,
+    #[msg("Lifting a shard's swap pause needs reopen_shard and its price check")]
+    ReopenNeedsPriceCheck,
 }

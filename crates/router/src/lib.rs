@@ -71,7 +71,8 @@ pub struct Book {
     pub fee_state: DynamicFeeState,
     pub arrays: Vec<TickArray>,
     /// The shard's own pauses (`PAUSE_*`): a swap-paused shard quotes
-    /// nothing, a rebalance-paused one is left out of `find_rebalance`.
+    /// nothing (but can still be rebalanced against an open one), a
+    /// rebalance-paused one is left out of `find_rebalance`.
     pub pause_flags: u8,
 }
 
@@ -459,13 +460,18 @@ pub fn find_rebalance(
     slot: u64,
     min_profit: u64,
 ) -> Option<RebalancePlan> {
+    // A swap-paused shard may still be rebalanced (recovery), but only
+    // against a shard that is trading, as the program requires.
     let open = || {
         books
             .iter()
-            .filter(|b| b.pause_flags & (PAUSE_SWAPS | PAUSE_REBALANCE) == 0)
+            .filter(|b| b.pause_flags & PAUSE_REBALANCE == 0)
     };
     let lo = open().min_by_key(|b| (b.pool.sqrt_price, b.id))?;
     let hi = open().max_by_key(|b| (b.pool.sqrt_price, u8::MAX - b.id))?;
+    if lo.pause_flags & hi.pause_flags & PAUSE_SWAPS != 0 {
+        return None;
+    }
     if lo.pool.sqrt_price >= hi.pool.sqrt_price {
         return None;
     }
@@ -717,6 +723,18 @@ mod tests {
         assert!(r.as_ref().is_none_or(|r| r.lo != 2 && r.hi != 2), "{r:?}");
         bs[2].pause_flags = 0;
         assert_eq!(find_rebalance(&bs, &cfg(), 0, 0).unwrap().lo, 2);
+        // Swaps paused there: recovery rebalancing still brings it back.
+        bs[2].pause_flags = PAUSE_SWAPS;
+        let r = find_rebalance(&bs, &cfg(), 0, 0).unwrap();
+        assert_eq!(r.lo, 2);
+        let mut after = bs.clone();
+        apply_rebalance(&mut after, &cfg(), 0, &r).unwrap();
+        assert!(after[2].pool.sqrt_price > bs[2].pool.sqrt_price);
+        // Not against another paused shard.
+        for b in bs.iter_mut() {
+            b.pause_flags = PAUSE_SWAPS;
+        }
+        assert_eq!(find_rebalance(&bs, &cfg(), 0, 0), None);
     }
 
     #[test]

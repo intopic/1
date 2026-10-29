@@ -10,7 +10,10 @@
 //! - Refused: same shard twice, no price gap, no profit, wrong profit
 //!   account, paused.
 //! - Pause flags: roles, swaps/deposits/rebalance bits; LP exits never
-//!   blocked. The same flags on one shard stop only that shard.
+//!   blocked. The same flags on one shard stop only that shard; with only
+//!   the swap bit set the listed rebalancers can bring its price back, and
+//!   `reopen_shard` lifts it only within the deviation from the median of
+//!   three or more open shards.
 
 mod common;
 
@@ -542,9 +545,129 @@ fn shard_pause_stops_one_shard_only() {
     let c = env.ix_collect(&m, &lp, 1, -1200, 1200);
     let lkp = lp.kp.insecure_clone();
     env.send(&[i, c], &[&lkp]).unwrap();
-    // The admin lifts it.
-    env.send(&[ix_shard_flags(&m, &admin.pubkey(), 1, 0)], &[&admin])
-        .unwrap();
+    // Lifting the swap pause needs reopen_shard and its price check.
+    expect_custom(
+        env.send(&[ix_shard_flags(&m, &admin.pubkey(), 1, 0)], &[&admin]),
+        amm_code(AmmError::ReopenNeedsPriceCheck),
+    );
+    env.send(
+        &[ix_reopen(&m, &admin.pubkey(), 1, 0, &[3, 4, 5])],
+        &[&admin],
+    )
+    .unwrap();
     env.swap(&m, &t, 1, true, 1_000_000).unwrap();
     env.add_liquidity(&m, &t, 1, -600, 600, 1_000_000).unwrap();
+}
+
+fn ix_reopen(
+    m: &Market,
+    admin: &Pubkey,
+    id: u8,
+    flags: u8,
+    refs: &[u8],
+) -> solana_instruction::Instruction {
+    let mut i = ix(
+        sharded_amm::accounts::ReopenShard {
+            admin: *admin,
+            market: m.market,
+            registry: m.registry,
+            shard: shard_addrs(m, id, 0).shard,
+        },
+        sharded_amm::instruction::ReopenShard { flags },
+    );
+    i.accounts.extend(refs.iter().map(|r| {
+        solana_instruction::AccountMeta::new_readonly(shard_addrs(m, *r, 0).shard, false)
+    }));
+    i
+}
+
+/// Shard 0's price is more than 1% off the others when its swaps are
+/// paused. It cannot reopen until the listed rebalancer, trading against an
+/// open shard, brings it back; then `reopen_shard` checks the median of the
+/// references in the same transaction.
+#[test]
+fn controlled_reopen_after_recovery() {
+    let (mut env, m, _) = diverged();
+    let (admin, pauser) = (env.admin.insecure_clone(), env.pauser.insecure_clone());
+    env.send(
+        &[ix_shard_flags(&m, &pauser.pubkey(), 0, PAUSE_SWAPS)],
+        &[&pauser],
+    )
+    .unwrap();
+    let t = env.user(&m, 1_000_000_000_000);
+    expect_custom(
+        env.swap(&m, &t, 0, true, 1_000_000),
+        amm_code(AmmError::ShardPaused),
+    );
+    let reopen = |env: &mut Env, refs: &[u8]| {
+        env.send(&[ix_reopen(&m, &admin.pubkey(), 0, 0, refs)], &[&admin])
+    };
+    expect_custom(
+        reopen(&mut env, &[1, 2, 3]),
+        amm_code(AmmError::PriceDeviationTooHigh),
+    );
+    expect_custom(
+        reopen(&mut env, &[1, 2]),
+        amm_code(AmmError::InvalidAccountCount),
+    );
+    expect_custom(
+        reopen(&mut env, &[0, 1, 2]),
+        amm_code(AmmError::DuplicateAccount),
+    );
+    expect_custom(
+        reopen(&mut env, &[1, 1, 2]),
+        amm_code(AmmError::DuplicateAccount),
+    );
+    // Only the admin.
+    let i = ix_reopen(&m, &pauser.pubkey(), 0, 0, &[1, 2, 3]);
+    assert!(env.send(&[i], &[&pauser]).is_err());
+
+    // Recovery: the listed rebalancer, against an open shard only.
+    env.send(
+        &[ix_shard_flags(&m, &pauser.pubkey(), 4, PAUSE_SWAPS)],
+        &[&pauser],
+    )
+    .unwrap();
+    expect_custom(
+        reopen(&mut env, &[1, 2, 4]),
+        amm_code(AmmError::ShardPaused),
+    );
+    let caller = env.user(&m, 0);
+    env.set_rebalancers(&m, &[caller.kp.pubkey()]);
+    let kp = caller.kp.insecure_clone();
+    let rebalance = |env: &mut Env, y: u8, amount: u64| {
+        let (ax, ay) = arrays(env, &m, 0, y);
+        let a = args(false, amount, ax.len());
+        let i = ix_rebalance(&m, &kp.pubkey(), 0, y, caller.token_b, a, &ax, &ay);
+        env.send(&[i], &[&kp])
+    };
+    expect_custom(
+        rebalance(&mut env, 4, 1_000_000),
+        amm_code(AmmError::ShardPaused),
+    );
+    // The bot trades shard 0 against each open shard in turn, each time
+    // with the largest amount that still fits (the program refuses one that
+    // would push the prices past each other).
+    let before = env.shard_state(&m, 0).sqrt_price_x64;
+    let mut rounds = 0;
+    for y in [1u8, 2, 3, 5, 6, 7, 1, 2, 3, 5, 6, 7] {
+        rounds += usize::from(
+            (20..40)
+                .rev()
+                .any(|k| rebalance(&mut env, y, 1u64 << k).is_ok()),
+        );
+    }
+    assert!(rounds > 0, "a recovery rebalance fits");
+    assert!(env.shard_state(&m, 0).sqrt_price_x64 > before);
+    assert!(env.balance(&caller.token_b) > 0, "paid only its profit");
+
+    // Back within the deviation of the median: reopens, swaps work.
+    reopen(&mut env, &[1, 2, 3]).unwrap();
+    assert_eq!(env.shard_state(&m, 0).pause_flags, 0);
+    env.swap(&m, &t, 0, true, 1_000_000).unwrap();
+    // Nothing left to reopen.
+    expect_custom(
+        reopen(&mut env, &[1, 2, 3]),
+        amm_code(AmmError::NoPendingChange),
+    );
 }

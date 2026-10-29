@@ -93,6 +93,12 @@ pub fn handle_rebalance_pair<'info>(
         require!(s.status == ShardStatus::Active, AmmError::ShardNotActive);
         s.check_rebalance()?;
     }
+    // Recovery rebalancing needs an open counterpart: the price a paused
+    // shard is brought back to is that of a shard that is trading.
+    require!(
+        !(acc.shard_x.swaps_paused() && acc.shard_y.swaps_paused()),
+        AmmError::ShardPaused
+    );
     let mint_in = if args.input_is_a {
         acc.market.mint_a
     } else {

@@ -58,13 +58,18 @@ impl ShardState {
         Ok(())
     }
 
-    /// Rebalancing swaps on this shard: both bits clear.
+    /// Rebalancing on this shard: `PAUSE_REBALANCE` clear. A shard with only
+    /// `PAUSE_SWAPS` set is in recovery: the listed rebalancers may still
+    /// bring its price back to an open shard's before `reopen_shard`.
     pub fn check_rebalance(&self) -> std::result::Result<(), AmmError> {
-        self.check_swaps()?;
         if self.pause_flags & PAUSE_REBALANCE != 0 {
             return Err(AmmError::ShardPaused);
         }
         Ok(())
+    }
+
+    pub fn swaps_paused(&self) -> bool {
+        self.pause_flags & PAUSE_SWAPS != 0
     }
 }
 

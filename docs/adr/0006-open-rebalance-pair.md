@@ -57,7 +57,21 @@ Dy shard-e aktivë të të njëjtit treg, `lo` (çmimi më i ulët i A) dhe `hi`
 - depozita e re dhe `open_position` refuzohen;
 - `rebalance_pair` refuzohet kur njëri nga dy shard-et ka `PAUSE_SWAPS` ose `PAUSE_REBALANCE`.
 
-Shard-et e tjera vazhdojnë, dhe daljet e LP-ve nga shard-i i ndaluar mbeten të hapura. Biti ruhet te vetë shard-i, të cilin swap-i e shkruan gjithsesi, kështu që nuk shtohet asnjë llogari e përbashkët. Router-i nuk e kuoton një shard me swap-e të ndaluara dhe e lë jashtë `find_rebalance`. Nëse megjithatë merr `ShardPaused`, gabimin e klasifikon si `SkipShard`.
+Shard-et e tjera vazhdojnë, dhe daljet e LP-ve nga shard-i i ndaluar mbeten të hapura. Biti ruhet te vetë shard-i, të cilin swap-i e shkruan gjithsesi, kështu që nuk shtohet asnjë llogari e përbashkët. Router-i nuk e kuoton një shard me swap-e të ndaluara, dhe nëse megjithatë merr `ShardPaused`, gabimin e klasifikon si `SkipShard`.
+
+**Rikuperimi dhe rihapja e kontrolluar (29 tetor 2026).** Kur një shard ndalet vetëm me `PAUSE_SWAPS`, ai hyn në gjendje rikuperimi:
+- Swap-et dhe depozitat e reja refuzohen, ndërsa daljet e LP-ve mbeten të hapura.
+- Rebalancer-at e listuar mund ta afrojnë çmimin e tij me `rebalance_pair`, por vetëm kundër një shard-i që po tregton. Dy shard-e të ndalura nuk mund të rebalancohen me njëri-tjetrin.
+- Rebalancimi bën dy swap-e të vërteta, me tick crossings, L dhe tarifat e secilit shard, dhe programi nuk lejon që çmimet të kalojnë njëri-tjetrin. Madhësia kufizohet nga vetë diferenca e çmimit. Fitimi, pra diferenca pas dy tarifave, i shkon rebalancer-it tonë dhe nuk ka kufi të veçantë.
+- `PAUSE_SWAPS | PAUSE_REBALANCE` e ngrin shard-in plotësisht. Daljet e LP-ve mbeten edhe atëherë.
+
+`PAUSE_SWAPS` nuk mund të hiqet me `set_shard_pause_flags` (`ReopenNeedsPriceCheck`). Atë e heq vetëm `reopen_shard(flags)`, vetëm admini, dhe vetëm nëse në të njëjtin transaksion kalojnë këto kontrolle:
+- jepen të paktën `MIN_REOPEN_REFERENCES` (3) shard-e reference, vetëm për lexim, aktive, që po tregtojnë, të ndryshme nga njëra-tjetra dhe nga vetë shard-i;
+- çmimi i shard-it është brenda `readiness.max_activation_deviation_bps` nga **mediana** e çmimeve të tyre. Përndryshe rihapja dështon dhe shard-i mbetet i ndalur.
+
+Mediana dhe jo një shard i vetëm, sepse edhe një referencë mund të jetë e devijuar. Kjo e **kufizon** ekspozimin ndaj çmimit të vjetër, por nuk e eliminon: tregu mund të lëvizë menjëherë pas rihapjes, dhe arbitrazhi mund të shfaqet përsëri. Pauza globale mbetet për incidente që prekin disa shard-e, tokenin ose një varësi të përbashkët. "Daljet nuk bllokohen" do të thotë që politika jonë nuk i bllokon kurrë. Transferi mund të dështojë gjithsesi nga freeze i tokenit ose nga mungesa e fondeve.
+
+Router-i (`find_rebalance`) e përfshin shard-in në rikuperim, por jo një çift ku të dy shard-et janë të ndalur.
 
 ## Modeli ekonomik
 
@@ -84,7 +98,15 @@ Shard-et e tjera vazhdojnë, dhe daljet e LP-ve nga shard-i i ndaluar mbeten të
   - rebalancimi përmes shard-it 1 refuzohet, përmes shard-it 2 punon;
   - shard-et 3–7 mbeten byte-për-byte të paprekur dhe vazhdojnë të tregtojnë;
   - LP-ja del nga shard-i 1;
-  - kur admini e heq pauzën, shard-i punon përsëri.
+  - pauser-i nuk mund ta heqë pauzën, dhe as admini me `set_shard_pause_flags`, sepse duhet `reopen_shard`;
+  - pas `reopen_shard` me referencat 3–5, shard-i punon përsëri.
+
+  `controlled_reopen_after_recovery` kontrollon:
+  - shard-i 0 është mbi 1% larg kur ndalet;
+  - `reopen_shard` refuzohet për devijim, për më pak se 3 referenca, për vetë shard-in ose një dublikatë si referencë, për referencë të ndalur, dhe kur e thërret dikush tjetër përveç adminit;
+  - rebalancimi kundër një shard-i tjetër të ndalur refuzohet;
+  - rebalancer-i e afron çmimin kundër shard-eve të hapura, pa kapital, dhe merr vetëm fitimin;
+  - më pas `reopen_shard` kalon dhe swap-et punojnë.
 - CU: rreth 69 000 për një rebalancim pa kalim tick-u.
 
 Ende pa bërë: simulim i fitimit të rebalancimit me router-in me prag (hapi 4), dhe teste stresi me rebalancime të rastit onchain.
