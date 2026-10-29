@@ -503,7 +503,9 @@ fn dynamic_params(base: u32, spacing: u16, per_pct: u32) -> DynamicFeeParams {
         return DynamicFeeParams::disabled(base);
     }
     let p = DynamicFeeParams {
-        max_fee_rate_ppm: sharded_amm::constants::MAX_DYNAMIC_FEE_RATE_PPM,
+        // The ADR-0005 study's ceiling (0.80%, or just above a higher base);
+        // callers may override it.
+        max_fee_rate_ppm: 8_000.max(base + 1),
         vol_coeff_ppm: per_pct * u32::from(spacing) / 100,
         load_coeff_ppm: 0,
         max_vol_accumulator: 10_000_000,

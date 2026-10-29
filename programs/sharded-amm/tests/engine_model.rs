@@ -88,7 +88,7 @@ struct World {
 }
 
 impl World {
-    fn new(r: &mut Rng) -> Self {
+    fn new(r: &mut Rng, p01: bool) -> Self {
         let spacing = [1u16, 10, 60, 200][r.below(4) as usize];
         let span = array_span(spacing);
         let centre_tick =
@@ -99,7 +99,9 @@ impl World {
             .collect();
         let s0 = sqrt_price_at_tick(centre_tick).unwrap();
         let s1 = sqrt_price_at_tick(centre_tick + 1).unwrap();
-        let fee = [0, 100, 500, 1000, 3000, 10_000][r.below(6) as usize];
+        // P-01 also runs the 10% maximum fee.
+        let fee =
+            [0, 100, 500, 1000, 3000, 10_000, 100_000][r.below(if p01 { 7 } else { 6 }) as usize];
         let share = [0, 2000, 5000][r.below(3) as usize];
         let dynamic = if fee < MAX_DYNAMIC_FEE_RATE_PPM && r.below(2) == 0 {
             let filter = 1 + r.below(20) as u16;
@@ -402,10 +404,39 @@ impl World {
     }
 }
 
-fn run_case(case: u64, r: &mut Rng) {
-    let mut w = World::new(r);
+/// One random world. `p01` (exit liveness, mainnet analysis P-01): L
+/// log-uniform up to 2^100, fees up to 10%, 10 000 operations, and after
+/// every one of them a copy of the world must let everyone exit.
+fn run_case(case: u64, r: &mut Rng, p01: bool) {
+    let mut w = World::new(r, p01);
+    if p01 {
+        // A wide base position, as large as the u64 vaults allow, so the
+        // active liquidity is rarely zero during the long run.
+        let sp = i32::from(w.spacing);
+        w.positions.push(PositionState {
+            lower: w.lo(),
+            upper: w.hi() - sp,
+            ..Default::default()
+        });
+        let mut l: u128 = 1 << (60 + r.below(41));
+        loop {
+            let mut t = w.clone();
+            match t.modify(0, l as i128) {
+                Ok((a, b))
+                    if u128::from(a.max(b)) <= u128::from(u64::MAX) / 4 && (a > 0 || b > 0) =>
+                {
+                    w = t;
+                    w.vault_a += u128::from(a);
+                    w.vault_b += u128::from(b);
+                    break;
+                }
+                _ if l > 1 => l /= 2,
+                other => panic!("base position: {other:?}"),
+            }
+        }
+    }
     let owners = 1 + r.below(6) as usize;
-    let ops = 20 + r.below(80);
+    let ops = if p01 { 10_000 } else { 20 + r.below(80) };
     for op in 0..ops {
         let ctx = format!("case {case} op {op}");
         let before = w.snapshot();
@@ -439,7 +470,26 @@ fn run_case(case: u64, r: &mut Rng) {
                     }
                     _ => continue,
                 };
-                let l = u128::from(r.log_u64(60));
+                let mut l = if p01 {
+                    let bits = 1 + r.below(100) as u32;
+                    ((u128::from(r.next()) << 64 | u128::from(r.next())) >> (128 - bits)).max(1)
+                } else {
+                    u128::from(r.log_u64(60))
+                };
+                // P-01: halve a huge L until the deposit fits the u64 vaults,
+                // so large liquidity actually lands instead of reverting.
+                while p01 && l > 1 {
+                    let mut t = w.clone();
+                    match t.modify(i, l as i128) {
+                        Ok((a, b))
+                            if w.vault_a + u128::from(a) <= u128::from(u64::MAX) / 2
+                                && w.vault_b + u128::from(b) <= u128::from(u64::MAX) / 2 =>
+                        {
+                            break
+                        }
+                        _ => l /= 2,
+                    }
+                }
                 match w.modify(i, l as i128) {
                     Ok((a, b)) => {
                         w.vault_a += u128::from(a);
@@ -470,7 +520,9 @@ fn run_case(case: u64, r: &mut Rng) {
                 // Remove part or all of a position; never fails while L suffices.
                 let i = r.below(w.positions.len() as u64) as usize;
                 let have = w.positions[i].liquidity;
-                if have == 0 {
+                // P-01 keeps its base position (the exit checks still
+                // withdraw it, in a copy, after every operation).
+                if have == 0 || (p01 && i == 0) {
                     continue;
                 }
                 let take = if r.below(3) == 0 {
@@ -528,6 +580,15 @@ fn run_case(case: u64, r: &mut Rng) {
                     sqrt_price_at_tick(t.clamp(-443_635, 443_635)).unwrap()
                 } else {
                     0
+                };
+                // P-01: stay inside the base position, so the long run keeps
+                // trading instead of parking the price at a liquidity gap.
+                let limit = if p01 && limit == 0 {
+                    let sp = i32::from(w.spacing);
+                    let edge = if a_to_b { w.lo() + sp } else { w.hi() - 2 * sp };
+                    sqrt_price_at_tick(edge).unwrap()
+                } else {
+                    limit
                 };
                 let price_before = w.pool.sqrt_price;
                 let res = w.swap(a_to_b, amount, limit);
@@ -606,7 +667,7 @@ fn run_case(case: u64, r: &mut Rng) {
             continue;
         }
         let dust = w.check(&ctx);
-        if r.below(8) == 0 {
+        if p01 || r.below(8) == 0 {
             let mut order: Vec<usize> = (0..w.positions.len()).collect();
             for i in (1..order.len()).rev() {
                 order.swap(i, r.below(i as u64 + 1) as usize);
@@ -644,7 +705,7 @@ fn run_case(case: u64, r: &mut Rng) {
 fn random_sequences_keep_every_invariant() {
     let mut r = Rng(seed() | 1);
     for case in 0..cases() {
-        run_case(case, &mut r);
+        run_case(case, &mut r, false);
     }
     let (ok, crossed, max, failed) = STATS.with(|c| *c.borrow());
     eprintln!("swaps ok {ok}, failed {failed}, ticks crossed {crossed}, max in one swap {max}");
@@ -652,4 +713,18 @@ fn random_sequences_keep_every_invariant() {
         ok > failed / 4 && crossed > ok / 10,
         "workload too easy: {ok} ok, {failed} failed, {crossed} crossed"
     );
+}
+
+/// P-01: exit liveness on long, large worlds. Every position can always
+/// withdraw everything and collect, in any order, after every operation.
+#[test]
+fn exit_always_works_on_long_large_worlds() {
+    let mut r = Rng(seed().wrapping_mul(0x9e37_79b9) | 1);
+    let worlds = (cases() / 20_000).max(2);
+    for case in 0..worlds {
+        run_case(case, &mut r, true);
+    }
+    let (ok, crossed, _, failed) = STATS.with(|c| *c.borrow());
+    eprintln!("STATS p01 worlds {worlds} x 10000 operations: swaps ok {ok}, failed {failed}, ticks crossed {crossed}");
+    assert!(ok > 1_000 * worlds && crossed > 0, "P-01 workload too easy");
 }

@@ -119,7 +119,48 @@ pub struct ProtocolSettings {
     pub freeze_allowlist: [Pubkey; MAX_FREEZE_ALLOWLIST],
 }
 
+/// Launch profile indexes in `ProtocolSettings::launch`.
+pub const PROFILE_STABLE: u8 = 0;
+pub const PROFILE_MAJOR: u8 = 1;
+pub const PROFILE_MEMECOIN: u8 = 2;
+
 impl ProtocolSettings {
+    /// The profiles decided for launch (gerfa, 2026-10-29; fee simulation in
+    /// docs/sim/fee-schedule-analysis.md), protocol share 16%:
+    /// - stablecoin: spacing 1, 0.01%, dynamic off;
+    /// - SOL/USDC and other majors: spacing 10, 0.05% + dynamic up to 0.30%;
+    /// - memecoin: spacing 200, 1% + dynamic up to 2%.
+    ///
+    /// Dynamic fee: +0.20% per 1% of price moved (`vol_coeff = 0.20% *
+    /// spacing / 1%` per spacing), episodes of 150 slots, memory 1 500 slots,
+    /// half carried over, load term off. The slot counts are to be
+    /// recomputed for the measured slot time before mainnet. No creation fee
+    /// yet (finalize) and an empty freeze allowlist: the deployer adds the
+    /// real USDC/USDT mints.
+    pub fn launch() -> Self {
+        let dynamic = |max: u32, spacing: u16| DynamicFeeParams {
+            max_fee_rate_ppm: max,
+            vol_coeff_ppm: 2_000 * u32::from(spacing) / 100,
+            load_coeff_ppm: 0,
+            max_vol_accumulator: 10_000_000,
+            filter_slots: 150,
+            decay_slots: 1_500,
+            reduction_bps: 5_000,
+        };
+        let profile = |spacing: u16, fee: u32, dynamic: DynamicFeeParams| MarketProfile {
+            enabled: true,
+            tick_spacing: spacing,
+            fee_rate_ppm: fee,
+            protocol_share_bps: 1_600,
+            dynamic,
+        };
+        let mut s = Self::default();
+        s.profiles[usize::from(PROFILE_STABLE)] = profile(1, 100, DynamicFeeParams::disabled(100));
+        s.profiles[usize::from(PROFILE_MAJOR)] = profile(10, 500, dynamic(3_000, 10));
+        s.profiles[usize::from(PROFILE_MEMECOIN)] = profile(200, 10_000, dynamic(20_000, 200));
+        s
+    }
+
     pub fn validate(&self) -> std::result::Result<(), AmmError> {
         for p in &self.profiles {
             p.validate()?;
@@ -425,6 +466,37 @@ mod tests {
         c.apply_roles(&admin, FEE_TIMELOCK_SECONDS).unwrap();
         assert_eq!(c.roles.pauser, Pubkey::default());
         assert_eq!(c.remove_pauser(&admin), Err(AmmError::NoPendingChange));
+    }
+
+    #[test]
+    fn launch_profiles_are_valid() {
+        let s = ProtocolSettings::launch();
+        assert_eq!(s.validate(), Ok(()));
+        let meme = s.profile(PROFILE_MEMECOIN).unwrap();
+        assert_eq!(
+            (
+                meme.tick_spacing,
+                meme.fee_rate_ppm,
+                meme.dynamic.max_fee_rate_ppm
+            ),
+            (200, 10_000, 20_000)
+        );
+        let major = s.profile(PROFILE_MAJOR).unwrap();
+        assert_eq!(
+            (
+                major.tick_spacing,
+                major.fee_rate_ppm,
+                major.dynamic.max_fee_rate_ppm
+            ),
+            (10, 500, 3_000)
+        );
+        let stable = s.profile(PROFILE_STABLE).unwrap();
+        assert!(!stable.dynamic.is_enabled(stable.fee_rate_ppm));
+        assert!(s
+            .profiles
+            .iter()
+            .all(|p| !p.enabled || p.protocol_share_bps == 1_600));
+        assert_eq!(s.profile(3), Err(AmmError::ProfileNotAllowed));
     }
 
     #[test]

@@ -29,7 +29,7 @@ Ideja e një "akumulatori volatiliteti" që mat largësinë e çmimit nga një p
 
 - `fee_rate_ppm` ekzistues mbetet tarifa bazë dhe minimumi.
 - `max_fee_rate_ppm == fee_rate_ppm` e fik tarifën dinamike. Tregjet e reja nisin të fikur.
-- Kufijtë: `fee_rate_ppm ≤ max_fee_rate_ppm ≤ MAX_DYNAMIC_FEE_RATE_PPM` (8 000 = 0,80%), `0 < filter_slots ≤ decay_slots`, `reduction_bps ≤ 10 000`, `max_vol_accumulator ≤ MAX_VOL_ACCUMULATOR`.
+- Kufijtë: `fee_rate_ppm ≤ max_fee_rate_ppm ≤ MAX_DYNAMIC_FEE_RATE_PPM` (20 000 = 2%; deri më 29 tetor 2026 ishte 8 000 = 0,80%, u ngrit për profilin memecoin: bazë 1%, dinamike deri në 2%), `0 < filter_slots ≤ decay_slots`, `reduction_bps ≤ 10 000`, `max_vol_accumulator ≤ MAX_VOL_ACCUMULATOR`.
 - Ndryshohen vetëm bashkë me tarifat, me të njëjtin timelock 24-orësh (`update_fees` → `apply_fees`).
 
 ### Algoritmi (një herë për swap, në `engine::dynamic_fee`)

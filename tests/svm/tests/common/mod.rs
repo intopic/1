@@ -449,11 +449,23 @@ impl Env {
     }
 
     pub fn market_with(&mut self, mint_a: Pubkey, mint_b: Pubkey, market_id: u64) -> Market {
+        self.market_with_params(mint_a, mint_b, market_id, default_params())
+    }
+
+    /// A market with `params` (allowed as a profile first if needed).
+    pub fn market_with_params(
+        &mut self,
+        mint_a: Pubkey,
+        mint_b: Pubkey,
+        market_id: u64,
+        params: MarketParams,
+    ) -> Market {
+        self.allow_profiles(&[params]);
         let ix = self.ix_initialize_market(
             &self.admin.pubkey(),
             mint_a,
             mint_b,
-            self.init_args(market_id, default_params()),
+            self.init_args(market_id, params),
         );
         let admin = self.admin.insecure_clone();
         self.send(&[ix], &[&admin]).expect("initialize_market");
@@ -1208,7 +1220,13 @@ impl Env {
     /// Prepares shards 0..8, sets price 1.0 (tick 0), funds a ±1200-tick
     /// position in each and opens the market. Returns the LP.
     pub fn open_seeded_market(&mut self) -> (Market, Lp) {
-        let m = self.market();
+        self.open_seeded_market_with(default_params())
+    }
+
+    /// `open_seeded_market` for a market with `params`.
+    pub fn open_seeded_market_with(&mut self, params: MarketParams) -> (Market, Lp) {
+        let (mint_a, mint_b) = self.sorted_mints();
+        let m = self.market_with_params(mint_a, mint_b, 1, params);
         let lp = self.seed_initial_shards(&m, 1_000_000_000_000);
         let keeper = self.keeper.insecure_clone();
         let i = self.ix_open_market(&m, &keeper.pubkey(), &(0..8).collect::<Vec<_>>());

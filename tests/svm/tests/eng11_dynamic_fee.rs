@@ -24,7 +24,8 @@ const BASE: u32 = 3_000;
 
 fn params() -> DynamicFeeParams {
     DynamicFeeParams {
-        max_fee_rate_ppm: MAX_DYNAMIC_FEE_RATE_PPM,
+        // 0.80%: the ceiling the expectations below are written for.
+        max_fee_rate_ppm: 8_000,
         vol_coeff_ppm: 200,
         load_coeff_ppm: 0,
         max_vol_accumulator: 1_000_000,

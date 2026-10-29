@@ -21,7 +21,16 @@ Para këtij vendimi, kush krijonte një treg bëhej admin i tij dhe zgjidhte vet
 5. **Freeze authority (D-07):**
    - Një mint me freeze authority refuzohet, përveç mint-eve në `freeze_allowlist` (stablecoin-et e rregulluara si USDC dhe USDT), e cila ndryshohet me timelock.
    - Mint authority nuk refuzohet, por ndez një flamur rreziku (`risk_flags`) në treg dhe në event.
-6. **Tarifa e krijimit:** `creation_fee_lamports` ekziston në settings, që layout-i të mos ndryshojë më vonë. Ngarkimi i saj implementohet në fazën finalize.
+6. **Profilet e nisjes** (`ProtocolSettings::launch()`, 16% protokolli):
+
+   | Profili | Spacing | Tarifa bazë | Tarifa dinamike |
+   |---|---:|---:|---|
+   | 0: stablecoin | 1 | 0,01% | fikur |
+   | 1: SOL/USDC dhe majors | 10 | 0,05% | deri në 0,30% |
+   | 2: memecoin | 200 | 1% | deri në 2% |
+
+   Lista e freeze allowlist nis bosh; deployer-i shton mint-et reale të USDC/USDT.
+7. **Tarifa e krijimit:** `creation_fee_lamports` ekziston në settings, që layout-i të mos ndryshojë më vonë. Ngarkimi i saj implementohet në fazën finalize.
 
 ## Pasojat
 

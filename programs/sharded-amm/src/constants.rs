@@ -45,9 +45,10 @@ pub const MAX_SWAP_TICK_ARRAYS: usize = 3;
 pub const MAX_SWAP_STEPS: u32 = 128;
 /// Delay between proposing and applying a fee change (ADR-0004: admin delay).
 pub const FEE_TIMELOCK_SECONDS: i64 = 86_400;
-/// Ceiling of a dynamic fee, 0.80% (ADR-0005). The base fee may be higher
-/// only when the dynamic fee is off.
-pub const MAX_DYNAMIC_FEE_RATE_PPM: u32 = 8_000;
+/// Ceiling of a dynamic fee, 2% (ADR-0005; raised from 0.80% for the
+/// memecoin profile, gerfa 2026-10-29: base 1%, dynamic up to 2%). The base
+/// fee may be higher only when the dynamic fee is off.
+pub const MAX_DYNAMIC_FEE_RATE_PPM: u32 = 20_000;
 /// Volatility accumulator units per `tick_spacing` moved (ADR-0005).
 pub const VOL_UNIT: u64 = 1_000;
 /// Upper bound on `max_vol_accumulator`: 100 000 spacings.

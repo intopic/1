@@ -76,13 +76,16 @@ Hyrje: `amount_in > 0`, `min_out`, `sqrt_price_limit`, `deadline`, `shard_id`, `
 
 1. Kontrollo limitin: për A→B `MIN_SQRT ≤ limit < s`; për B→A `s < limit ≤ MAX_SQRT`. Përndryshe gabim.
 2. Përsërit derisa `remaining == 0`:
-   - Gjej tick-un e ardhshëm të inicializuar **vetëm** në tick arrays të deklaruara, në renditjen e kërkuar; një varg që mungon, nuk lidhet me shard-in/gjeneratën ose është jashtë rendit → gabim.
+   - Gjej tick-un e ardhshëm të inicializuar **vetëm** në tick arrays të deklaruara, në renditjen e kërkuar; një varg që mungon, nuk lidhet me shard-in/gjeneratën ose është jashtë rendit → gabim (`TickArrayMismatch`). Vargu i parë mban tick-un aktual; deri në 3 vargje.
+   - Vargjet ecen **një nga një**, dhe skaji i çdo vargu është kufi hapi më vete. Në vargun aktual kërkohet tick-u i inicializuar: për A→B më i madhi `≤ tick`, për B→A më i vogli `> tick`. Nëse nuk ka asnjë, target-i është skaji i vargut: `start` për A→B dhe `start + 32·spacing` për B→A. Kur hapi e arrin skajin, `tick = skaji − 1` dhe kalohet në vargun tjetër. Ky `−1` e mban tick-un e skajit të kërkueshëm atje: duke ngjitur, ai është tick-u i parë i vargut tjetër. Pas kalimit të një tick-u, nëse `tick` del jashtë vargut, kalohet në vargun tjetër. Kur vargjet mbarojnë dhe ka mbetur input, swap-i dështon me `TickArraysExhausted`. Ndarja në skaj ndryshon rrumbullakimin krahasuar me një hap të vetëm deri te tick-u tjetër (dy `ceil` në vend të një), gjithmonë në favor të pool-it; prandaj ajo është pjesë e specifikimit, jo detaj implementimi (R-01).
    - `target = clamp(sqrt_price_at(next_tick), limit)`.
    - Hapi: nëse `L > 0`, llogarit input-in pa tarifë deri në target, tarifën dhe output-in. Nëse `L = 0` dhe distanca deri te target-i është pozitive, swap-i **dështon** me `ZeroLiquidityGap` (rishikuar 2026-10-28, ADR-0001 6a).
    - Tarifat akumulohen me **L përpara crossing-ut**; pastaj, nëse u arrit tick-u, kalohet: `fee_growth_outside` përmbyset dhe `L` përditësohet me `±liquidity_net` sipas drejtimit.
    - Çdo iteracion konsumon input > 0, ose lëviz çmimin te një target i ri, ose kalon një tick. Kufiri i fortë `MAX_SWAP_STEPS` (propozim: 64) kthen gabim në vend të loop-it.
-3. Nëse mbetet input pas arritjes së limitit ose fundit të vargjeve → **gabim, pa partial fill** (politika v1).
+3. Nëse mbetet input pas arritjes së limitit (`PriceLimitReached`) ose fundit të vargjeve (`TickArraysExhausted`) → **gabim, pa partial fill** (politika v1). Kur hapi ndalon brenda një intervali ose te limiti, `tick = tick_at_sqrt_price(s)`, por vetëm nëse çmimi lëvizi: një hap zero menjëherë pas një kalimi poshtë e mban `tick = kaluari − 1`. Një swap me output 0 dështon (`ZeroOutput`). Vlerat e reja `outside` të ticks të kaluar shkruhen vetëm në fund, secila me growth-in global të momentit të kalimit, që një swap i dështuar të mos ndryshojë asgjë.
 4. Kontrollo `amount_out ≥ min_out` dhe deadline; vetëm pastaj CPI të tokenëve. Dështimi i CPI rrëzon gjithë transaksionin.
+
+**Referenca e pavarur e swap-it të plotë (R-01):** [`tools/reference/swap_reference.py`](../tools/reference/swap_reference.py) e zbaton këtë seksion dhe §6 nga e para. Për hapat përdor formulat e `clmm_vectors.py`. Testi SVM `r01_swap_reference` dërgon swap-e të rastit te programi real SBF, në 5 tregje (spacing 1, 10, 60 dhe 200; tarifa 0,01%–1%; pjesa e protokollit 0–50%). Pastaj krahason bit për bit me referencën: shumat, çmimin, tick-un, likuiditetin, fee growth, tarifat e protokollit dhe çdo tick të kaluar, ose gabimin e njëjtë. Referenca e gjeti rregullin e skajit të vargut, që më parë nuk ishte shkruar këtu.
 
 ## 6. Tarifat
 

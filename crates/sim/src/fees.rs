@@ -156,10 +156,17 @@ fn profiles() -> Vec<Profile> {
             capital_usd: CAPITAL_USD,
             sigma_per_day: 0.20,
             width: 0.50,
-            spacing: 60,
+            // The launch memecoin profile (gerfa, 2026-10-29): spacing 200,
+            // base 1%, dynamic up to 2%.
+            spacing: 200,
             trades_per_step: 3,
             median_trade_usd: 1_000.0,
-            fees: vec![fixed(3_000), fixed(10_000), dynamic(3_000, 8_000)],
+            fees: vec![
+                fixed(3_000),
+                fixed(10_000),
+                dynamic(3_000, 8_000),
+                dynamic(10_000, 20_000),
+            ],
         },
     ]
 }

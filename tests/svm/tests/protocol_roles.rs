@@ -339,3 +339,36 @@ fn settings_are_timelocked_and_freeze_authority_is_refused_unless_listed() {
         amm_code(AmmError::FreezeAuthorityNotAllowed),
     );
 }
+
+#[test]
+fn launch_profiles_create_markets_with_their_fees() {
+    use sharded_amm::state::{PROFILE_MAJOR, PROFILE_MEMECOIN, PROFILE_STABLE};
+    let mut env = Env::new();
+    env.force_settings(ProtocolSettings::launch());
+    let admin = env.admin.insecure_clone();
+    let (a, b) = env.sorted_mints();
+    for (id, profile, spacing, fee, max) in [
+        (1u64, PROFILE_STABLE, 1u16, 100u32, 100u32),
+        (2, PROFILE_MAJOR, 10, 500, 3_000),
+        (3, PROFILE_MEMECOIN, 200, 10_000, 20_000),
+    ] {
+        let mut args = env.init_args(id, default_params_for(&env, profile));
+        args.profile = profile;
+        let ix = env.ix_initialize_market(&admin.pubkey(), a, b, args);
+        env.send(&[ix], &[&admin]).expect("launch profile");
+        let cfg = env.market_state(&market_at(a, b, id));
+        assert_eq!(
+            (
+                cfg.params.tick_spacing,
+                cfg.params.fee_rate_ppm,
+                cfg.params.protocol_share_bps
+            ),
+            (spacing, fee, 1_600)
+        );
+        assert_eq!(cfg.dynamic_fees.max_fee_rate_ppm, max);
+    }
+}
+
+fn default_params_for(env: &Env, profile: u8) -> sharded_amm::state::MarketParams {
+    env.protocol().settings.profiles[usize::from(profile)].params()
+}

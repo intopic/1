@@ -9,7 +9,7 @@
 | [0003](0003-provenance-and-licensing.md) | Provenance, Raydium/Orca, `upstream-lock.json` | ACCEPTED |
 | [0009](0009-protocol-config.md) | `ProtocolConfig`: rolet vetëm të protokollit, rotacion me timelock dhe pranim me dy hapa, profilet e lejuara, refuzimi i freeze authority me listë për stablecoin-at | ACCEPTED (implementuar dhe testuar) |
 | [0004](0004-open-product-decisions.md) | Konfigurimi eksperimental: WSOL/USDC, tarifat 0,05–0,30%, spacing 10/60, rolet | ACCEPTED (eksperimental); disa pika OPEN |
-| [0005](0005-dynamic-fee-per-shard.md) | Tarifa dinamike për shard: gjendja në `ShardState`, parametrat me timelock, 0,80% maksimum | PROPOSED (implementuar dhe simuluar) |
+| [0005](0005-dynamic-fee-per-shard.md) | Tarifa dinamike për shard: gjendja në `ShardState`, parametrat me timelock, 2% maksimum (0,80% deri më 29 tetor 2026) | PROPOSED (implementuar dhe simuluar) |
 | [0006](0006-open-rebalance-pair.md) | `rebalance_pair` pa kapital, vetëm për rebalancer-at e listuar (timelock 24h); bit-e pauze për swap, depozita, rebalancim | PROPOSED (implementuar dhe testuar) |
 | [0007](0007-threshold-router.md) | Router off-chain me prag: 1 shard për urdhra të vegjël, pak shard-e për të mëdhenjtë; `find_rebalance` | PROPOSED (implementuar dhe testuar) |
 | [0008](0008-non-negotiable-rules.md) | Tetë rregullat e panegociueshme; prova e thellësisë në të dy drejtimet (`verify_depth`); pretendime vetëm me kapital total të barabartë | ACCEPTED |

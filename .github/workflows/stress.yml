@@ -11,7 +11,8 @@ name: stress
 #   - CPMM baseline: 1,000,000 random 40-step sequences x 16
 #   - every one of the 887,273 ticks against an exact reference
 #   - on-chain (LiteSVM, real SBF program): 20,000 random operations x 16,
-#     each swap compared bit for bit with the host engine, plus all suites
+#     each swap compared bit for bit with the host engine, 1,000 swaps x 16
+#     against the independent Python swap reference (R-01), plus all suites
 #   - ENG-09 simulation with 32 seeds
 
 on:
@@ -150,9 +151,12 @@ jobs:
           echo "seed=$seed scale=$SCALE"
           AMM_SVM_SEED=$seed AMM_SVM_CASES=$(( 20000 * SCALE )) \
             cargo test --release --test eng06_swap random_workload -- --nocapture | tee svm.log
+          # R-01: every swap against the independent Python reference.
+          AMM_SVM_SEED=$seed AMM_SVM_CASES=$(( 1000 * SCALE )) \
+            cargo test --release --test r01_swap_reference -- --nocapture | tee -a svm.log
           # Every other suite once per shard (they are deterministic apart
           # from fresh keypairs, which change every PDA and vault address).
-          cargo test --release -- --skip random_workload
+          cargo test --release -- --skip random_workload --skip every_swap_matches_the_independent_reference
           {
             echo "### on-chain shard ${{ matrix.shard }} (seed $seed)"
             echo '```'

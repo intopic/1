@@ -819,7 +819,7 @@ mod tests {
         let admin = c.admin;
         // The ceiling is checked against the proposed base, not the current one.
         assert_eq!(
-            c.propose_fees(&admin, 9_000, 2_000, dynamic(300), 0),
+            c.propose_fees(&admin, 25_000, 2_000, dynamic(300), 0),
             Err(AmmError::InvalidDynamicFeeParams)
         );
         c.propose_fees(&admin, 300, 2_000, dynamic(300), 0).unwrap();
