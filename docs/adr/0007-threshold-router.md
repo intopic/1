@@ -26,6 +26,14 @@ Crate i ri `crates/router` (`amm-router`), vetëm off-chain. Programi onchain nu
 
   `replan` planifikon sërish mbi të njëjtat libra, pa shard-in e dështuar për `SkipShard` dhe pa prag ndarjeje për `Smaller`. Për `Refresh` i thotë klientit të marrë libra të rinj, për `Halt` dhe `Reject` i thotë të ndalojë. Kështu mungesa e të dhënave nuk ngatërrohet me mungesën e likuiditetit.
 
+  `after_send` trajton një dërgim me rezultat të panjohur, p.sh. kur RPC-ja jep timeout. Klienti kontrollon statusin e nënshkrimit:
+  - Nëse transaksioni ka kaluar: `Done`, urdhri nuk dërgohet më.
+  - Nëse nuk shihet dhe blockhash-i është ende i vlefshëm: ridërgohen të njëjtat bajte të nënshkruara (`ResendSame`). Kopjen e dytë rrjeti e hedh poshtë.
+  - Nëse nuk shihet dhe `block_height > last_valid_block_height`: transaksioni nuk mund të kalojë më, kështu që kuota e re është e sigurt (`Expired`).
+  - Nëse ka dështuar: veprohet sipas `classify`. Kodet e panjohura dhe gabimet që nuk vijnë nga programi kthejnë `Reject`.
+
+  Kështu një timeout nuk mund ta bëjë përdoruesin të tregtojë dy herë.
+
 Router-i nuk ka privilegj dhe nuk është i detyrueshëm. Kushdo mund të ndërtojë transaksionin vetë.
 
 ## Alternativat e refuzuara
