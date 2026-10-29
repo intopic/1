@@ -29,10 +29,11 @@ Crate i ri `crates/router` (`amm-router`), vetëm off-chain. Programi onchain nu
   `after_send` trajton një dërgim me rezultat të panjohur, p.sh. kur RPC-ja jep timeout. Klienti kontrollon statusin e nënshkrimit:
   - Nëse transaksioni ka kaluar: `Done`, urdhri nuk dërgohet më.
   - Nëse nuk shihet dhe blockhash-i është ende i vlefshëm: ridërgohen të njëjtat bajte të nënshkruara (`ResendSame`). Kopjen e dytë rrjeti e hedh poshtë.
-  - Nëse nuk shihet dhe `block_height > last_valid_block_height`: transaksioni nuk mund të kalojë më, kështu që kuota e re është e sigurt (`Expired`).
+  - Nëse nuk shihet dhe blockhash-i ka skaduar (`block_height > last_valid_block_height`), por është kontrolluar vetëm cache-i i fundit i nyjës RPC: kthehet `CheckHistory`. Një `null` atje nuk provon se transaksioni nuk u ekzekutua.
+  - Vetëm nëse blockhash-i ka skaduar dhe as kërkimi në gjithë historinë (`searchTransactionHistory`) nuk e gjen, lejohet kuotë e re (`Expired`).
   - Nëse ka dështuar: veprohet sipas `classify`. Kodet e panjohura dhe gabimet që nuk vijnë nga programi kthejnë `Reject`.
 
-  Kështu një timeout nuk mund ta bëjë përdoruesin të tregtojë dy herë.
+  Kjo e ngushton dritaren për një tregti të dyfishtë, por nuk e bën të pamundur, p.sh. nëse RPC-ja jep përgjigje të gabuar. Këtë do ta garantonte vetëm një identifikues urdhri që konsumohet onchain. Ai nuk është implementuar, sepse ka kosto shtesë.
 
 Router-i nuk ka privilegj dhe nuk është i detyrueshëm. Kushdo mund të ndërtojë transaksionin vetë.
 

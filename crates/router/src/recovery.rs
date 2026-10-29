@@ -5,8 +5,9 @@
 //! stopped". [`classify`] turns an error into one [`Recovery`], and
 //! [`replan`] plans again without the shards that cannot fill the order, so a
 //! client never retries a request that will fail the same way. [`after_send`]
-//! handles a send whose outcome is unknown (an RPC timeout) without ever
-//! risking a second trade.
+//! handles a send whose outcome is unknown (an RPC timeout): same bytes
+//! while the blockhash is valid, a new order only after expiry and a full
+//! history search.
 
 use crate::{plan, Book, MarketCfg, Plan, RouterConfig};
 use sharded_amm::constants::MAX_SWAP_TICK_ARRAYS;
@@ -184,8 +185,9 @@ pub enum TxStatus {
     Failed(u32),
     /// Executed and failed with an error that is not the program's.
     FailedOther,
-    /// Not seen (yet).
-    NotFound,
+    /// Not seen. `history`: the lookup searched the full transaction history
+    /// (`searchTransactionHistory`), not only the RPC node's recent cache.
+    NotFound { history: bool },
 }
 
 /// The next step after a send whose outcome is unknown, e.g. an RPC timeout.
@@ -196,17 +198,22 @@ pub enum AfterSend {
     /// Not seen and its blockhash still valid: send the *same* signed bytes
     /// again (a duplicate is dropped by the cluster) and check again.
     ResendSame,
-    /// Not seen and its blockhash expired, so it can no longer land: a new
-    /// quote and a new transaction are safe.
+    /// Not seen in the full history and its blockhash expired, so it can no
+    /// longer be accepted: a new quote and a new transaction may be sent.
     Expired,
+    /// The blockhash expired but only the recent cache was searched: a
+    /// `null` there does not prove it never ran. Search the history first.
+    CheckHistory,
     /// It failed: recover as the error says.
     Recover(Recovery),
 }
 
-/// Decides what to do with a sent transaction without ever risking a
-/// second trade: a new transaction is allowed only once the old one landed
-/// with a failure or its blockhash can no longer be used
-/// (`block_height > last_valid_block_height`).
+/// Decides what to do with a sent transaction so that a new one is sent
+/// only once the old one failed, or its blockhash can no longer be used
+/// (`block_height > last_valid_block_height`) *and* the full history shows
+/// it did not run. This narrows the window for a duplicate trade; it does
+/// not make one impossible (e.g. an RPC that answers wrongly), which only an
+/// order id consumed onchain would.
 pub fn after_send(
     status: TxStatus,
     block_height: u64,
@@ -219,8 +226,11 @@ pub fn after_send(
             decode(code).map_or(Recovery::Reject, |e| classify(e, arrays_passed)),
         ),
         TxStatus::FailedOther => AfterSend::Recover(Recovery::Reject),
-        TxStatus::NotFound if block_height <= last_valid_block_height => AfterSend::ResendSame,
-        TxStatus::NotFound => AfterSend::Expired,
+        TxStatus::NotFound { .. } if block_height <= last_valid_block_height => {
+            AfterSend::ResendSame
+        }
+        TxStatus::NotFound { history: false } => AfterSend::CheckHistory,
+        TxStatus::NotFound { history: true } => AfterSend::Expired,
     }
 }
 
@@ -250,13 +260,15 @@ mod tests {
     }
 
     #[test]
-    fn a_timeout_never_leads_to_a_second_trade() {
+    fn a_timeout_is_resolved_before_any_new_order() {
         use TxStatus::*;
+        let (recent, full) = (NotFound { history: false }, NotFound { history: true });
         // Unknown and still valid: the same bytes again, never a new order.
-        assert_eq!(after_send(NotFound, 100, 150, 1), AfterSend::ResendSame);
-        assert_eq!(after_send(NotFound, 150, 150, 1), AfterSend::ResendSame);
-        // Only once the blockhash is past its last valid height.
-        assert_eq!(after_send(NotFound, 151, 150, 1), AfterSend::Expired);
+        assert_eq!(after_send(recent, 100, 150, 1), AfterSend::ResendSame);
+        assert_eq!(after_send(full, 150, 150, 1), AfterSend::ResendSame);
+        // Expired: a recent-cache miss is not proof; the history is.
+        assert_eq!(after_send(recent, 151, 150, 1), AfterSend::CheckHistory);
+        assert_eq!(after_send(full, 151, 150, 1), AfterSend::Expired);
         assert_eq!(after_send(Landed, 151, 150, 1), AfterSend::Done);
         let slip = u32::from(AmmError::SlippageExceeded);
         assert_eq!(
