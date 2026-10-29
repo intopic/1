@@ -74,6 +74,16 @@ pub struct PauseFlagsChanged {
 }
 
 #[event]
+pub struct ShardPauseFlagsChanged {
+    pub market: Pubkey,
+    pub shard: Pubkey,
+    pub shard_id: u8,
+    pub old: u8,
+    pub new: u8,
+    pub by: Pubkey,
+}
+
+#[event]
 pub struct MarketPauseChanged {
     pub market: Pubkey,
     pub paused: bool,

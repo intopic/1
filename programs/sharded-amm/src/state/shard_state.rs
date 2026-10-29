@@ -3,6 +3,8 @@
 
 use anchor_lang::prelude::*;
 
+use crate::constants::{PAUSE_DEPOSITS, PAUSE_REBALANCE, PAUSE_SWAPS};
+use crate::errors::AmmError;
 use crate::state::ShardStatus;
 
 #[account]
@@ -33,7 +35,37 @@ pub struct ShardState {
     /// Set by `verify_depth` while `Prepared`, cleared by any liquidity
     /// decrease; `open_market` and `activate_shard` require it (rule 4).
     pub depth_verified: bool,
-    pub reserved: [u8; 33],
+    /// Pauses of this shard only (`PAUSE_*`), set like the market's
+    /// (`set_shard_pause_flags`); none blocks LP exits.
+    pub pause_flags: u8,
+    pub reserved: [u8; 32],
+}
+
+impl ShardState {
+    /// Swaps on this shard: `PAUSE_SWAPS` clear.
+    pub fn check_swaps(&self) -> std::result::Result<(), AmmError> {
+        if self.pause_flags & PAUSE_SWAPS != 0 {
+            return Err(AmmError::ShardPaused);
+        }
+        Ok(())
+    }
+
+    /// New liquidity on this shard: `PAUSE_DEPOSITS` clear.
+    pub fn check_deposits(&self) -> std::result::Result<(), AmmError> {
+        if self.pause_flags & PAUSE_DEPOSITS != 0 {
+            return Err(AmmError::ShardPaused);
+        }
+        Ok(())
+    }
+
+    /// Rebalancing swaps on this shard: both bits clear.
+    pub fn check_rebalance(&self) -> std::result::Result<(), AmmError> {
+        self.check_swaps()?;
+        if self.pause_flags & PAUSE_REBALANCE != 0 {
+            return Err(AmmError::ShardPaused);
+        }
+        Ok(())
+    }
 }
 
 /// Volatility and load tracker of one shard (ADR-0005). Lives in the shard,

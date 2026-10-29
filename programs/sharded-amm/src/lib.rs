@@ -48,6 +48,11 @@ pub mod sharded_amm {
         handle_set_pause_flags(ctx, flags)
     }
 
+    /// The same selective pauses on one shard only; the others keep running.
+    pub fn set_shard_pause_flags(ctx: Context<SetShardPauseFlags>, flags: u8) -> Result<()> {
+        handle_set_shard_pause_flags(ctx, flags)
+    }
+
     /// Proposes a fee change; applied by `apply_fees` after the timelock.
     pub fn update_fees(
         ctx: Context<UpdateFees>,

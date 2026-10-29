@@ -14,7 +14,7 @@ use sharded_amm::errors::AmmError;
 pub const ERROR_CODE_OFFSET: u32 = 6000;
 
 /// Every program error in code order (codes are append-only).
-const ALL: [AmmError; 64] = [
+const ALL: [AmmError; 65] = [
     AmmError::ShardIdOutOfRange,
     AmmError::ReservedBitsSet,
     AmmError::ActiveNotPrepared,
@@ -79,6 +79,7 @@ const ALL: [AmmError; 64] = [
     AmmError::NotRebalancer,
     AmmError::InvalidRebalancers,
     AmmError::InsufficientDepth,
+    AmmError::ShardPaused,
 ];
 
 /// The program error behind a custom instruction error code.
@@ -93,7 +94,7 @@ pub enum Recovery {
     /// arrays again, then plan again.
     Refresh,
     /// This shard cannot fill the order now (no liquidity in the way, not
-    /// active, not priced): plan again without it.
+    /// active, not priced, paused on its own): plan again without it.
     SkipShard,
     /// One leg needs more steps or arrays than a transaction can carry: plan
     /// again with the order spread over more shards, or a smaller amount.
@@ -113,7 +114,7 @@ pub fn classify(e: AmmError, arrays_passed: usize) -> Recovery {
         TickArraysExhausted if arrays_passed >= MAX_SWAP_TICK_ARRAYS => Recovery::Smaller,
         SlippageExceeded | PriceLimitReached | TickArraysExhausted | TickArrayMismatch
         | DeadlineExceeded | RoundingDustExceeded => Recovery::Refresh,
-        ZeroLiquidityGap | ShardNotActive | PriceNotInitialized | ShardNotReady => {
+        ZeroLiquidityGap | ShardNotActive | PriceNotInitialized | ShardNotReady | ShardPaused => {
             Recovery::SkipShard
         }
         TooManySwapSteps => Recovery::Smaller,
@@ -208,6 +209,7 @@ mod tests {
         assert_eq!(classify(AmmError::ZeroLiquidityGap, 1), Recovery::SkipShard);
         assert_eq!(classify(AmmError::SlippageExceeded, 1), Recovery::Refresh);
         assert_eq!(classify(AmmError::SwapsPaused, 1), Recovery::Halt);
+        assert_eq!(classify(AmmError::ShardPaused, 1), Recovery::SkipShard);
         assert_eq!(classify(AmmError::ZeroAmount, 1), Recovery::Reject);
         assert_eq!(classify(AmmError::InvalidVault, 1), Recovery::Reject);
     }

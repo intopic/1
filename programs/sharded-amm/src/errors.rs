@@ -132,4 +132,6 @@ pub enum AmmError {
     InvalidRebalancers,
     #[msg("Probe trade moved the price more than the readiness limit")]
     InsufficientDepth,
+    #[msg("This operation is paused on this shard")]
+    ShardPaused,
 }

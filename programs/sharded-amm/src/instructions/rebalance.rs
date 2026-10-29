@@ -91,6 +91,7 @@ pub fn handle_rebalance_pair<'info>(
     for s in [&acc.shard_x, &acc.shard_y] {
         acc.registry.check_swappable(acc.market.status, s.id)?;
         require!(s.status == ShardStatus::Active, AmmError::ShardNotActive);
+        s.check_rebalance()?;
     }
     let mint_in = if args.input_is_a {
         acc.market.mint_a

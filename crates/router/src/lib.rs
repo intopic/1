@@ -26,7 +26,7 @@
 mod fee_manipulation;
 pub mod recovery;
 
-use sharded_amm::constants::MAX_SWAP_TICK_ARRAYS;
+use sharded_amm::constants::{MAX_SWAP_TICK_ARRAYS, PAUSE_REBALANCE, PAUSE_SWAPS};
 use sharded_amm::engine::{
     dynamic_fee, rebalance, swap, Pool, RebalanceParams, SwapOutcome, SwapParams,
 };
@@ -70,6 +70,9 @@ pub struct Book {
     pub pool: Pool,
     pub fee_state: DynamicFeeState,
     pub arrays: Vec<TickArray>,
+    /// The shard's own pauses (`PAUSE_*`): a swap-paused shard quotes
+    /// nothing, a rebalance-paused one is left out of `find_rebalance`.
+    pub pause_flags: u8,
 }
 
 impl Book {
@@ -79,6 +82,7 @@ impl Book {
             pool: Pool::load(s)?,
             fee_state: s.dynamic_fee,
             arrays,
+            pause_flags: s.pause_flags,
         })
     }
 
@@ -143,6 +147,9 @@ impl Book {
         amount_in: u64,
         limit: u128,
     ) -> Result<SwapOutcome, AmmError> {
+        if self.pause_flags & PAUSE_SWAPS != 0 {
+            return Err(AmmError::ShardPaused);
+        }
         let mut copies = self.leg_arrays(m.tick_spacing, a_to_b);
         let mut refs: Vec<&mut TickArray> = copies.iter_mut().collect();
         let mut pool = self.pool;
@@ -452,10 +459,13 @@ pub fn find_rebalance(
     slot: u64,
     min_profit: u64,
 ) -> Option<RebalancePlan> {
-    let lo = books.iter().min_by_key(|b| (b.pool.sqrt_price, b.id))?;
-    let hi = books
-        .iter()
-        .max_by_key(|b| (b.pool.sqrt_price, u8::MAX - b.id))?;
+    let open = || {
+        books
+            .iter()
+            .filter(|b| b.pause_flags & (PAUSE_SWAPS | PAUSE_REBALANCE) == 0)
+    };
+    let lo = open().min_by_key(|b| (b.pool.sqrt_price, b.id))?;
+    let hi = open().max_by_key(|b| (b.pool.sqrt_price, u8::MAX - b.id))?;
     if lo.pool.sqrt_price >= hi.pool.sqrt_price {
         return None;
     }
@@ -600,6 +610,7 @@ mod tests {
                     pool,
                     fee_state: DynamicFeeState::default(),
                     arrays,
+                    pause_flags: 0,
                 }
             })
             .collect()
@@ -676,6 +687,36 @@ mod tests {
         let p = plan(&bs, &cfg(), 0, false, 1_000_000, RouterConfig::default(), 0).unwrap();
         assert_eq!(p.legs.len(), 1);
         assert_eq!(p.legs[0].id, 2);
+    }
+
+    #[test]
+    fn paused_shards_are_left_out() {
+        let mut bs = books(4, 1 << 40);
+        bs[2].apply(&cfg(), 0, true, 1 << 36, 0).unwrap();
+        bs[2].pause_flags = PAUSE_SWAPS;
+        assert_eq!(
+            bs[2].quote(&cfg(), 0, false, 1_000, 0),
+            Err(AmmError::ShardPaused)
+        );
+        for seed in 0..200 {
+            let p = plan(
+                &bs,
+                &cfg(),
+                0,
+                false,
+                1 << 34,
+                RouterConfig::default(),
+                seed,
+            )
+            .unwrap();
+            assert!(p.legs.iter().all(|l| l.id != 2), "seed {seed}");
+        }
+        // Shard 2 is the cheapest, but rebalancing is paused there.
+        bs[2].pause_flags = PAUSE_REBALANCE;
+        let r = find_rebalance(&bs, &cfg(), 0, 0);
+        assert!(r.as_ref().is_none_or(|r| r.lo != 2 && r.hi != 2), "{r:?}");
+        bs[2].pause_flags = 0;
+        assert_eq!(find_rebalance(&bs, &cfg(), 0, 0).unwrap().lo, 2);
     }
 
     #[test]

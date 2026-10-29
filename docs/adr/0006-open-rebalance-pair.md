@@ -52,6 +52,13 @@ Dy shard-e aktivë të të njëjtit treg, `lo` (çmimi më i ulët i A) dhe `hi`
 
 `set_pause_flags(flags)`: pauser-i mund vetëm të **shtojë** bit-e, kurse admini mund t'i vendosë si të dojë. Kjo është e njëjta asimetri si te `set_paused`: një pauser i komprometuar mund të ndalojë, por jo të rihapë. Bit-et 3..7 refuzohen. `MarketStatus::Paused` mbetet çelësi i plotë. Asnjë bit nuk bllokon `decrease_liquidity`, `collect_fees` ose `close_position`.
 
+**Pauzë për një shard (29 tetor 2026, ide nga Raydium).** `ShardState.pause_flags` ka të njëjtat bit-e dhe ndryshohet me `set_shard_pause_flags(flags)`, me të njëjtat role: pauser-i vetëm shton, admini vendos çdo kombinim. Biti ndalon vetëm atë shard:
+- swap-i refuzohet me `ShardPaused`;
+- depozita e re dhe `open_position` refuzohen;
+- `rebalance_pair` refuzohet kur njëri nga dy shard-et ka `PAUSE_SWAPS` ose `PAUSE_REBALANCE`.
+
+Shard-et e tjera vazhdojnë, dhe daljet e LP-ve nga shard-i i ndaluar mbeten të hapura. Biti ruhet te vetë shard-i, të cilin swap-i e shkruan gjithsesi, kështu që nuk shtohet asnjë llogari e përbashkët. Router-i nuk e kuoton një shard me swap-e të ndaluara dhe e lë jashtë `find_rebalance`. Nëse megjithatë merr `ShardPaused`, gabimin e klasifikon si `SkipShard`.
+
 ## Modeli ekonomik
 
 - **Burimi i fitimit.** Diferenca e çmimit mes dy shard-eve, që e krijon rrjedha e tregtarëve. Për t'u kryer, rebalancimi duhet të fitojë më shumë se dy tarifat. Ndryshe nuk ndodh.
@@ -71,7 +78,13 @@ Dy shard-e aktivë të të njëjtit treg, `lo` (çmimi më i ulët i A) dhe `hi`
 - `engine::rebalance` (3 teste host): të njëjtat rezultate si dy swap-e të thjeshtë në të dy drejtimet (pool-et dhe tick arrays të barabarta), refuzimi pa diferencë çmimi, pa fitim, me sasi që kalon kufirin dhe me prag fitimi, 400 rebalancime të rastit që afrojnë çmimet pa i kryqëzuar.
 - `market_config::pause_flags_roles_and_effects`: rolet dhe efekti i çdo biti.
 - `market_config::rebalancer_list_behind_the_timelock`: vetëm admini, dyfishimet, timelock-u, anulimi, lista bosh.
-- `eng12_rebalance` (4 teste onchain): vetëm keeper-i në krijim; një thirrës i panjohur dhe admini refuzohen me `NotRebalancer`; pas listimit funksionon; pas heqjes nga lista refuzohet përsëri. Rebalancer-i pa asnjë token merr saktësisht fitimin e parashikuar nga motori host, dy shard-et përfundojnë ku parashikohet dhe 6 të tjerët mbeten byte-për-byte të pandryshuar. I njëjti rezultat si dy swap-e të thjeshtë në një treg identik, për të 8 shard-et dhe të gjitha vault-et. Refuzimet (i njëjti shard, pa diferencë, pa fitim, llogari e gabuar, sasi shumë e madhe, pauzë). Pauzat dhe rolet: pauser-i nuk mund të rihapë, daljet e LP-ve punojnë nën çdo bit.
+- `eng12_rebalance` (4 teste onchain): vetëm keeper-i në krijim; një thirrës i panjohur dhe admini refuzohen me `NotRebalancer`; pas listimit funksionon; pas heqjes nga lista refuzohet përsëri. Rebalancer-i pa asnjë token merr saktësisht fitimin e parashikuar nga motori host, dy shard-et përfundojnë ku parashikohet dhe 6 të tjerët mbeten byte-për-byte të pandryshuar. I njëjti rezultat si dy swap-e të thjeshtë në një treg identik, për të 8 shard-et dhe të gjitha vault-et. Refuzimet (i njëjti shard, pa diferencë, pa fitim, llogari e gabuar, sasi shumë e madhe, pauzë). Pauzat dhe rolet: pauser-i nuk mund të rihapë, daljet e LP-ve punojnë nën çdo bit. `shard_pause_stops_one_shard_only` kontrollon:
+  - rolet dhe bit-et e panjohura;
+  - swap-i dhe depozita në shard-in 1 refuzohen me `ShardPaused`;
+  - rebalancimi përmes shard-it 1 refuzohet, përmes shard-it 2 punon;
+  - shard-et 3–7 mbeten byte-për-byte të paprekur dhe vazhdojnë të tregtojnë;
+  - LP-ja del nga shard-i 1;
+  - kur admini e heq pauzën, shard-i punon përsëri.
 - CU: rreth 69 000 për një rebalancim pa kalim tick-u.
 
 Ende pa bërë: simulim i fitimit të rebalancimit me router-in me prag (hapi 4), dhe teste stresi me rebalancime të rastit onchain.

@@ -69,9 +69,10 @@ market (32), prepared_mask u64, active_mask u64, registry_version u64, bump u8.
 | bump | u8 | 1 |
 | dynamic_fee.vol_accumulator / vol_reference / tick_reference / reference_slot / last_update_slot / slot_swaps | u32 / u32 / i32 / u64 / u64 / u16 | 30 |
 | depth_verified | bool (vendoset nga `verify_depth`, fshihet nga çdo `decrease_liquidity`) | 1 |
-| reserved | [u8; 33] | 33 |
+| pause_flags | u8 (`PAUSE_*` vetëm për këtë shard, `set_shard_pause_flags`) | 1 |
+| reserved | [u8; 32] | 32 |
 
-Gjendja e tarifës dinamike (ADR-0005) zuri 30 bajt nga `reserved`; madhësia mbeti 296. Shkruhet vetëm nga swap-et e këtij shard-i.
+Gjendja e tarifës dinamike (ADR-0005) zuri 30 bajt nga `reserved`, `depth_verified` 1 dhe `pause_flags` 1; madhësia mbeti 296. Shkruhet vetëm nga swap-et e këtij shard-i.
 
 Fee growth u ndryshua nga u128 Q64 në U256 Q128 më 2026-10-28 (ENG-05, kërkimi N07), para çdo deploy-i; prandaj `SCHEMA_VERSION` mbetet 1.
 

@@ -10,7 +10,7 @@
 //! - Refused: same shard twice, no price gap, no profit, wrong profit
 //!   account, paused.
 //! - Pause flags: roles, swaps/deposits/rebalance bits; LP exits never
-//!   blocked.
+//!   blocked. The same flags on one shard stop only that shard.
 
 mod common;
 
@@ -451,4 +451,100 @@ fn pause_flags_roles_and_exits() {
         .unwrap();
     env.swap(&m, &t, 0, true, 1_000_000).unwrap();
     env.add_liquidity(&m, &t, 0, -600, 600, 1_000_000).unwrap();
+}
+
+fn ix_shard_flags(
+    m: &Market,
+    authority: &Pubkey,
+    id: u8,
+    flags: u8,
+) -> solana_instruction::Instruction {
+    ix(
+        sharded_amm::accounts::SetShardPauseFlags {
+            authority: *authority,
+            market: m.market,
+            shard: shard_addrs(m, id, 0).shard,
+        },
+        sharded_amm::instruction::SetShardPauseFlags { flags },
+    )
+}
+
+/// One shard paused: the other seven keep trading, its LPs can still leave,
+/// and the roles are those of the market flags.
+#[test]
+fn shard_pause_stops_one_shard_only() {
+    let (mut env, m, lp) = diverged();
+    let (admin, pauser, keeper) = (
+        env.admin.insecure_clone(),
+        env.pauser.insecure_clone(),
+        env.keeper.insecure_clone(),
+    );
+    expect_custom(
+        env.send(
+            &[ix_shard_flags(&m, &keeper.pubkey(), 1, PAUSE_SWAPS)],
+            &[&keeper],
+        ),
+        amm_code(AmmError::Unauthorized),
+    );
+    expect_custom(
+        env.send(&[ix_shard_flags(&m, &admin.pubkey(), 1, 1 << 3)], &[&admin]),
+        amm_code(AmmError::InvalidPauseFlags),
+    );
+    let all = PAUSE_SWAPS | PAUSE_DEPOSITS | PAUSE_REBALANCE;
+    env.send(&[ix_shard_flags(&m, &pauser.pubkey(), 1, all)], &[&pauser])
+        .unwrap();
+    expect_custom(
+        env.send(&[ix_shard_flags(&m, &pauser.pubkey(), 1, 0)], &[&pauser]),
+        amm_code(AmmError::Unauthorized),
+    );
+    assert_eq!(env.shard_state(&m, 1).pause_flags, all);
+    assert_eq!(env.market_state(&m).pause_flags, 0, "market untouched");
+    let others: Vec<_> = (2..8u8)
+        .map(|id| env.raw(&shard_addrs(&m, id, 0).shard).unwrap().data)
+        .collect();
+
+    let t = env.user(&m, 1_000_000_000);
+    expect_custom(
+        env.swap(&m, &t, 1, true, 1_000_000),
+        amm_code(AmmError::ShardPaused),
+    );
+    expect_custom(
+        env.add_liquidity(&m, &t, 1, -600, 600, 1_000_000),
+        amm_code(AmmError::ShardPaused),
+    );
+    // Rebalancing through shard 1 is refused, through shard 2 it works.
+    let caller = env.user(&m, 0);
+    env.set_rebalancers(&m, &[caller.kp.pubkey()]);
+    let kp = caller.kp.insecure_clone();
+    for (y, ok) in [(1u8, false), (2, true)] {
+        let (ax, ay) = arrays(&env, &m, 0, y);
+        let a = args(false, 2_000_000_000, ax.len());
+        let i = ix_rebalance(&m, &kp.pubkey(), 0, y, caller.token_b, a, &ax, &ay);
+        let r = env.send(&[i], &[&kp]);
+        if ok {
+            r.unwrap();
+        } else {
+            expect_custom(r, amm_code(AmmError::ShardPaused));
+        }
+    }
+    // Shards 3..7 were not written by anything above; 2 was rebalanced.
+    for (id, before) in (3..8u8).zip(&others[1..]) {
+        assert_eq!(
+            &env.raw(&shard_addrs(&m, id, 0).shard).unwrap().data,
+            before,
+            "shard {id}"
+        );
+    }
+    env.swap(&m, &t, 4, true, 1_000_000).unwrap();
+    env.add_liquidity(&m, &t, 4, -600, 600, 1_000_000).unwrap();
+    // LP exits on the paused shard stay open.
+    let i = env.ix_decrease(&m, &lp, 1, -1200, 1200, 1_000_000);
+    let c = env.ix_collect(&m, &lp, 1, -1200, 1200);
+    let lkp = lp.kp.insecure_clone();
+    env.send(&[i, c], &[&lkp]).unwrap();
+    // The admin lifts it.
+    env.send(&[ix_shard_flags(&m, &admin.pubkey(), 1, 0)], &[&admin])
+        .unwrap();
+    env.swap(&m, &t, 1, true, 1_000_000).unwrap();
+    env.add_liquidity(&m, &t, 1, -600, 600, 1_000_000).unwrap();
 }

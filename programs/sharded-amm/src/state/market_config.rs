@@ -272,12 +272,28 @@ impl MarketConfig {
             return Err(AmmError::InvalidPauseFlags);
         }
         let old = self.pause_flags;
-        let allowed = *signer == self.admin || (*signer == self.pauser && flags & old == old);
+        self.check_pause_change(signer, old, flags)?;
+        self.pause_flags = flags;
+        Ok(old)
+    }
+
+    /// Whether `signer` may change pause flags from `old` to `new`, on the
+    /// market or on one shard: the pauser may only add bits, the admin may
+    /// set any combination, unknown bits are rejected.
+    pub fn check_pause_change(
+        &self,
+        signer: &Pubkey,
+        old: u8,
+        new: u8,
+    ) -> std::result::Result<(), AmmError> {
+        if new & !PAUSE_FLAGS_MASK != 0 {
+            return Err(AmmError::InvalidPauseFlags);
+        }
+        let allowed = *signer == self.admin || (*signer == self.pauser && new & old == old);
         if !allowed {
             return Err(AmmError::Unauthorized);
         }
-        self.pause_flags = flags;
-        Ok(old)
+        Ok(())
     }
 
     /// Admin proposes a fee change within bounds; it can be applied after
