@@ -239,6 +239,102 @@ def fee_growth_cases(rng: Rng):
     return out
 
 
+Q256 = 1 << 256
+
+
+def u256(rng: Rng, max_bits: int = 256) -> int:
+    bits = rng.below(max_bits + 1)
+    v = 0
+    for _ in range(4):
+        v = (v << 64) | rng.next()
+    return v & ((1 << bits) - 1)
+
+
+def limb_cases(rng: Rng):
+    """Borsh layout of the `[u64; 4]` fee fields: limb 0 is the least significant."""
+    vals = [0, 1, U64_MAX, 1 << 64, Q128, Q128 - 1, Q256 - 1, (1 << 255) | 3]
+    vals += [u256(rng) for _ in range(40)]
+    out = []
+    for v in vals:
+        limbs = [(v >> (64 * i)) & U64_MAX for i in range(4)]
+        out.append({"value": str(v), "limbs": [str(x) for x in limbs],
+                    "borsh_hex": v.to_bytes(32, "little").hex()})
+    return out
+
+
+def fee_inside_cases(rng: Rng):
+    """Random walks of one range's boundary ticks (audit F-03).
+
+    The walk applies the protocol rules (outside on init, global - outside on
+    cross, inside = global - below - above mod 2^256) and, separately, counts
+    the growth that really happened while the price was inside the range.
+    Every snapshot asserts the two agree for the modular difference, then
+    records the inputs and the expected inside and owed values.
+    """
+    out = []
+    lower, upper = -600, 600
+    ticks = [-1200, -600, -1, 0, 599, 600, 1200]
+    for walk in range(150):
+        # Large starting global so wrap-around of `inside` is exercised.
+        glob = u256(rng, 250) if walk % 2 else rng.wide(128) << 64
+        cur = ticks[rng.below(len(ticks))]
+        outside = {}
+
+        def grow():
+            nonlocal glob
+            d = rng.wide(160)
+            assert glob + d < Q256
+            glob += d
+            return d
+
+        def move():
+            nonlocal cur
+            new = ticks[rng.below(len(ticks))]
+            for t in outside:
+                if (cur < t <= new) or (new < t <= cur):
+                    outside[t] = glob - outside[t]
+            cur = new
+
+        def init(t):
+            outside[t] = glob if t <= cur else 0
+
+        # One boundary tick exists first (another position uses it); the
+        # second is initialized later, which is how `inside` goes negative.
+        first, second = (lower, upper) if rng.below(2) else (upper, lower)
+        init(first)
+        for _ in range(rng.below(5)):
+            grow() if rng.below(2) else move()
+        init(second)
+
+        def inside():
+            below = outside[lower] if cur >= lower else glob - outside[lower]
+            above = outside[upper] if cur < upper else glob - outside[upper]
+            return (glob - below - above) % Q256
+
+        checkpoint, real = inside(), 0
+        liq = max(1, rng.wide(128))
+        for step in range(10):
+            if rng.below(2):
+                d = grow()
+                if lower <= cur < upper:
+                    real += d
+            else:
+                move()
+            now = inside()
+            delta = (now - checkpoint) % Q256
+            assert delta == real, (walk, step)
+            owed = liq * delta // Q128
+            out.append({"tick_lower": lower, "tick_upper": upper, "tick_current": cur,
+                        "global": str(glob), "outside_lower": str(outside[lower]),
+                        "outside_upper": str(outside[upper]),
+                        "inside": str(now), "checkpoint": str(checkpoint),
+                        "position_liquidity": str(liq),
+                        "owed": str(owed) if owed <= U64_MAX else "MathOverflow"})
+    assert any(int(r["inside"]) > int(r["global"]) for r in out), "no negative inside case"
+    assert any(int(r["checkpoint"]) > int(r["inside"]) for r in out), "no wrapped difference"
+    return out
+
+
 def main() -> None:
     rng = Rng(0x9E3779B97F4A7C15)
     # Cross-check the fast path against pure integers on a spread of ticks.
@@ -255,6 +351,10 @@ def main() -> None:
         "swap_steps": swap_cases(rng),
         "fee_growth": fee_growth_cases(rng),
     }
+    # Separate stream so the sections above stay byte-identical.
+    rng2 = Rng(0xF03F03F03F03F03)
+    doc["u256_limbs"] = limb_cases(rng2)
+    doc["fee_inside"] = fee_inside_cases(rng2)
     print(json.dumps(doc, indent=1))
 
 

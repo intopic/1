@@ -160,7 +160,10 @@ Swap loop: gjej tick-un tjetër të inicializuar në llogaritë e deklaruara; cl
 
 Fee accounting:
 
+> **E zëvendësuar (auditimi F-03).** Formula Q64 më poshtë ishte propozimi fillestar dhe **nuk** është ajo që implementohet. Normative është [numeric-spec.md](numeric-spec.md) seksioni 6: fee growth në **Q128** si U256 (`[u64; 4]`, limb-i 0 më pak i rëndësishëm), `inside` modulo 2^256, dhe `owed_delta = floor(old_L · Δinside / 2^128)` me ndërmjetës 512-bit. Vektorët `fee_growth`, `fee_inside` dhe `u256_limbs` në `docs/vectors/clmm_vectors.json` e fiksojnë.
+
 ```text
+# HISTORIKE, jo normative:
 LP_fee = total_fee - protocol_fee
 growth_delta(token) = floor(LP_fee(token) * 2^64 / active_L)
 owed_delta(position) = floor(old_position_L * inside_growth_delta / 2^64)

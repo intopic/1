@@ -4,7 +4,7 @@
 use serde_json::Value;
 use sharded_amm::constants::{MAX_TICK, MIN_TICK};
 use sharded_amm::errors::AmmError;
-use sharded_amm::math::fee_math::{fees_owed, growth_delta};
+use sharded_amm::math::fee_math::{fees_owed, growth_delta, growth_inside};
 use sharded_amm::math::sqrt_price_math::{
     amount_a_delta, amount_b_delta, next_sqrt_price_from_a_input, next_sqrt_price_from_b_input,
 };
@@ -165,6 +165,60 @@ fn fee_growth_matches() {
             v => assert_eq!(owed.unwrap(), v.parse::<u64>().unwrap(), "{r}"),
         }
     }
+}
+
+/// Audit F-03: the `[u64; 4]` fee fields are U256 limbs, least significant
+/// first, and Borsh writes them as 32 little-endian bytes.
+#[test]
+fn u256_limbs_match_borsh_layout() {
+    use anchor_lang::AnchorSerialize;
+    let d = doc();
+    for r in rows(&d, "u256_limbs") {
+        let limbs: [u64; 4] =
+            std::array::from_fn(|i| r["limbs"][i].as_str().unwrap().parse().unwrap());
+        let v = U256(limbs);
+        assert_eq!(v, u256_of(r, "value"), "{r}");
+        let mut bytes = Vec::new();
+        limbs.serialize(&mut bytes).unwrap();
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex, s(r, "borsh_hex"), "{r}");
+    }
+}
+
+/// Audit F-03: Q128 inside growth modulo 2^256 and the owed amount since a
+/// checkpoint, on reference random walks that include negative `inside`
+/// values and wrapped differences.
+#[test]
+fn fee_inside_modular_matches() {
+    let d = doc();
+    let rows = rows(&d, "fee_inside");
+    let (mut negative, mut wrapped) = (0, 0);
+    for r in rows {
+        let i = |k: &str| r[k].as_i64().unwrap() as i32;
+        let (global, inside, checkpoint) = (
+            u256_of(r, "global"),
+            u256_of(r, "inside"),
+            u256_of(r, "checkpoint"),
+        );
+        let got = growth_inside(
+            i("tick_lower"),
+            i("tick_upper"),
+            i("tick_current"),
+            global,
+            u256_of(r, "outside_lower"),
+            u256_of(r, "outside_upper"),
+        )
+        .unwrap();
+        assert_eq!(got, inside, "{r}");
+        negative += usize::from(inside > global);
+        wrapped += usize::from(checkpoint > inside);
+        let owed = fees_owed(u128_of(r, "position_liquidity"), inside, checkpoint);
+        match s(r, "owed").as_str() {
+            "MathOverflow" => assert_eq!(owed, Err(AmmError::MathOverflow)),
+            v => assert_eq!(owed.unwrap(), v.parse::<u64>().unwrap(), "{r}"),
+        }
+    }
+    assert!(negative > 0 && wrapped > 0, "{negative} {wrapped}");
 }
 
 /// Every tick of the domain against the exact table written by

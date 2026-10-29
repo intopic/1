@@ -1,6 +1,6 @@
 # Specifikimi numerik — Q64.64, ticks, likuiditet dhe tarifa
 
-**Statusi:** ENG-01, i propozuar për rishikim; formulat e §2, §3, §4 dhe §6 janë implementuar në ENG-05 si funksione të pastra në `programs/sharded-amm/src/math/` dhe testohen bit-për-bit kundrejt referencës së pavarur [`tools/reference/clmm_vectors.py`](../tools/reference/clmm_vectors.py). Ende nuk thirren nga asnjë instruksion (ENG-04/06). Vendimi formal është [ADR-0001](adr/0001-numeric-domain.md).
+**Statusi: NORMATIVE.** Ky dokument dhe [account-layout.md](account-layout.md) janë burimi i vetëm normativ për matematikën dhe ABI-në; kur një dokument tjetër (handoff, overview, research) ndryshon prej tyre, vlen ky. Formulat e §2–§7 janë implementuar në `programs/sharded-amm/src/math/` dhe `src/engine/`, thirren nga instruksionet onchain dhe testohen bit-për-bit kundrejt referencës së pavarur [`tools/reference/clmm_vectors.py`](../tools/reference/clmm_vectors.py). Vendimi formal është [ADR-0001](adr/0001-numeric-domain.md).
 
 ## 1. Llojet dhe njësitë
 
@@ -99,6 +99,8 @@ growth_delta  = floor(lp_fee · 2^128 / L)                          // < 2^192, 
 fee_growth_global = fee_growth_global.checked_add(growth_delta)   // pa wrap
 ```
 
+Fee growth është **Q128** (jo Q64). Në llogari ruhet si `[u64; 4]`, limb-i 0 më pak i rëndësishëm, dhe Borsh e shkruan si 32 bajt little-endian. Vektorët e artë: `fee_growth` (Q128 delta dhe owed), `u256_limbs` (layout-i), `fee_inside` (1 500 pamje nga ecje të rastit me `inside` negativ dhe diferenca që kalojnë 2^256; referenca kontrollon që diferenca modulare = growth-i real brenda range-it). Testet: `math_vectors::{fee_growth_matches, u256_limbs_match_borsh_layout, fee_inside_modular_matches}`.
+
 Pozicioni:
 
 ```text
@@ -110,7 +112,7 @@ owed          = owed.checked_add(owed_delta)  → gabim në overflow
 checkpoint    = inside(now)
 ```
 
-- `global` dhe `outside` janë monotonë dhe **checked**. `inside` nuk mund të jetë checked: me inicializimin standard ai del negativ për një range që çmimi nuk e ka prekur ende (kundërshembulli në `math::fee_math::tests::inside_can_be_negative`). Prandaj `inside` llogaritet mod `2^256` dhe përdoren vetëm diferencat e tij. Diferenca reale (growth brenda range-it që nga checkpoint-i) është jo-negative dhe `< 2^256`, kështu që zbritja modulare është ekzakte. Asnjë shumë, L ose balancë nuk përdor wrapping.
+- `global` është monoton dhe **checked** (`add_growth` refuzon overflow). `outside` **nuk** është monoton: në çdo kalim bëhet `global − outside`, pra mund të ulet; ajo që garantohet dhe kontrollohet është `0 ≤ outside ≤ global` (`cross_outside` dhe `growth_inside` kthejnë `MathInvariantViolated` përndryshe). `inside` nuk mund të jetë checked: me inicializimin standard ai del negativ për një range që çmimi nuk e ka prekur ende (kundërshembulli në `math::fee_math::tests::inside_can_be_negative`). Prandaj `inside` llogaritet mod `2^256` dhe përdoren vetëm diferencat e tij. Diferenca reale (growth brenda range-it që nga checkpoint-i) është jo-negative dhe `< 2^256`, kështu që zbritja modulare është ekzakte. Asnjë shumë, L ose balancë nuk përdor wrapping.
 - Tarifat historike llogariten me **L e vjetër** përpara çdo add/remove. Tarifa nuk shtohet kurrë në L aktiv.
 - `protocol_fee_a/b` ruhen në `ShardState` me `checked_add`; mblidhen vetëm nga `collect_protocol_fees`.
 
@@ -132,11 +134,11 @@ vault_a ≥ Σ principal_a(pozicionet, rrumbullakuar lart) + Σ owed_a + protoco
 | `L · 2^64 · (sb − sa)` | `2^192 · 2^96` | 288 |
 | `L · s · 2^64` | `2^128 · 2^96 · 2^64` | 288 |
 | `L · (sb − sa)` | `2^128 · 2^96` | 224 |
-| `old_L · growth_delta` | `2^128 · 2^128` | 256 |
-| `lp_fee · 2^64` | `2^64 · 2^64` | 128 |
+| `old_L · Δinside` (Q128, mod 2^256) | `2^128 · 2^256` | 384 → U512 në `mul_div` |
+| `lp_fee · 2^128` (growth delta) | `2^64 · 2^128` | 192 |
 | `amount · fee_rate_ppm` | `2^64 · 2^17` | 81 |
 
-Rreshtat 288-bit janë arsyeja pse `mul_div` kërkon ndërmjetës 512-bit. Specifikimi i handoff-it përmend deri në 320 bit për produkte naive me faktorin `2^64` shtesë; formulat e mësipërme e shmangin atë rend duke mos shumëzuar kurrë tre faktorë 128/96/64 pa pjesëtim të ndërmjetëm të saktë.
+Rreshtat 288-bit dhe 384-bit janë arsyeja pse `mul_div` kërkon ndërmjetës 512-bit. Specifikimi i handoff-it përmend deri në 320 bit për produkte naive me faktorin `2^64` shtesë; formulat e mësipërme e shmangin atë rend duke mos shumëzuar kurrë tre faktorë 128/96/64 pa pjesëtim të ndërmjetëm të saktë.
 
 `mul_div` jep gjithmonë rezultatin ekzakt, por zgjedh rrugën më të ngushtë që mjafton:
 

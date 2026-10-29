@@ -1,7 +1,9 @@
 //! Fee split and Q128 fee growth (research N07, ADR-0001 point 5).
 //!
-//! `global` and every `outside` value are U256, monotonic and checked: they
-//! never wrap. `inside` is different. With the usual initialization
+//! `global` and every `outside` value are U256 and checked: they never wrap.
+//! `global` only grows; `outside` flips to `global - outside` on every
+//! crossing, so it is not monotonic, but `0 <= outside <= global` always
+//! holds and is enforced. `inside` is different. With the usual initialization
 //! (`outside = global` when the tick is at or below the current tick) the
 //! expression `global - below - above` can be negative for a range the price
 //! has never been inside; see `inside_can_be_negative`. It is therefore
