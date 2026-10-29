@@ -134,4 +134,6 @@ pub enum AmmError {
     InsufficientDepth,
     #[msg("This operation is paused on this shard")]
     ShardPaused,
+    #[msg("A token transfer did not move exactly the requested amount")]
+    TransferAmountMismatch,
 }

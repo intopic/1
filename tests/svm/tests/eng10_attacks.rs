@@ -228,12 +228,13 @@ fn routing_output_into_a_vault_drains_nothing() {
     let arrays = env.swap_arrays(&m, 0, true);
     let mut i = env.ix_swap(&m, &attacker, 0, env.swap_args(true, 1_000_000), &arrays);
     i.accounts[7].pubkey = a.vault_b;
-    let r = env.send(&[i], &[&attacker.kp]);
+    // Refused before any transfer (the output account is not the user's);
+    // even past that, a self-transfer would fail the balance check after
+    // every transfer (`token_util`, TransferAmountMismatch).
+    assert!(env.send(&[i], &[&attacker.kp]).is_err());
     let vaults_after = env.balance(&a.vault_a) + env.balance(&a.vault_b);
-    assert!(vaults_after >= vaults_before);
-    if r.is_ok() {
-        assert_eq!(env.balance(&attacker.token_a), 1_000_000_000 - 1_000_000);
-    }
+    assert_eq!(vaults_after, vaults_before);
+    assert_eq!(env.balance(&attacker.token_a), 1_000_000_000);
     // Paying from a vault without its authority fails.
     let mut i = env.ix_swap(&m, &attacker, 0, env.swap_args(true, 1_000_000), &arrays);
     i.accounts[6].pubkey = a.vault_a;
