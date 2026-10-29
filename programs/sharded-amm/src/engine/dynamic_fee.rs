@@ -1,7 +1,7 @@
 //! Per-shard dynamic fee (ADR-0005).
 //!
-//! The fee of a swap is fixed when it starts: `begin` rolls the episode
-//! forward to the current slot and returns the fee; the swap runs at that
+//! The fee of a swap is fixed when it starts: `begin` starts a new episode
+//! when the current one is `filter_slots` old and returns the fee; the swap runs at that
 //! fee; `finish` records how far the price moved. Every value is an integer
 //! and every intermediate fits `u64`, so the host and the program agree bit
 //! for bit and a router can quote with `quote_fee`.
@@ -28,10 +28,14 @@ pub fn begin(
     tick: i32,
     slot: u64,
 ) -> u32 {
-    let elapsed = slot.saturating_sub(st.last_update_slot);
-    if elapsed >= u64::from(p.filter_slots) {
+    // An episode is a window of `filter_slots` from its first swap; steady
+    // trading therefore measures recent movement, not the drift since the
+    // first swap ever. Only the carry-over depends on how quiet it was.
+    if slot.saturating_sub(st.reference_slot) >= u64::from(p.filter_slots) {
+        let quiet = slot.saturating_sub(st.last_update_slot);
         st.tick_reference = tick;
-        st.vol_reference = if elapsed < u64::from(p.decay_slots) {
+        st.reference_slot = slot;
+        st.vol_reference = if quiet < u64::from(p.decay_slots) {
             (u64::from(st.vol_accumulator) * u64::from(p.reduction_bps) / 10_000) as u32
         } else {
             0
@@ -139,6 +143,25 @@ mod tests {
         let mut b = st;
         assert_eq!(begin(&mut b, &p, BASE, 60, 1_200, 1_100), BASE);
         assert_eq!(b.vol_reference, 0);
+    }
+
+    #[test]
+    fn steady_trading_measures_recent_movement_only() {
+        let p = params();
+        let mut st = DynamicFeeState::default();
+        // A swap every slot drifts the price up one spacing per 10 slots.
+        // The fee must reflect the last windows, not the whole drift.
+        // Prices move only in swaps: each swap starts where the last ended.
+        let (mut fee, mut tick) = (0, 0);
+        for k in 0..2_000u64 {
+            fee = begin(&mut st, &p, BASE, 60, tick, 1_000 + k);
+            tick = ((k + 1) / 10) as i32 * 60;
+            finish(&mut st, &p, 60, tick, 1_000 + k);
+        }
+        // Window 10 slots = 1 spacing, carry 50%: the accumulator stays near
+        // two spacings, so about +200 ppm, far below the ceiling.
+        assert!(fee <= BASE + 300, "fee {fee}");
+        assert!(fee > BASE, "fee {fee}");
     }
 
     #[test]

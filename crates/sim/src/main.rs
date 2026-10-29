@@ -15,19 +15,29 @@
 //! `amm_model::cpmm` for the baseline. Prices are raw units (SOL 9 decimals,
 //! USDC 6 decimals). Usage: `eng09 [output.md]`; `SIM_SEEDS`, `SIM_STEPS`
 //! scale the run.
+//!
+//! `eng09 --dynamic [output.md]` compares the fixed fee with the per-shard
+//! dynamic fee (ADR-0005), run by the real `engine::dynamic_fee`, at normal
+//! and at four times the volatility. A step is one minute = 150 slots; the
+//! arbitrageur trades at the start of the step and each uninformed trade
+//! lands 3 slots after the previous one.
 
 use amm_model::cpmm;
 use anchor_lang::prelude::Pubkey;
-use sharded_amm::engine::{modify_position, swap, Pool, PositionState, SwapParams};
+use sharded_amm::engine::{dynamic_fee, modify_position, swap, Pool, PositionState, SwapParams};
 use sharded_amm::math::liquidity_math::amounts_for_liquidity;
 use sharded_amm::math::tick_math::{sqrt_price_at_tick, tick_at_sqrt_price};
-use sharded_amm::state::{array_span, array_start_for, TickArray};
+use sharded_amm::state::{
+    array_span, array_start_for, DynamicFeeParams, DynamicFeeState, TickArray,
+};
 
 const PROTOCOL_SHARE_BPS: u16 = 2_000;
 /// $150 per SOL in raw units: 150e6 USDC units per 1e9 lamports.
 const P0: f64 = 0.15;
 const CAPITAL_USD: f64 = 1_000_000.0;
 const USDC: f64 = 1e6;
+/// One simulation step is one minute.
+const SLOTS_PER_STEP: u64 = 150;
 
 struct Rng(u64);
 impl Rng {
@@ -58,6 +68,8 @@ trait Venue: Clone {
     fn fee(&self) -> f64;
     /// Executes an exact-in swap; `None` if the venue rejects it.
     fn swap(&mut self, a_to_b: bool, amount: u64) -> Option<u64>;
+    /// Moves the venue's clock; only the dynamic fee uses it.
+    fn set_slot(&mut self, _slot: u64) {}
     fn quote(&self, a_to_b: bool, amount: u64) -> Option<u64> {
         self.clone().swap(a_to_b, amount)
     }
@@ -72,6 +84,9 @@ struct Clmm {
     spacing: u16,
     fee_ppm: u32,
     position: PositionState,
+    dynamic: DynamicFeeParams,
+    fee_state: DynamicFeeState,
+    slot: u64,
 }
 
 impl Clmm {
@@ -94,6 +109,9 @@ impl Clmm {
             arrays,
             spacing,
             fee_ppm,
+            dynamic: DynamicFeeParams::disabled(fee_ppm),
+            fee_state: DynamicFeeState::default(),
+            slot: 0,
             position: PositionState {
                 lower,
                 upper,
@@ -130,7 +148,18 @@ impl Venue for Clmm {
         price_of_sqrt(self.pool.sqrt_price)
     }
     fn fee(&self) -> f64 {
-        f64::from(self.fee_ppm) / 1e6
+        let rate = dynamic_fee::quote_fee(
+            &self.fee_state,
+            &self.dynamic,
+            self.fee_ppm,
+            self.spacing,
+            self.pool.tick,
+            self.slot,
+        );
+        f64::from(rate) / 1e6
+    }
+    fn set_slot(&mut self, slot: u64) {
+        self.slot = slot;
     }
     fn swap(&mut self, a_to_b: bool, amount: u64) -> Option<u64> {
         let start = array_start_for(self.pool.tick, self.spacing);
@@ -143,17 +172,33 @@ impl Venue for Clmm {
         } else {
             self.arrays[idx..].iter_mut().take(3).collect()
         };
+        let mut fee_state = self.fee_state;
+        let fee_rate_ppm = dynamic_fee::begin(
+            &mut fee_state,
+            &self.dynamic,
+            self.fee_ppm,
+            self.spacing,
+            self.pool.tick,
+            self.slot,
+        );
         let p = SwapParams {
             a_to_b,
             amount_in: amount,
             sqrt_price_limit: 0,
-            fee_rate_ppm: self.fee_ppm,
+            fee_rate_ppm,
             protocol_share_bps: PROTOCOL_SHARE_BPS,
             tick_spacing: self.spacing,
         };
-        swap(&mut self.pool, &mut refs, p)
-            .ok()
-            .map(|o| o.amount_out)
+        let out = swap(&mut self.pool, &mut refs, p).ok()?;
+        dynamic_fee::finish(
+            &mut fee_state,
+            &self.dynamic,
+            self.spacing,
+            self.pool.tick,
+            self.slot,
+        );
+        self.fee_state = fee_state;
+        Some(out.amount_out)
     }
     fn lp_exit(&self) -> ((u64, u64), (u64, u64)) {
         let mut v = self.clone();
@@ -282,9 +327,11 @@ fn run<V: Venue>(
     let mut ext = P0;
     let mut o = Outcome::default();
     let (mut cost, mut vol) = (0.0, 0.0);
-    for _ in 0..sc.steps {
+    for step in 0..sc.steps {
         ext *= (sc.sigma * rng.normal() - sc.sigma * sc.sigma / 2.0).exp();
+        let mut slot = 1_000_000 + u64::from(step) * SLOTS_PER_STEP;
         for v in venues.iter_mut() {
+            v.set_slot(slot);
             let (p, f) = (v.price(), v.fee());
             if p < ext * (1.0 - f) {
                 let amount = arb_amount(v, false, ext * (1.0 - f));
@@ -303,6 +350,10 @@ fn run<V: Venue>(
             }
         }
         for _ in 0..sc.trades_per_step {
+            slot += 3;
+            for v in venues.iter_mut() {
+                v.set_slot(slot);
+            }
             let usd = sc.median_trade_usd * (rng.normal() * 1.0).exp();
             let a_to_b = rng.next().is_multiple_of(2);
             let amount = if a_to_b {
@@ -374,6 +425,9 @@ enum Design {
         width: f64,
         shards: usize,
         split: bool,
+        /// Dynamic fee strength in ppm of fee per 1% of price movement;
+        /// 0 = fixed fee.
+        dynamic_per_pct: u32,
     },
 }
 
@@ -385,13 +439,18 @@ fn label(d: Design) -> String {
             width,
             shards,
             split,
+            dynamic_per_pct,
         } => format!(
-            "CLMM s={spacing} ±{:.0}% {}",
+            "CLMM s={spacing} ±{:.0}% {}{}",
             width * 100.0,
             match (shards, split) {
                 (1, _) => "1 shard".to_string(),
                 (n, false) => format!("{n} shards, best-shard routing"),
                 (n, true) => format!("{n} shards, order split across all"),
+            },
+            match dynamic_per_pct {
+                0 => String::new(),
+                k => format!(", dynamic +{:.2}% fee per 1% move", f64::from(k) / 1e4),
             }
         ),
     }
@@ -411,14 +470,42 @@ fn simulate(d: Design, fee_ppm: u32, sc: &Scenario, seed: u64) -> Outcome {
             spacing,
             width,
             shards,
+            dynamic_per_pct,
             ..
         } => {
+            let dynamic = dynamic_params(fee_ppm, spacing, dynamic_per_pct);
             let (vs, deps): (Vec<_>, Vec<_>) = (0..shards)
-                .map(|_| Clmm::new(fee_ppm, spacing, width, CAPITAL_USD / shards as f64))
+                .map(|_| {
+                    let (mut v, dep) =
+                        Clmm::new(fee_ppm, spacing, width, CAPITAL_USD / shards as f64);
+                    v.dynamic = dynamic;
+                    (v, dep)
+                })
                 .unzip();
             run(vs, deps, sc, seed)
         }
     }
+}
+
+/// ADR-0005 parameters for the simulation: `per_pct` ppm of fee per 1% of
+/// price movement (1% is about 100 ticks), up to 0.80%; an episode lasts
+/// while swaps come within a minute, half of it carries over, and nothing
+/// is left after ten quiet minutes. No load term.
+fn dynamic_params(base: u32, spacing: u16, per_pct: u32) -> DynamicFeeParams {
+    if per_pct == 0 {
+        return DynamicFeeParams::disabled(base);
+    }
+    let p = DynamicFeeParams {
+        max_fee_rate_ppm: sharded_amm::constants::MAX_DYNAMIC_FEE_RATE_PPM,
+        vol_coeff_ppm: per_pct * u32::from(spacing) / 100,
+        load_coeff_ppm: 0,
+        max_vol_accumulator: 10_000_000,
+        filter_slots: SLOTS_PER_STEP as u16,
+        decay_slots: 10 * SLOTS_PER_STEP as u16,
+        reduction_bps: 5_000,
+    };
+    p.validate(base).expect("valid dynamic fee params");
+    p
 }
 
 fn mean_sd(xs: &[f64]) -> (f64, f64) {
@@ -435,6 +522,61 @@ fn env_or(name: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
+/// `--dynamic`: fixed versus dynamic fee (ADR-0005).
+fn dynamic_report(seeds: u64, base: &Scenario) -> String {
+    let mut out = String::from("# ADR-0005: fixed versus per-shard dynamic fee\n\n");
+    out.push_str(&format!(
+        "Generated by `cargo run --release -p amm-sim --bin eng09 -- --dynamic` with {seeds} seeds x {} one-minute steps, \
+         {} uninformed trades per step (median ${}), LP capital ${} per design, protocol share 20%. \
+         Same model and limits as [eng09-results.md](eng09-results.md). The dynamic fee adds the stated fee per 1% of \
+         price movement within an episode, up to 0.80%; see `dynamic_params` in `crates/sim/src/main.rs`. \
+         An order split evenly over 8 identical shards gives exactly the 1-shard numbers in this model \
+         (see eng09-results.md), so only 1 shard is listed.\n\n",
+        base.steps, base.trades_per_step, base.median_trade_usd, CAPITAL_USD
+    ));
+    out.push_str("| Volatility | Base fee | Design | LP PnL vs HODL % | LP fees % | Trader cost bps | Arb volume $ | Rejected trades |\n");
+    out.push_str("|---|---|---|---|---|---|---|---|\n");
+    for (vol_label, mult) in [("4%/day", 1.0), ("16%/day", 4.0)] {
+        let sc = Scenario {
+            sigma: base.sigma * mult,
+            ..*base
+        };
+        for fee in [500u32, 1_000, 3_000] {
+            for (spacing, width, shards) in [(10u16, 0.05, 1usize), (60, 0.20, 1)] {
+                for dynamic_per_pct in [0u32, 2_000, 5_000] {
+                    let d = Design::Clmm {
+                        spacing,
+                        width,
+                        shards,
+                        split: shards > 1,
+                        dynamic_per_pct,
+                    };
+                    let rs: Vec<Outcome> = (0..seeds)
+                        .map(|s| simulate(d, fee, &sc, 0xe9_0000 + s))
+                        .collect();
+                    let col =
+                        |f: fn(&Outcome) -> f64| mean_sd(&rs.iter().map(f).collect::<Vec<_>>());
+                    let (pnl, pnl_sd) = col(|o| o.lp_pnl_vs_hodl_pct);
+                    let (fees, _) = col(|o| o.lp_fee_pct);
+                    let (cost, cost_sd) = col(|o| o.trader_cost_bps);
+                    let (av, _) = col(|o| o.arb_volume_usd);
+                    let rej: u64 = rs.iter().map(|o| o.rejected).sum();
+                    let line = format!(
+                        "| {vol_label} | {} bps | {} | {pnl:+.3} ± {pnl_sd:.3} | {fees:.3} | {cost:.2} ± {cost_sd:.2} | {av:.0} | {rej} |\n",
+                        fee / 100,
+                        label(d)
+                    );
+                    eprint!("{line}");
+                    out.push_str(&line);
+                }
+            }
+        }
+    }
+    out.push_str("\nTrader cost is what uninformed traders paid relative to the external price (fee plus price impact). ");
+    out.push_str("LP PnL vs HODL includes fees and the loss to arbitrage. ± is one standard deviation across seeds.\n");
+    out
+}
+
 fn main() {
     let seeds = env_or("SIM_SEEDS", 6);
     let sc = Scenario {
@@ -445,6 +587,16 @@ fn main() {
         trades_per_step: 2,
         median_trade_usd: 2_000.0,
     };
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--dynamic") {
+        args.remove(0);
+        let out = dynamic_report(seeds, &sc);
+        match args.first() {
+            Some(path) => std::fs::write(path, out).expect("write results"),
+            None => print!("{out}"),
+        }
+        return;
+    }
     let designs = [
         Design::Cpmm,
         Design::Clmm {
@@ -452,48 +604,56 @@ fn main() {
             width: 0.05,
             shards: 1,
             split: false,
+            dynamic_per_pct: 0,
         },
         Design::Clmm {
             spacing: 10,
             width: 0.20,
             shards: 1,
             split: false,
+            dynamic_per_pct: 0,
         },
         Design::Clmm {
             spacing: 60,
             width: 0.05,
             shards: 1,
             split: false,
+            dynamic_per_pct: 0,
         },
         Design::Clmm {
             spacing: 60,
             width: 0.20,
             shards: 1,
             split: false,
+            dynamic_per_pct: 0,
         },
         Design::Clmm {
             spacing: 10,
             width: 0.05,
             shards: 8,
             split: false,
+            dynamic_per_pct: 0,
         },
         Design::Clmm {
             spacing: 10,
             width: 0.05,
             shards: 8,
             split: true,
+            dynamic_per_pct: 0,
         },
         Design::Clmm {
             spacing: 60,
             width: 0.20,
             shards: 8,
             split: false,
+            dynamic_per_pct: 0,
         },
         Design::Clmm {
             spacing: 60,
             width: 0.20,
             shards: 8,
             split: true,
+            dynamic_per_pct: 0,
         },
     ];
     let mut out = String::new();
@@ -539,7 +699,7 @@ fn main() {
     }
     out.push_str("\nTrader cost is what uninformed traders paid relative to the external price (fee plus price impact). ");
     out.push_str("LP PnL vs HODL includes fees and the loss to arbitrage. ± is one standard deviation across seeds.\n");
-    match std::env::args().nth(1) {
+    match args.first() {
         Some(path) => std::fs::write(path, out).expect("write results"),
         None => print!("{out}"),
     }
@@ -565,18 +725,21 @@ mod tests {
                 width: 0.05,
                 shards: 1,
                 split: false,
+                dynamic_per_pct: 0,
             },
             Design::Clmm {
                 spacing: 60,
                 width: 0.20,
                 shards: 8,
                 split: false,
+                dynamic_per_pct: 0,
             },
             Design::Clmm {
                 spacing: 60,
                 width: 0.20,
                 shards: 8,
                 split: true,
+                dynamic_per_pct: 0,
             },
         ] {
             let o = simulate(d, 3_000, &sc, 1);
@@ -585,5 +748,28 @@ mod tests {
             assert!(o.trader_cost_bps > 25.0, "{}", o.trader_cost_bps);
             assert!(o.lp_pnl_vs_hodl_pct.is_finite());
         }
+    }
+
+    #[test]
+    fn dynamic_fee_charges_more_after_movement() {
+        let sc = Scenario {
+            split: false,
+            steps: 240,
+            sigma: 0.004,
+            trades_per_step: 2,
+            median_trade_usd: 2_000.0,
+        };
+        let d = |dynamic_per_pct| Design::Clmm {
+            spacing: 60,
+            width: 0.20,
+            shards: 1,
+            split: false,
+            dynamic_per_pct,
+        };
+        let fixed = simulate(d(0), 1_000, &sc, 7);
+        let dynamic = simulate(d(5_000), 1_000, &sc, 7);
+        assert!(dynamic.lp_fee_pct > fixed.lp_fee_pct);
+        assert!(dynamic.trader_cost_bps > fixed.trader_cost_bps);
+        assert!(dynamic.arb_volume_usd < fixed.arb_volume_usd);
     }
 }

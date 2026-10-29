@@ -171,7 +171,11 @@ jobs:
           [[ "$SCALE" =~ ^[0-9]+$ && "$SEED_BASE" =~ ^[0-9]+$ ]] || { echo 'scale and seed_base must be integers'; exit 1; }
           SIM_SEEDS=$(( 32 * SCALE )) cargo run --release -p amm-sim --bin eng09 "$RUNNER_TEMP/eng09.md"
           cat "$RUNNER_TEMP/eng09.md" >> "$GITHUB_STEP_SUMMARY"
+          SIM_SEEDS=$(( 32 * SCALE )) cargo run --release -p amm-sim --bin eng09 -- --dynamic "$RUNNER_TEMP/dynamic-fee.md"
+          cat "$RUNNER_TEMP/dynamic-fee.md" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: eng09-results
-          path: ${{ runner.temp }}/eng09.md
+          path: |
+            ${{ runner.temp }}/eng09.md
+            ${{ runner.temp }}/dynamic-fee.md
