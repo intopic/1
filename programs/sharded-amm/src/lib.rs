@@ -200,6 +200,19 @@ pub mod sharded_amm {
         handle_close_position(ctx)
     }
 
+    /// D-16, step 1: the owner names a new owner (default key withdraws).
+    pub fn propose_position_transfer(
+        ctx: Context<ProposePositionTransfer>,
+        new_owner: Pubkey,
+    ) -> Result<()> {
+        handle_propose_position_transfer(ctx, new_owner)
+    }
+
+    /// D-16, step 2: the new owner takes the position with its signature.
+    pub fn accept_position_transfer(ctx: Context<AcceptPositionTransfer>) -> Result<()> {
+        handle_accept_position_transfer(ctx)
+    }
+
     pub fn open_market<'info>(ctx: Context<'info, OpenMarket<'info>>) -> Result<()> {
         handle_open_market(ctx)
     }

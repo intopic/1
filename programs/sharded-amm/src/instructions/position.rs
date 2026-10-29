@@ -7,6 +7,10 @@
 //!   the principal out. Never blocked by market or shard status (ADR-0002).
 //! - `collect_fees()` credits and pays out earned LP fees. Never blocked.
 //! - `close_position()` closes an empty position and refunds its rent.
+//! - `propose_position_transfer(new_owner)` / `accept_position_transfer()`
+//!   (D-16): two steps, the new owner signs to take over. Only `owner`
+//!   changes: liquidity, checkpoints and uncollected fees move with it.
+//!   `Pubkey::default()` as `new_owner` withdraws a proposal.
 //!
 //! Liquidity changes pass the tick arrays holding `lower` and `upper` as 1
 //! or 2 writable remaining accounts. Only the position owner can sign.
@@ -17,7 +21,9 @@ use anchor_spl::token::{Token, TokenAccount};
 use crate::constants::{POSITION_SEED, VAULT_AUTH_SEED};
 use crate::engine::{check_tick_range, modify_position, Pool, PositionState};
 use crate::errors::AmmError;
-use crate::events::{FeesCollected, LiquidityChanged};
+use crate::events::{
+    FeesCollected, LiquidityChanged, PositionTransferProposed, PositionTransferred,
+};
 use crate::state::{MarketConfig, Position, ShardState};
 
 use super::token_util::{borrow_all, load_tick_arrays, transfer_in, transfer_out};
@@ -70,6 +76,7 @@ pub fn handle_open_position(
         tokens_owed_a: 0,
         tokens_owed_b: 0,
         bump: ctx.bumps.position,
+        pending_owner: Pubkey::default(),
     });
     Ok(())
 }
@@ -259,5 +266,53 @@ pub fn handle_close_position(ctx: Context<ClosePosition>) -> Result<()> {
         p.liquidity == 0 && p.tokens_owed_a == 0 && p.tokens_owed_b == 0,
         AmmError::PositionNotEmpty
     );
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct ProposePositionTransfer<'info> {
+    pub owner: Signer<'info>,
+    #[account(mut, has_one = owner)]
+    pub position: Account<'info, Position>,
+}
+
+pub fn handle_propose_position_transfer(
+    ctx: Context<ProposePositionTransfer>,
+    new_owner: Pubkey,
+) -> Result<()> {
+    require!(
+        new_owner != ctx.accounts.owner.key(),
+        AmmError::Unauthorized
+    );
+    ctx.accounts.position.pending_owner = new_owner;
+    emit!(PositionTransferProposed {
+        position: ctx.accounts.position.key(),
+        owner: ctx.accounts.owner.key(),
+        pending_owner: new_owner,
+    });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct AcceptPositionTransfer<'info> {
+    pub new_owner: Signer<'info>,
+    #[account(
+        mut,
+        constraint = position.pending_owner != Pubkey::default() @ AmmError::NoPendingChange,
+        constraint = position.pending_owner == new_owner.key() @ AmmError::Unauthorized,
+    )]
+    pub position: Account<'info, Position>,
+}
+
+pub fn handle_accept_position_transfer(ctx: Context<AcceptPositionTransfer>) -> Result<()> {
+    let p = &mut ctx.accounts.position;
+    let old = p.owner;
+    p.owner = p.pending_owner;
+    p.pending_owner = Pubkey::default();
+    emit!(PositionTransferred {
+        position: p.key(),
+        old_owner: old,
+        new_owner: p.owner,
+    });
     Ok(())
 }

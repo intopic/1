@@ -1,8 +1,11 @@
 //! `Position`: one owner's liquidity in `[tick_lower, tick_upper)` of a shard.
 //!
-//! PDA `["lp_pos", shard, owner, tick_lower_i32_le, tick_upper_i32_le]`.
-//! Only `owner` may change it. Fee checkpoints are Q128 U256 limbs of the
-//! modular inside growth (see `math::fee_math`).
+//! PDA `["lp_pos", shard, owner, tick_lower_i32_le, tick_upper_i32_le]`,
+//! with the owner that opened it. Only `owner` may change it. A transfer
+//! (D-16) changes only `owner`; the address stays, so instructions bind the
+//! position by `has_one = owner`, never by re-deriving the seeds. Fee
+//! checkpoints are Q128 U256 limbs of the modular inside growth (see
+//! `math::fee_math`).
 
 use anchor_lang::prelude::*;
 
@@ -23,4 +26,7 @@ pub struct Position {
     /// checkpoint moves only when liquidity changes (`fee_math::fees_since`).
     pub fees_credited_a: u64,
     pub fees_credited_b: u64,
+    /// Proposed new owner (`propose_position_transfer`); it takes over with
+    /// its own signature. `Pubkey::default()` when none.
+    pub pending_owner: Pubkey,
 }

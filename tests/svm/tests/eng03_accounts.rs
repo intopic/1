@@ -394,6 +394,6 @@ fn account_sizes_match_layout_doc() {
             .unwrap()
             .data
             .len(),
-        193
+        225
     );
 }

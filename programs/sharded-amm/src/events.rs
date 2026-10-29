@@ -262,3 +262,17 @@ pub struct MarketRolesSynced {
     pub old_keeper: Pubkey,
     pub roles_version: u32,
 }
+
+#[event]
+pub struct PositionTransferProposed {
+    pub position: Pubkey,
+    pub owner: Pubkey,
+    pub pending_owner: Pubkey,
+}
+
+#[event]
+pub struct PositionTransferred {
+    pub position: Pubkey,
+    pub old_owner: Pubkey,
+    pub new_owner: Pubkey,
+}

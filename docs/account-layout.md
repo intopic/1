@@ -20,7 +20,7 @@ Adresat e plota për input-e fikse janë në [`docs/vectors/pda_fixtures.json`](
 
 ### Pse pozicioni identifikohet nga range-i (ABI v1)
 
-Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Shtimi i likuiditetit në të njëjtin range e rrit pozicionin ekzistues; tarifat e fituara deri atëherë kalojnë në `tokens_owed` para se të ndryshojë likuiditeti, kështu që bashkimi nuk humb asgjë. Përparësitë: klienti e gjen adresën pa numërues onchain, nuk ka llogari counter që bëhet pikë konflikti write-lock-u, dhe nuk ka rrezik garash për `position_id`. Kufizimi: pozicioni nuk transferohet (nuk ka NFT) dhe i njëjti pronar nuk mban dy pozicione të ndara në të njëjtin range. Nëse duhet transferim, kjo bëhet ABI v2.
+Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Shtimi i likuiditetit në të njëjtin range e rrit pozicionin ekzistues; tarifat e fituara deri atëherë kalojnë në `tokens_owed` para se të ndryshojë likuiditeti, kështu që bashkimi nuk humb asgjë. Përparësitë: klienti e gjen adresën pa numërues onchain, nuk ka llogari counter që bëhet pikë konflikti write-lock-u, dhe nuk ka rrezik garash për `position_id`. Kufizimi: i njëjti pronar nuk mban dy pozicione të ndara në të njëjtin range. Pozicioni transferohet pa NFT, me dy hapa (`propose_position_transfer` dhe `accept_position_transfer`, D-16), dhe ndryshon vetëm `owner`.
 
 **Versionimi:** versioni i ABI-së mbahet në seed-in e market-it (`schema_u16_le`). Shard-i lidhet me market-in, pozicioni me shard-in, prandaj çdo ndryshim i seed-eve të pozicionit kërkon `SCHEMA_VERSION = 2`, që jep market, shard dhe pozicione me adresa të reja. Varianti `position_id_u64_le` në dokumentet e vjetra **nuk është ABI** dhe nuk është implementuar.
 
@@ -114,7 +114,7 @@ PDA `["ticks", shard, start_tick_index_i32_le]`. 32 slote; `start_tick_index` ë
 | ticks | `Tick` ×32: liquidity_net i128, liquidity_gross u128, fee_growth_outside_a/b [u64; 4] ×2 (si limb-e u64) | 3 072 |
 | bump + padding | u8 + [u8; 7] | 8 |
 
-## `Position` — 193 bajt
+## `Position` — 225 bajt
 
 PDA `["lp_pos", shard, owner, tick_lower_i32_le, tick_upper_i32_le]`.
 
@@ -129,4 +129,6 @@ PDA `["lp_pos", shard, owner, tick_lower_i32_le, tick_upper_i32_le]`.
 | bump | u8 | 1 |
 | fees_credited_a/b | u64 ×2 (tarifat e kaluara te `tokens_owed` që nga checkpoint-i) | 16 |
 
-`fees_credited_a/b` (29 tetor 2026, riauditimi P2-2) e rritën pozicionin nga 177 në 193 bajt, para çdo deploy-i.
+| pending_owner | Pubkey (pronari i propozuar, D-16; bosh kur s'ka) | 32 |
+
+`fees_credited_a/b` (29 tetor 2026, riauditimi P2-2) e rritën pozicionin nga 177 në 193 bajt, dhe `pending_owner` (transferimi me dy hapa, D-16) në 225, para çdo deploy-i. Pas transferimit adresa mbetet ajo e pronarit që e hapi; instruksionet e lidhin pozicionin me `has_one = owner`, jo duke rillogaritur seeds.
