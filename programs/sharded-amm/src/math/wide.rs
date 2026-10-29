@@ -54,11 +54,50 @@ pub fn full_mul(a: U256, b: U256) -> U512 {
     widen(a) * widen(b)
 }
 
-/// `a * b / d` with an exact 512-bit intermediate, rounded down or up.
+/// Full 128 x 128 -> 256 bit product as (high, low) halves.
+pub fn mul_u128(a: u128, b: u128) -> (u128, u128) {
+    const LO: u128 = u64::MAX as u128;
+    let (a1, a0) = (a >> 64, a & LO);
+    let (b1, b0) = (b >> 64, b & LO);
+    let p00 = a0 * b0;
+    let p01 = a0 * b1;
+    let p10 = a1 * b0;
+    let p11 = a1 * b1;
+    let mid = (p00 >> 64) + (p01 & LO) + (p10 & LO);
+    let lo = (p00 & LO) | (mid << 64);
+    let hi = p11 + (p01 >> 64) + (p10 >> 64) + (mid >> 64);
+    (hi, lo)
+}
+
+/// `a * b / d` with an exact intermediate, rounded down or up.
 /// Fails if `d == 0` or the quotient does not fit in 256 bits.
+///
+/// The result is always the exact one; the narrower paths only avoid the
+/// costly 512-bit division on SBF when the product fits in fewer bits.
 pub fn mul_div(a: U256, b: U256, d: U256, round_up: bool) -> MathResult<U256> {
     if d.is_zero() {
         return Err(AmmError::DivisionByZero);
+    }
+    if a.is_zero() || b.is_zero() {
+        return Ok(U256::zero());
+    }
+    if a.bits() + b.bits() <= 256 {
+        // The product fits in 256 bits.
+        let p = a * b;
+        let (q, r) = if d & (d - 1) == U256::zero() {
+            let k = d.trailing_zeros() as usize;
+            (p >> k, p & (d - 1))
+        } else if p.bits() <= 128 && d.bits() <= 128 {
+            let (p, d) = (p.low_u128(), d.low_u128());
+            (U256::from(p / d), U256::from(p % d))
+        } else {
+            p.div_mod(d)
+        };
+        return if round_up && !r.is_zero() {
+            q.checked_add(U256::one()).ok_or(AmmError::MathOverflow)
+        } else {
+            Ok(q)
+        };
     }
     let (q, r) = full_mul(a, b).div_mod(widen(d));
     // q <= a * b < 2^512, so q + 1 cannot overflow U512.
@@ -132,5 +171,56 @@ mod tests {
         assert_eq!(narrow(widen(U256::MAX) + 1), Err(AmmError::MathOverflow));
         assert_eq!(Q64, U256::one() << 64);
         assert_eq!(Q128, U256::one() << 128);
+    }
+
+    fn reference(a: U256, b: U256, d: U256, up: bool) -> MathResult<U256> {
+        let (q, r) = full_mul(a, b).div_mod(widen(d));
+        narrow(if up && !r.is_zero() { q + 1 } else { q })
+    }
+
+    #[test]
+    fn fast_paths_match_the_512_bit_reference() {
+        let mut rng = crate::math::bitmap::tests::Rng(0x3a1d_77c0_51e2_9b04);
+        let mut word = |bits: u64| -> U256 {
+            let v = U256([rng.next(), rng.next(), rng.next(), rng.next()]);
+            if bits == 0 {
+                U256::zero()
+            } else {
+                v >> (256 - bits as usize)
+            }
+        };
+        for i in 0..200_000u64 {
+            let (ba, bb, bd) = (i % 257, (i / 257) % 257, (i * 7919) % 257);
+            let (a, b) = (word(ba), word(bb));
+            let mut d = word(bd.max(1));
+            if i % 5 == 0 {
+                d = U256::one() << (bd as usize % 256);
+            }
+            if d.is_zero() {
+                d = U256::one();
+            }
+            for up in [false, true] {
+                assert_eq!(
+                    mul_div(a, b, d, up),
+                    reference(a, b, d, up),
+                    "{a} {b} {d} {up}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mul_u128_matches_u256() {
+        let mut rng = crate::math::bitmap::tests::Rng(0x0dd1_7e55_a1b2_c3d4);
+        for i in 0..100_000 {
+            let mut a = (u128::from(rng.next()) << 64) | u128::from(rng.next());
+            let mut b = (u128::from(rng.next()) << 64) | u128::from(rng.next());
+            a >>= i % 128;
+            b >>= (i / 128) % 128;
+            let (hi, lo) = mul_u128(a, b);
+            let want = U256::from(a) * U256::from(b);
+            assert_eq!(U256::from(hi) << 128 | U256::from(lo), want);
+        }
+        assert_eq!(mul_u128(u128::MAX, u128::MAX), (u128::MAX - 1, 1));
     }
 }

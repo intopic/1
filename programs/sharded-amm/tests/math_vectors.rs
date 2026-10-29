@@ -2,6 +2,7 @@
 //! independent Python reference (tools/reference/clmm_vectors.py) exactly.
 
 use serde_json::Value;
+use sharded_amm::constants::{MAX_TICK, MIN_TICK};
 use sharded_amm::errors::AmmError;
 use sharded_amm::math::fee_math::{fees_owed, growth_delta};
 use sharded_amm::math::sqrt_price_math::{
@@ -164,4 +165,27 @@ fn fee_growth_matches() {
             v => assert_eq!(owed.unwrap(), v.parse::<u64>().unwrap(), "{r}"),
         }
     }
+}
+
+/// Every tick of the domain against the exact table written by
+/// `tools/reference/all_tick_prices.py` (run by the stress workflow).
+#[test]
+fn full_tick_table() {
+    let Ok(path) = std::env::var("AMM_FULL_TICK_TABLE") else {
+        println!("AMM_FULL_TICK_TABLE not set; skipped");
+        return;
+    };
+    let bytes = std::fs::read(path).expect("read tick table");
+    let n = (2 * MAX_TICK + 1) as usize;
+    assert_eq!(bytes.len(), 16 * n);
+    for (i, chunk) in bytes.chunks_exact(16).enumerate() {
+        let t = MIN_TICK + i as i32;
+        let want = u128::from_le_bytes(chunk.try_into().unwrap());
+        assert_eq!(sqrt_price_at_tick(t).unwrap(), want, "tick {t}");
+        assert_eq!(tick_at_sqrt_price(want).unwrap(), t, "inverse {t}");
+        if t > MIN_TICK {
+            assert_eq!(tick_at_sqrt_price(want - 1).unwrap(), t - 1, "below {t}");
+        }
+    }
+    println!("all {n} ticks exact");
 }

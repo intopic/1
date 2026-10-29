@@ -5,7 +5,7 @@
 
 use crate::errors::AmmError;
 
-use super::wide::{div_round, mul_div, to_u128, MathResult, Q64, U256};
+use super::wide::{div_round, mul_div, mul_u128, to_u128, MathResult, U256};
 
 fn ordered(s0: u128, s1: u128) -> MathResult<(U256, U256)> {
     let (lo, hi) = if s0 <= s1 { (s0, s1) } else { (s1, s0) };
@@ -25,7 +25,14 @@ pub fn amount_a_delta(s0: u128, s1: u128, liquidity: u128, round_up: bool) -> Ma
 /// `L * (sb - sa) / 2^64`: token B between the two prices.
 pub fn amount_b_delta(s0: u128, s1: u128, liquidity: u128, round_up: bool) -> MathResult<U256> {
     let (sa, sb) = ordered(s0, s1)?;
-    mul_div(U256::from(liquidity), sb - sa, Q64, round_up)
+    // A 128 x 128 bit product shifted by 64: no division needed.
+    let (hi, lo) = mul_u128(liquidity, (sb - sa).low_u128());
+    let q = U256([(lo >> 64) as u64, hi as u64, (hi >> 64) as u64, 0]);
+    if round_up && lo as u64 != 0 {
+        Ok(q + U256::one())
+    } else {
+        Ok(q)
+    }
 }
 
 /// Price after adding `amount_a` of token A (price moves down):

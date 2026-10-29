@@ -30,6 +30,12 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
+step "reference: every tick of the domain is exact"
+tick_table=$(mktemp)
+python3 -I tools/reference/all_tick_prices.py "$tick_table"
+AMM_FULL_TICK_TABLE="$tick_table" cargo test --release -p sharded-amm --test math_vectors full_tick_table -- --nocapture
+rm -f "$tick_table"
+
 step "sbf: sharded-amm"
 cargo build-sbf --manifest-path programs/sharded-amm/Cargo.toml --tools-version "$tools_version"
 
