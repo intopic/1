@@ -181,9 +181,21 @@ fn swap_tx(
     )
 }
 
+/// How each swap's shard is chosen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    /// Trader `i` uses lane `i % n` (an ideal spread).
+    RoundRobin,
+    /// `amm_router::plan` with power of two choices, from one shared snapshot.
+    Router,
+    /// `amm_router::plan` always taking the global best (`choices = 0`).
+    RouterBest,
+}
+
 #[derive(Clone, Debug)]
 struct Outcome {
     shards: usize,
+    mode: Mode,
     /// Negative control: every swap has the same fee payer.
     shared_payer: bool,
     sent: usize,
@@ -207,6 +219,9 @@ struct Load {
     salt: u64,
     /// Negative control: one fee payer for every swap.
     shared_payer: bool,
+    mode: Mode,
+    /// For router modes: lane of every `[round][trader]` swap.
+    pick: Option<Arc<Vec<Vec<usize>>>>,
 }
 
 /// `shards` are the lanes of the market built for `load.n_shards`.
@@ -216,12 +231,17 @@ fn run(rpc: &Arc<Rpc>, shards: &[Shard], traders: &[Trader], load: Load) -> Outc
         rounds,
         salt,
         shared_payer,
+        mode,
+        pick,
     } = load;
     let blockhash = rpc.blockhash();
     let mut txs = Vec::new();
     for round in 0..rounds {
         for (i, t) in traders.iter().enumerate() {
-            let s = &shards[i % n_shards];
+            let s = match &pick {
+                Some(p) => &shards[p[round][i]],
+                None => &shards[i % n_shards],
+            };
             let a_to_b = (i + round) % 2 == 0;
             // Distinct amounts keep every signature unique across runs.
             let amount = 10_000 + salt * 1_000 + round as u64;
@@ -315,6 +335,7 @@ fn run(rpc: &Arc<Rpc>, shards: &[Shard], traders: &[Trader], load: Load) -> Outc
         lat_p95,
         shared_payer,
         shards: n_shards,
+        mode,
         sent: sigs.len(),
         ok: ok_slots.len(),
         failed,
@@ -322,6 +343,94 @@ fn run(rpc: &Arc<Rpc>, shards: &[Shard], traders: &[Trader], load: Load) -> Outc
         max_per_slot: per_slot.values().copied().max().unwrap_or(0),
         send_ms,
     }
+}
+
+/// Reads `keys` from the validator (base64 account data).
+fn fetch(rpc: &Rpc, keys: &[Pubkey]) -> Vec<Vec<u8>> {
+    let r = rpc.call(
+        "getMultipleAccounts",
+        json!([keys.iter().map(|k| k.to_string()).collect::<Vec<_>>(), {"encoding": "base64", "commitment": "confirmed"}]),
+    );
+    r["value"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            base64::engine::general_purpose::STANDARD
+                .decode(a["data"][0].as_str().unwrap())
+                .unwrap()
+        })
+        .collect()
+}
+
+/// The router's view of the 8-lane market right now: every client of the
+/// next burst reads this same snapshot, which is what makes herding likely.
+fn books(rpc: &Rpc, lanes: &[Shard]) -> (Vec<amm_router::Book>, amm_router::MarketCfg) {
+    use anchor_lang::AccountDeserialize;
+    let market = fetch(rpc, &[lanes[0].market]).remove(0);
+    let cfg = amm_router::MarketCfg::from_config(
+        &sharded_amm::state::MarketConfig::try_deserialize(&mut market.as_slice()).unwrap(),
+    );
+    let books = lanes
+        .iter()
+        .enumerate()
+        .map(|(id, l)| {
+            let mut keys = vec![l.shard];
+            for k in l.arrays_a_to_b.iter().chain(&l.arrays_b_to_a) {
+                if !keys.contains(k) {
+                    keys.push(*k);
+                }
+            }
+            let data = fetch(rpc, &keys);
+            let state =
+                sharded_amm::state::ShardState::try_deserialize(&mut data[0].as_slice()).unwrap();
+            let arrays =
+                data[1..]
+                    .iter()
+                    .map(|d| unsafe {
+                        std::ptr::read_unaligned(
+                            d[8..].as_ptr() as *const sharded_amm::state::TickArray
+                        )
+                    })
+                    .collect();
+            amm_router::Book::from_state(id as u8, &state, arrays).unwrap()
+        })
+        .collect();
+    (books, cfg)
+}
+
+/// Lane of every `[round][trader]` swap as `amm_router::plan` chooses it.
+fn route(
+    rpc: &Rpc,
+    lanes: &[Shard],
+    traders: &[Trader],
+    rounds: usize,
+    choices: usize,
+) -> Vec<Vec<usize>> {
+    let (books, cfg) = books(rpc, lanes);
+    let slot = rpc.slot();
+    let rc = amm_router::RouterConfig {
+        choices,
+        ..amm_router::RouterConfig::default()
+    };
+    (0..rounds)
+        .map(|round| {
+            traders
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    let a_to_b = (i + round) % 2 == 0;
+                    // Per-order seed, e.g. hash(user, blockhash) in the SDK.
+                    let pk = t.kp.pubkey().to_bytes();
+                    let seed = u64::from_le_bytes(pk[..8].try_into().unwrap())
+                        ^ (round as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                    let p = amm_router::plan(&books, &cfg, slot, a_to_b, 10_000, rc, seed).unwrap();
+                    assert_eq!(p.legs.len(), 1, "small orders use one shard");
+                    p.legs[0].id as usize
+                })
+                .collect()
+        })
+        .collect()
 }
 
 fn main() {
@@ -395,6 +504,8 @@ fn main() {
             rounds: 1,
             salt: 0,
             shared_payer: false,
+            mode: Mode::RoundRobin,
+            pick: None,
         },
     );
     assert_eq!(warm.ok, 8, "warm-up failed: {warm:?}");
@@ -423,6 +534,44 @@ fn main() {
                     rounds,
                     salt: salt.fetch_add(1, Ordering::Relaxed) as u64,
                     shared_payer: false,
+                    mode: Mode::RoundRobin,
+                    pick: None,
+                },
+            );
+            println!("{o:?}");
+            results.push(o);
+            let s0 = rpc.slot();
+            while rpc.slot() < s0 + 3 {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
+
+    // The real router instead of round-robin (parallelism audit P-01): every
+    // client of a burst plans from the same fresh snapshot.
+    for rep in 0..repeats {
+        let modes = if rep % 2 == 0 {
+            [Mode::Router, Mode::RouterBest]
+        } else {
+            [Mode::RouterBest, Mode::Router]
+        };
+        for mode in modes {
+            let choices = if mode == Mode::Router { 2 } else { 0 };
+            let pick = route(&rpc, &markets[&8], &traders, rounds, choices);
+            let mut per_lane = [0usize; 8];
+            pick.iter().flatten().for_each(|&l| per_lane[l] += 1);
+            println!("{mode:?} lanes {per_lane:?}");
+            let o = run(
+                &rpc,
+                &markets[&8],
+                &traders,
+                Load {
+                    n_shards: 8,
+                    rounds,
+                    salt: salt.fetch_add(1, Ordering::Relaxed) as u64,
+                    shared_payer: false,
+                    mode,
+                    pick: Some(Arc::new(pick)),
                 },
             );
             println!("{o:?}");
@@ -447,6 +596,8 @@ fn main() {
                 rounds,
                 salt: salt.fetch_add(1, Ordering::Relaxed) as u64,
                 shared_payer: true,
+                mode: Mode::RoundRobin,
+                pick: None,
             },
         );
         println!("{o:?}");
@@ -457,12 +608,30 @@ fn main() {
         }
     }
 
-    let configs: Vec<(usize, bool, &str)> = vec![
-        (1, false, "1 shard"),
-        (2, false, "2 shard-e"),
-        (4, false, "4 shard-e"),
-        (8, false, "8 shard-e"),
-        (8, true, "8 shard-e, payer i përbashkët (kontroll negativ)"),
+    let rr = Mode::RoundRobin;
+    let configs: Vec<(usize, bool, Mode, &str)> = vec![
+        (1, false, rr, "1 shard"),
+        (2, false, rr, "2 shard-e"),
+        (4, false, rr, "4 shard-e"),
+        (8, false, rr, "8 shard-e"),
+        (
+            8,
+            false,
+            Mode::Router,
+            "8 shard-e, router (power of two choices)",
+        ),
+        (
+            8,
+            false,
+            Mode::RouterBest,
+            "8 shard-e, router determinist (para ndreqjes)",
+        ),
+        (
+            8,
+            true,
+            rr,
+            "8 shard-e, payer i përbashkët (kontroll negativ)",
+        ),
     ];
     let median = |mut v: Vec<usize>| -> usize {
         v.sort_unstable();
@@ -471,28 +640,28 @@ fn main() {
     let base = median(
         results
             .iter()
-            .filter(|o| o.shards == 1 && !o.shared_payer)
+            .filter(|o| o.shards == 1 && !o.shared_payer && o.mode == rr)
             .map(|o| o.max_per_slot)
             .collect(),
     );
     let mut md = String::from(
         "| konfigurimi | swap/slot maks. (mediana) | herë më shumë se 1 shard |\n|---|---:|---:|\n",
     );
-    for &(n, shared, label) in &configs {
+    for &(n, shared, mode, label) in &configs {
         let m = median(
             results
                 .iter()
-                .filter(|o| o.shards == n && o.shared_payer == shared)
+                .filter(|o| o.shards == n && o.shared_payer == shared && o.mode == mode)
                 .map(|o| o.max_per_slot)
                 .collect(),
         );
         md += &format!("| {label} | {m} | {:.2} |\n", m as f64 / base.max(1) as f64);
     }
     md += "\n| konfigurimi | tentativa | të dërguara | të suksesshme | dështuara | pa status | swap/slot maks. | CU në slot-in maks. (M) | vonesa p50 / p95 (slot) | dërgimi (ms) |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n";
-    for &(n, shared, label) in &configs {
+    for &(n, shared, mode, label) in &configs {
         for (i, o) in results
             .iter()
-            .filter(|o| o.shards == n && o.shared_payer == shared)
+            .filter(|o| o.shards == n && o.shared_payer == shared && o.mode == mode)
             .enumerate()
         {
             md += &format!(

@@ -4,10 +4,12 @@
 //! copies of the on-chain accounts, so a quote is exactly what the program
 //! will do in the same slot with the same state.
 //!
-//! - [`plan`]: threshold routing. A small order goes to the single best shard;
-//!   a larger one is split evenly over the `k` best shards, where `k` grows
-//!   only while each extra shard improves the output by at least
-//!   `min_gain_bps`. Fewer shards per order means fewer write locks, so more
+//! - [`plan`]: threshold routing. A small order goes to one shard, chosen by
+//!   power of two choices so clients with the same snapshot do not all pick
+//!   the same shard (parallelism audit P-01); a larger one is split evenly
+//!   over `k` shards, where `k` grows only while each extra shard improves the
+//!   output by at least `min_gain_bps + split_tax_bps`, because every shard a
+//!   transaction writes is charged its full cost (P-02). Fewer shards per order means fewer write locks, so more
 //!   orders can run in parallel (A-10), while large orders still get the
 //!   price quality of a split (ENG-09).
 //! - [`find_rebalance`]: the most profitable `rebalance_pair` between the
@@ -182,8 +184,22 @@ impl Book {
 pub struct RouterConfig {
     /// At most this many shards per order.
     pub max_shards: usize,
-    /// Each extra shard must raise the output by at least this much.
+    /// Each extra shard must raise the output by at least this much ...
     pub min_gain_bps: u32,
+    /// ... plus this "parallelism tax" per extra shard. A transaction's full
+    /// cost is charged to every shard it writes (audit P-02), so a split
+    /// into k shards uses k times the per-shard capacity.
+    pub split_tax_bps: u32,
+    /// Absolute cost of one extra leg in output-token units (its CU times
+    /// the priority fee, priced by the caller); 0 to ignore.
+    pub leg_cost_out: u64,
+    /// Power of two choices (audit P-01): the first shard is the better of
+    /// `choices` shards drawn at random, weighted by active liquidity, so
+    /// clients reading the same snapshot spread out instead of herding.
+    /// 0 means always the global best (deterministic).
+    pub choices: usize,
+    /// ... unless the global best beats that pick by more than this.
+    pub max_regret_bps: u32,
 }
 
 impl Default for RouterConfig {
@@ -191,8 +207,48 @@ impl Default for RouterConfig {
         Self {
             max_shards: 8,
             min_gain_bps: 2,
+            split_tax_bps: 10,
+            leg_cost_out: 0,
+            choices: 2,
+            max_regret_bps: 1,
         }
     }
+}
+
+/// splitmix64: a cheap, reproducible stream from a per-order seed such as
+/// `hash(user, recent_blockhash)`.
+fn next(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
+/// `d` distinct indices of `books`, drawn with probability proportional to
+/// active liquidity (uniform if all are empty).
+fn sample(books: &[Book], d: usize, seed: u64) -> Vec<usize> {
+    let mut rng = seed;
+    let mut left: Vec<usize> = (0..books.len()).collect();
+    let mut out = Vec::with_capacity(d);
+    while out.len() < d && !left.is_empty() {
+        let w: Vec<u128> = left
+            .iter()
+            .map(|&i| books[i].pool.liquidity.max(1))
+            .collect();
+        let total: u128 = w.iter().sum();
+        let mut r = u128::from(next(&mut rng)) % total;
+        let mut pick = 0;
+        for (j, wj) in w.iter().enumerate() {
+            if r < *wj {
+                pick = j;
+                break;
+            }
+            r -= wj;
+        }
+        out.push(left.swap_remove(pick));
+    }
+    out
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -260,7 +316,9 @@ fn split(
 }
 
 /// Threshold routing: the smallest number of shards after which one more
-/// shard would add less than `min_gain_bps` to the output.
+/// shard would add less than `min_gain_bps + split_tax_bps` (and
+/// `leg_cost_out`) to the output. The first shard is chosen by power of two
+/// choices with `seed`; the others follow by quote.
 pub fn plan(
     books: &[Book],
     m: &MarketCfg,
@@ -268,6 +326,7 @@ pub fn plan(
     a_to_b: bool,
     amount_in: u64,
     cfg: RouterConfig,
+    seed: u64,
 ) -> Option<Plan> {
     if books.is_empty() || amount_in == 0 {
         return None;
@@ -275,17 +334,44 @@ pub fn plan(
     let max = cfg.max_shards.clamp(1, books.len());
     // Rank shards by what a 1/max slice would get on each.
     let probe = (amount_in / max as u64).max(1);
-    let mut rank: Vec<(u64, usize)> = books
+    let quotes: Vec<Option<u64>> = books
         .iter()
-        .enumerate()
-        .filter_map(|(i, b)| {
+        .map(|b| {
             b.quote(m, slot, a_to_b, probe, 0)
                 .ok()
-                .map(|o| (o.amount_out, i))
+                .map(|o| o.amount_out)
         })
         .collect();
+    let mut rank: Vec<(u64, usize)> = quotes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, q)| q.map(|q| (q, i)))
+        .collect();
     rank.sort_by(|x, y| y.0.cmp(&x.0).then(x.1.cmp(&y.1)));
-    let order: Vec<usize> = rank.iter().map(|r| r.1).collect();
+    let mut order: Vec<usize> = rank.iter().map(|r| r.1).collect();
+    if order.is_empty() {
+        return None;
+    }
+    if cfg.choices > 0 {
+        // The better of the draws; on a tie the first draw, so ties stay
+        // random rather than favouring low ids.
+        let pick = sample(books, cfg.choices, seed)
+            .into_iter()
+            .filter_map(|i| quotes[i].map(|q| (q, i)))
+            .fold(None, |acc: Option<(u64, usize)>, x| match acc {
+                Some(a) if a.0 >= x.0 => Some(a),
+                _ => Some(x),
+            });
+        if let Some((q, i)) = pick {
+            let best = rank[0].0;
+            let regret_ok = u128::from(best) * 10_000
+                <= u128::from(q) * (10_000 + u128::from(cfg.max_regret_bps));
+            if regret_ok {
+                order.retain(|&j| j != i);
+                order.insert(0, i);
+            }
+        }
+    }
     let mut best: Option<Plan> = None;
     for k in 1..=max.min(order.len()) {
         let Some(p) = split(books, m, slot, a_to_b, amount_in, &order[..k]) else {
@@ -294,8 +380,9 @@ pub fn plan(
         match &best {
             None => best = Some(p),
             Some(b) => {
-                let need = u128::from(b.amount_out) * u128::from(10_000 + cfg.min_gain_bps);
-                if u128::from(p.amount_out) * 10_000 >= need && p.amount_out > b.amount_out {
+                let bps = u128::from(10_000 + cfg.min_gain_bps + cfg.split_tax_bps);
+                let need = u128::from(b.amount_out) * bps / 10_000 + u128::from(cfg.leg_cost_out);
+                if u128::from(p.amount_out) >= need && p.amount_out > b.amount_out {
                     best = Some(p);
                 } else {
                     break;
@@ -514,9 +601,9 @@ mod tests {
     #[test]
     fn small_orders_use_one_shard_large_orders_split() {
         let bs = books(8, 1 << 40);
-        let small = plan(&bs, &cfg(), 0, true, 1_000_000, RouterConfig::default()).unwrap();
+        let small = plan(&bs, &cfg(), 0, true, 1_000_000, RouterConfig::default(), 0).unwrap();
         assert_eq!(small.legs.len(), 1);
-        let large = plan(&bs, &cfg(), 0, true, 1 << 38, RouterConfig::default()).unwrap();
+        let large = plan(&bs, &cfg(), 0, true, 1 << 38, RouterConfig::default(), 0).unwrap();
         assert!(large.legs.len() > 1, "{} legs", large.legs.len());
         assert!(large.legs.len() <= 8 && large.tx_accounts() <= TX_ACCOUNT_LIMIT);
         // Never worse than the best single shard.
@@ -556,9 +643,11 @@ mod tests {
                 false,
                 amount,
                 RouterConfig {
-                    max_shards: 8,
                     min_gain_bps,
+                    split_tax_bps: 0,
+                    ..RouterConfig::default()
                 },
+                0,
             )
             .unwrap()
             .legs
@@ -577,7 +666,7 @@ mod tests {
         // Push shard 2's price down: A is cheaper there, so a buyer of A
         // (B -> A) should go to shard 2.
         bs[2].apply(&cfg(), 0, true, 1 << 36, 0).unwrap();
-        let p = plan(&bs, &cfg(), 0, false, 1_000_000, RouterConfig::default()).unwrap();
+        let p = plan(&bs, &cfg(), 0, false, 1_000_000, RouterConfig::default(), 0).unwrap();
         assert_eq!(p.legs.len(), 1);
         assert_eq!(p.legs[0].id, 2);
     }
@@ -604,5 +693,136 @@ mod tests {
         }
         // Equal prices: nothing to do.
         assert_eq!(find_rebalance(&books(8, 1 << 40), &cfg(), 0, 0), None);
+    }
+
+    /// First-leg shard of 1 000 small orders, one seed each, same snapshot.
+    fn spread(bs: &[Book], rc: RouterConfig) -> Vec<usize> {
+        let mut n = vec![0usize; bs.len()];
+        for seed in 0..1_000u64 {
+            let p = plan(bs, &cfg(), 0, seed % 2 == 0, 1_000_000, rc, seed).unwrap();
+            assert_eq!(p.legs.len(), 1);
+            n[p.legs[0].id as usize] += 1;
+        }
+        n
+    }
+
+    #[test]
+    fn same_snapshot_spreads_instead_of_herding() {
+        let bs = books(8, 1 << 40);
+        let herd = spread(
+            &bs,
+            RouterConfig {
+                choices: 0,
+                ..RouterConfig::default()
+            },
+        );
+        assert_eq!(herd[0], 1_000, "deterministic: everyone on shard 0");
+        let n = spread(&bs, RouterConfig::default());
+        assert!(n.iter().all(|&c| (60..=200).contains(&c)), "{n:?}");
+    }
+
+    #[test]
+    fn a_tiny_edge_does_not_herd_but_a_real_one_wins() {
+        // A small sale of A makes shard 3 a hair cheaper for buyers of A.
+        let mut bs = books(8, 1 << 40);
+        bs[3].apply(&cfg(), 0, true, 1 << 24, 0).unwrap();
+        let mut det = vec![0usize; 8];
+        let mut p2 = vec![0usize; 8];
+        for seed in 0..1_000u64 {
+            let d = plan(
+                &bs,
+                &cfg(),
+                0,
+                false,
+                1_000_000,
+                RouterConfig {
+                    choices: 0,
+                    ..RouterConfig::default()
+                },
+                seed,
+            )
+            .unwrap();
+            det[d.legs[0].id as usize] += 1;
+            let r = plan(
+                &bs,
+                &cfg(),
+                0,
+                false,
+                1_000_000,
+                RouterConfig::default(),
+                seed,
+            )
+            .unwrap();
+            p2[r.legs[0].id as usize] += 1;
+        }
+        assert_eq!(det[3], 1_000, "{det:?}");
+        // The hair-better shard wins every draw it is in (~2/8 of orders),
+        // not all of them.
+        assert!(p2.iter().all(|&c| (60..=300).contains(&c)), "{p2:?}");
+        // A clear edge (well over 1 bp) is always taken.
+        let mut bs = books(8, 1 << 40);
+        bs[3].apply(&cfg(), 0, true, 1 << 33, 0).unwrap();
+        for seed in 0..200u64 {
+            let r = plan(
+                &bs,
+                &cfg(),
+                0,
+                false,
+                1_000_000,
+                RouterConfig::default(),
+                seed,
+            )
+            .unwrap();
+            assert_eq!(r.legs[0].id, 3);
+        }
+        // And a clearly worse shard is never the pick.
+        let mut bs = books(8, 1 << 40);
+        bs[5].apply(&cfg(), 0, false, 1 << 33, 0).unwrap();
+        for seed in 0..1_000u64 {
+            let r = plan(
+                &bs,
+                &cfg(),
+                0,
+                false,
+                1_000_000,
+                RouterConfig::default(),
+                seed,
+            )
+            .unwrap();
+            assert_ne!(r.legs[0].id, 5);
+        }
+    }
+
+    #[test]
+    fn split_tax_keeps_most_orders_on_one_or_two_shards() {
+        let bs = books(8, 1 << 40);
+        let legs = |amount: u64, rc: RouterConfig| {
+            plan(&bs, &cfg(), 0, true, amount, rc, 7)
+                .unwrap()
+                .legs
+                .len()
+        };
+        let free = RouterConfig {
+            split_tax_bps: 0,
+            ..RouterConfig::default()
+        };
+        // Up to ~80 bps of price impact on one shard (2^32 here).
+        for e in [20u32, 26, 30, 32] {
+            let a = 1u64 << e;
+            assert!(legs(a, RouterConfig::default()) <= legs(a, free), "2^{e}");
+            assert!(
+                legs(a, RouterConfig::default()) <= 2,
+                "2^{e}: {}",
+                legs(a, RouterConfig::default())
+            );
+        }
+        // Very large orders still split widely.
+        assert!(legs(1 << 38, RouterConfig::default()) >= 4);
+        // A per-leg cost larger than any gain keeps everything on one shard.
+        let costly = RouterConfig {
+            leg_cost_out: u64::MAX / 4,
+            ..RouterConfig::default()
+        };
+        assert_eq!(legs(1 << 36, costly), 1);
     }
 }

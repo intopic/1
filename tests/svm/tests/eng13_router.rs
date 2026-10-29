@@ -64,7 +64,7 @@ fn planned_output_is_exact_on_chain() {
     ] {
         let (mut env, m) = market();
         let (mut bs, cfg, slot) = books(&env, &m);
-        let p = plan(&bs, &cfg, slot, a_to_b, amount, RouterConfig::default()).unwrap();
+        let p = plan(&bs, &cfg, slot, a_to_b, amount, RouterConfig::default(), 42).unwrap();
         if amount == 1_000_000 {
             assert_eq!(p.legs.len(), 1, "small order on one shard");
         } else {

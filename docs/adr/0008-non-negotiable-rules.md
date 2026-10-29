@@ -25,4 +25,4 @@ Kjo nuk provon vetvetiu 8× throughput, zero konflikte ose fitim më të madh. N
 
 - **Rregulli 4:** keeper-i (ose kushdo) duhet të thërrasë `verify_depth` pas depozitave dhe para `open_market` ose `activate_shard`. Nëse një LP tërheq likuiditet nga një shard i përgatitur, prova duhet përsëritur. Shkruhet vetëm flamuri i shard-it. Për sa i takon numrit të llogarive, prova bëhet në instruksionin e vet, jo brenda `open_market`.
 - **Kufiri:** prova mat thellësinë në atë çast. Pas aktivizimit LP-të mund të dalin, sepse daljet nuk bllokohen kurrë (ADR-0002). Router-i duhet ta kuotojë çdo herë.
-- **Ende pa bërë:** router-i (ADR-0007) zgjedh vetëm sipas çmimit neto, jo sipas ngarkesës së shard-it. Kosto e ndarjes së urdhrave (llogari, CU, shard-e të kyçura) matet në [tx-budget.md](../tx-budget.md), por jo nën ngarkesë reale.
+- **Ngarkesa:** router-i (ADR-0007) i shpërndan tani urdhrat me power of two choices dhe paguan një taksë për çdo shard shtesë (auditimi P-01/P-02). Nuk lexon ende ngarkesën reale të shard-eve (CU për slot). Kosto e ndarjes së urdhrave (llogari, CU, shard-e të kyçura) matet në [tx-budget.md](../tx-budget.md), por jo nën ngarkesë reale.
