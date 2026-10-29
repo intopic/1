@@ -22,6 +22,7 @@ Përditësuar: 29 tetor 2026. Repository: `github.com/intopic/1`, branch `claude
 | ENG-08 WSOL/USDC | **PASS** | `eng08_wsol` (3 teste): vault-e native me `lamports = rent + amount`; wrap, swap dhe unwrap në një transaksion; lamports pa `SyncNative` nuk tregtohen. |
 | ENG-09 Simulimi | **PASS (model)** | `crates/sim`: [rezultatet](docs/sim/eng09-results.md) dhe [analiza](docs/sim/eng09-analysis.md). Gjetja kryesore: me 8 shard-e, router-i duhet ta ndajë urdhrin nëpër shard-e, përndryshe kostoja e trader-it rritet disa herë. |
 | ENG-10 Stres dhe sulme | **PASS** | `eng10_attacks` (5 skenarë sulmi) dhe [`stress.yml`](.github/workflows/stress.yml): 16 + 16 punë paralele. Rezultatet janë në seksionin më poshtë. |
+| A-10 Benchmark në validator | **PASS (lokal)** | [validator-bench.md](docs/bench/validator-bench.md), workflow `bench`: 1 shard 923 swap/slot, 2 shard-e 1.9×, 4–8 shard-e 2.5× (kufiri i bllokut), payer i përbashkët 0.98×. Validator me një nyje, jo mainnet. |
 
 ## Stresi masiv (ENG-10)
 
