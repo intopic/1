@@ -114,7 +114,7 @@ PDA `["ticks", shard, start_tick_index_i32_le]`. 32 slote; `start_tick_index` ë
 | ticks | `Tick` ×32: liquidity_net i128, liquidity_gross u128, fee_growth_outside_a/b [u64; 4] ×2 (si limb-e u64) | 3 072 |
 | bump + padding | u8 + [u8; 7] | 8 |
 
-## `Position` — 225 bajt
+## `Position` — 233 bajt
 
 PDA `["lp_pos", shard, owner, tick_lower_i32_le, tick_upper_i32_le]`.
 
@@ -128,7 +128,7 @@ PDA `["lp_pos", shard, owner, tick_lower_i32_le, tick_upper_i32_le]`.
 | tokens_owed_a/b | u64 ×2 | 16 |
 | bump | u8 | 1 |
 | fees_credited_a/b | u64 ×2 (tarifat e kaluara te `tokens_owed` që nga checkpoint-i) | 16 |
-
 | pending_owner | Pubkey (pronari i propozuar, D-16; bosh kur s'ka) | 32 |
+| last_liquidity_slot | u64 (slot-i i hapjes ose shtimit të fundit; anti-JIT) | 8 |
 
-`fees_credited_a/b` (29 tetor 2026, riauditimi P2-2) e rritën pozicionin nga 177 në 193 bajt, dhe `pending_owner` (transferimi me dy hapa, D-16) në 225, para çdo deploy-i. Pas transferimit adresa mbetet ajo e pronarit që e hapi; instruksionet e lidhin pozicionin me `has_one = owner`, jo duke rillogaritur seeds.
+`fees_credited_a/b` (29 tetor 2026, riauditimi P2-2) e rritën pozicionin nga 177 në 193 bajt, dhe `pending_owner` (transferimi me dy hapa, D-16) në 225, dhe `last_liquidity_slot` (anti-JIT) në 233, para çdo deploy-i. `decrease_liquidity` dhe `collect_fees` kërkojnë `clock.slot > last_liquidity_slot`: likuiditeti i shtuar në një slot nuk del dot dhe tarifat e tij nuk mblidhen dot në po atë slot; nga slot-i tjetër dalja është e lirë. Transferimi D-16 nuk e ndryshon fushën. Pas transferimit adresa mbetet ajo e pronarit që e hapi; instruksionet e lidhin pozicionin me `has_one = owner`, jo duke rillogaritur seeds.

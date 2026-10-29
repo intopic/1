@@ -8,7 +8,7 @@ Rezultatet: [fee-schedule-results.md](fee-schedule-results.md), nga `cargo run -
 - **Tarifat e propozuara:**
   - stablecoin 0,01% dhe 0,05%;
   - SOL/USDC 0,05%, 0,10%, 0,30% dhe 0,05% me tarifë dinamike deri në 0,30%;
-  - memecoin 0,30%, 1% dhe 0,30% me tarifë dinamike deri në 0,80%.
+  - memecoin (tick spacing 200, profili i nisjes) 0,30%, 1%, 0,30% me tarifë dinamike deri në 0,80%, dhe 1% me tarifë dinamike deri në 2% (profili `PROFILE_MEMECOIN`).
 - **Produkti siç është ndërtuar:** 8 shard-e me kapital të barabartë. Çdo urdhër kalon nga router-i real (`amm_router::plan`). Pas çdo minute bot-i bën një raund (`rebalance_round`, 4 çelësa, $0,01 për transaksion). Protokolli merr 16%.
 - **Tre cilësime të router-it:**
   - taksë 10 bps për çdo shard shtesë (cilësimi aktual, për paralelizëm);
@@ -39,7 +39,8 @@ Rezultatet: [fee-schedule-results.md](fee-schedule-results.md), nga `cargo run -
 4. **Memecoin.**
    - Me 0,30% fikse LP-të humbin mesatarisht (−0,6% në ditë, me shpërndarje shumë të gjerë).
    - Me 1%, LP-të fitojnë +4,5%.
-   - 0,30% me tarifë dinamike del afër zeros (+0,2%), sepse kufiri 0,80% nuk mjafton për 20% luhatje në ditë.
+   - 0,30% me tarifë dinamike del afër zeros (+0,3% me 1 pool), sepse kufiri 0,80% nuk mjafton për 20% luhatje në ditë.
+   - **1% me tarifë dinamike deri në 2%** (profili i nisjes) jep +5,2% me 1 pool dhe +5,6% me 8 shard-e (taksë 10 bps), kundrejt +4,6% / +4,7% me 1% fikse. Ndryshimi është më i vogël se shpërndarja midis seed-eve (±6,5), pra tregon drejtimin, jo një fitim të provuar.
    - Rreth 570 urdhra në ditë refuzohen, sepse çmimi del jashtë intervalit ±50%.
 
 5. **Stablecoin.** 0,01% është e mjaftueshme. Kosto e tregtarit është 3,5 bps me 1 pool (6,8 me taksë 3 bps), dhe LP-të fitojnë.
@@ -65,7 +66,7 @@ Matja në validator me të njëjtat madhësi, por me shard-e me të njëjtin çm
 |---|---|---|
 | Stablecoin | 0,01% fikse | Konkurruese; LP-të fitojnë me volum të lartë. |
 | SOL/USDC | 0,05% + dinamike deri në 0,30% | Çmim konkurrues kur tregu është i qetë; mbron LP-të kur lëviz. |
-| Memecoin | 1% fikse | E vetmja nga të provuarat ku LP-të nuk humbin mesatarisht. |
+| Memecoin | 1% + dinamike deri në 2%, spacing 200 | 1% është niveli i parë ku LP-të nuk humbin mesatarisht; pjesa dinamike shton pak kur çmimi lëviz shumë (brenda zhurmës së simulimit). |
 
 **Router-i:** taksa 3 bps e ul koston shtesë të tregtarit nga +11,5 në +4,1 bps (SOL/USDC 0,05%), por urdhri përdor 2,6 shard-e në vend të 1,8. Prandaj taksa ngrihet nën ngarkesë (seksioni më sipër).
 

@@ -29,4 +29,7 @@ pub struct Position {
     /// Proposed new owner (`propose_position_transfer`); it takes over with
     /// its own signature. `Pubkey::default()` when none.
     pub pending_owner: Pubkey,
+    /// Slot of the last open or increase (anti-JIT): `decrease_liquidity`
+    /// and `collect_fees` need a later slot. A transfer keeps it.
+    pub last_liquidity_slot: u64,
 }

@@ -148,4 +148,6 @@ pub enum AmmError {
     FreezeAuthorityNotAllowed,
     #[msg("Signer is not the program's upgrade authority")]
     NotUpgradeAuthority,
+    #[msg("Liquidity added in this slot cannot be removed or collected before the next slot")]
+    LiquidityTooRecent,
 }

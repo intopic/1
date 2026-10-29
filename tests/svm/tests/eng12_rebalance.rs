@@ -8,7 +8,8 @@
 //! - Only listed rebalancers (keeper at creation, changed by the admin
 //!   behind the timelock) may call it.
 //! - Refused: same shard twice, no price gap, no profit, wrong profit
-//!   account, paused.
+//!   account, paused; arrays or vaults of the other shard, a wrong
+//!   `arrays_x` split, a shard of another market.
 //! - Pause flags: roles, swaps/deposits/rebalance bits; LP exits never
 //!   blocked. The same flags on one shard stop only that shard; with only
 //!   the swap bit set the listed rebalancers can bring its price back, and
@@ -317,8 +318,6 @@ fn refused_cases() {
     );
     expect_custom(env.send(&[i], &[&admin]), amm_code(AmmError::NotRebalancer));
     env.set_rebalancers(&m, &[Pubkey::new_unique(), caller.kp.pubkey()]);
-    let r = send(&mut env, 0, 0, caller.token_b, args(false, 1_000_000, 0));
-    assert!(r.is_err(), "same shard twice");
     // Shards 1 and 2 are at the same price.
     expect_custom(
         send(&mut env, 1, 2, caller.token_b, args(false, 1_000_000, 0)),
@@ -397,6 +396,95 @@ fn refused_cases() {
         send(&mut env, 0, 1, caller.token_b, args(false, 1_000, 0)),
         amm_code(AmmError::NotRebalancer),
     );
+}
+
+/// Each account that names a shard must be that shard's, in this market
+/// (security review): the same shard twice, arrays of the other shard or a
+/// wrong `arrays_x` split, a vault of another shard, a shard of another
+/// market. Each fails with its own error, and the valid call then works.
+#[test]
+fn refused_wrong_accounts() {
+    let (mut env, m, _) = diverged();
+    let caller = env.user(&m, 0);
+    let kp = caller.kp.insecure_clone();
+    env.set_rebalancers(&m, &[caller.kp.pubkey()]);
+    let (ax, ay) = arrays(&env, &m, 0, 1);
+    let a = args(false, 2_000_000_000, ax.len());
+    let base = ix_rebalance(&m, &kp.pubkey(), 0, 1, caller.token_b, a, &ax, &ay);
+
+    // The same shard as x and y: Anchor refuses a writable account passed
+    // twice before the handler (whose own `DuplicateAccount` check stays as
+    // a second line).
+    let s0 = shard_addrs(&m, 0, 0);
+    let mut i = base.clone();
+    for (k, key) in [s0.shard, s0.vault_a, s0.vault_b, s0.vault_authority]
+        .into_iter()
+        .enumerate()
+    {
+        i.accounts[7 + k].pubkey = key;
+    }
+    let n = i.accounts.len();
+    i.accounts.truncate(n - ay.len());
+    expect_custom(
+        env.send(&[i], &[&kp]),
+        anchor_codes::CONSTRAINT_DUPLICATE_MUTABLE_ACCOUNT,
+    );
+
+    // Arrays of shard y passed where x's go, and x's where y's go.
+    let swapped = ix_rebalance(&m, &kp.pubkey(), 0, 1, caller.token_b, a, &ay, &ax);
+    expect_custom(
+        env.send(&[swapped], &[&kp]),
+        amm_code(AmmError::TickArrayMismatch),
+    );
+    // A split that gives one of y's arrays to x (or one of x's to y).
+    for split in [ax.len() + 1, ax.len() - 1] {
+        let i = ix_rebalance(
+            &m,
+            &kp.pubkey(),
+            0,
+            1,
+            caller.token_b,
+            RebalanceArgs {
+                arrays_x: split as u8,
+                ..a
+            },
+            &ax,
+            &ay,
+        );
+        expect_custom(
+            env.send(&[i], &[&kp]),
+            amm_code(AmmError::TickArrayMismatch),
+        );
+    }
+
+    // A vault of another shard of the same market, on either side.
+    let s2 = shard_addrs(&m, 2, 0);
+    for (slot, key) in [
+        (4, s2.vault_a),
+        (5, s2.vault_b),
+        (8, s2.vault_a),
+        (9, s2.vault_b),
+    ] {
+        let mut i = base.clone();
+        i.accounts[slot].pubkey = key;
+        expect_custom(env.send(&[i], &[&kp]), amm_code(AmmError::ShardMismatch));
+    }
+
+    // A shard (with its own vaults) of another market.
+    let (m2, _) = env.open_seeded_market();
+    let f = shard_addrs(&m2, 1, 0);
+    let mut i = base.clone();
+    for (k, key) in [f.shard, f.vault_a, f.vault_b, f.vault_authority]
+        .into_iter()
+        .enumerate()
+    {
+        i.accounts[7 + k].pubkey = key;
+    }
+    expect_custom(env.send(&[i], &[&kp]), anchor_codes::CONSTRAINT_HAS_ONE);
+
+    // Nothing above moved anything; the valid call goes through.
+    env.send(&[base], &[&kp]).unwrap();
+    assert!(env.balance(&caller.token_b) > 0);
 }
 
 fn ix_flags(m: &Market, authority: &Pubkey, flags: u8) -> solana_instruction::Instruction {

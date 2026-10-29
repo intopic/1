@@ -39,6 +39,7 @@ pub const RENT_SYSVAR: Pubkey = anchor_lang::pubkey!("SysvarRent1111111111111111
 pub mod anchor_codes {
     pub const CONSTRAINT_HAS_ONE: u32 = 2001;
     pub const CONSTRAINT_SEEDS: u32 = 2006;
+    pub const CONSTRAINT_DUPLICATE_MUTABLE_ACCOUNT: u32 = 2040;
     pub const ACCOUNT_OWNED_BY_WRONG_PROGRAM: u32 = 3007;
     pub const INVALID_PROGRAM_ID: u32 = 3008;
     pub const ACCOUNT_NOT_SIGNER: u32 = 3010;
@@ -983,6 +984,13 @@ impl Env {
         ixs.push(self.ix_increase(m, lp, id, lower, upper, liquidity));
         let kp = lp.kp.insecure_clone();
         let r = self.send(&ixs, &[&kp]);
+        // On a cluster the next transaction lands in a later slot; here the
+        // slot only moves when told, so a deposit moves it once, or the
+        // anti-JIT rule would hold every exit that follows in a test.
+        if r.is_ok() {
+            let slot = self.svm.get_sysvar::<anchor_lang::prelude::Clock>().slot;
+            self.svm.warp_to_slot(slot + 1);
+        }
         // A prepared shard needs a passing depth probe before it can open or
         // activate (rule 4); re-run it after every deposit, as a keeper
         // would. A shard too shallow to pass simply stays unverified.

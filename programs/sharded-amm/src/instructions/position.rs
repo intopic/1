@@ -6,6 +6,8 @@
 //! - `decrease_liquidity(liquidity, min_a, min_b)` removes liquidity and pays
 //!   the principal out. Never blocked by market or shard status (ADR-0002).
 //! - `collect_fees()` credits and pays out earned LP fees. Never blocked.
+//!   Both need a slot after the position's last open or increase
+//!   (`last_liquidity_slot`, anti-JIT); from the next slot they are free.
 //! - `close_position()` closes an empty position and refunds its rent.
 //! - `propose_position_transfer(new_owner)` / `accept_position_transfer()`
 //!   (D-16): two steps, the new owner signs to take over. Only `owner`
@@ -77,6 +79,7 @@ pub fn handle_open_position(
         tokens_owed_b: 0,
         bump: ctx.bumps.position,
         pending_owner: Pubkey::default(),
+        last_liquidity_slot: Clock::get()?.slot,
     });
     Ok(())
 }
@@ -133,6 +136,7 @@ pub fn handle_increase_liquidity<'info>(
     require!(liquidity > 0, AmmError::ZeroAmount);
     let delta = i128::try_from(liquidity).map_err(|_| AmmError::MathOverflow)?;
     let (a, b) = apply(&mut ctx, delta)?;
+    ctx.accounts.position.last_liquidity_slot = Clock::get()?.slot;
     // Any change of liquidity can change what a probe trade does (more
     // liquidity can also make a probe output round to zero), so the depth
     // mark is cleared on increases too (re-audit P2-5).
@@ -167,12 +171,24 @@ pub fn handle_increase_liquidity<'info>(
     Ok(())
 }
 
+/// Anti-JIT: liquidity cannot leave, nor its fees be collected, in the
+/// slot it was added (open or increase), so a deposit placed around a swap
+/// in one slot cannot take that swap's fees and go.
+fn check_not_same_slot(position: &Position) -> Result<()> {
+    require!(
+        Clock::get()?.slot > position.last_liquidity_slot,
+        AmmError::LiquidityTooRecent
+    );
+    Ok(())
+}
+
 pub fn handle_decrease_liquidity<'info>(
     mut ctx: Context<'info, ModifyLiquidity<'info>>,
     liquidity: u128,
     amount_a_min: u64,
     amount_b_min: u64,
 ) -> Result<()> {
+    check_not_same_slot(&ctx.accounts.position)?;
     require!(liquidity > 0, AmmError::ZeroAmount);
     let delta = i128::try_from(liquidity)
         .map_err(|_| AmmError::MathOverflow)?
@@ -218,6 +234,7 @@ pub fn handle_decrease_liquidity<'info>(
 }
 
 pub fn handle_collect_fees<'info>(mut ctx: Context<'info, ModifyLiquidity<'info>>) -> Result<()> {
+    check_not_same_slot(&ctx.accounts.position)?;
     apply(&mut ctx, 0)?;
     let acc = &mut ctx.accounts;
     let (a, b) = (acc.position.tokens_owed_a, acc.position.tokens_owed_b);
