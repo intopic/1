@@ -36,7 +36,7 @@ Këtu (repo-ja jonë):
 
 ## Pretendimi i vetëm publik i lejuar sot
 
-> Në një validator lokal me një nyje, me kapital total të barabartë, një treg me 8 shard-e pranoi rreth 2,4–2,5 herë më shumë swap-e për slot se i njëjti treg me 1 shard, kur urdhrat e vegjël shpërndahen mbi shard-e (me router-in tonë: 2,43×).
+> Në një validator lokal me një nyje, me kapital total të barabartë, një treg me 8 shard-e pranoi rreth 2,3–2,5 herë më shumë swap-e për slot se i njëjti treg me 1 shard, kur urdhrat e vegjël shpërndahen mbi shard-e (me router-in tonë: 2,30× në GitHub Actions, 2,43× në matjen e parë lokale).
 
 Çdo pretendim tjetër për performancë kërkon një matje të re, të shtuar në këtë dokument me burimin e vet.
 
