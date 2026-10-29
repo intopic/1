@@ -1,0 +1,176 @@
+name: stress
+
+# ENG-10: large randomized and adversarial runs over the whole system, in
+# parallel. Every job prints its seed; rerun one locally with the same
+# AMM_STRESS_SEED / AMM_SVM_SEED and case count to reproduce a failure.
+#
+# Default scale per run (16 host shards + 16 SVM shards):
+#   - math properties: 7 properties x 1,000,000 cases x 16 = 112M checks
+#   - engine model: 200,000 random multi-LP sequences x 16 = 3.2M sequences
+#   - CPMM baseline: 1,000,000 random sequences x 16 = 16M sequences
+#   - every one of the 887,273 ticks against an exact reference
+#   - on-chain (LiteSVM, real SBF program): 20,000 random operations x 16,
+#     each swap compared bit for bit with the host engine, plus all suites
+#   - ENG-09 simulation with 32 seeds
+
+on:
+  workflow_dispatch:
+    inputs:
+      scale:
+        description: "Multiplier for every case count"
+        default: "1"
+      seed_base:
+        description: "Base seed (default: the run number)"
+        default: ""
+  push:
+    paths:
+      - ".github/workflows/stress.yml"
+
+permissions:
+  contents: read
+
+env:
+  AGAVE_VERSION: "4.3.2"
+  AGAVE_SHA256: "5c9599d7fa397375df69d58e8d4f550ee45463dd6d1ecad9e5a1f053ce8e0933"
+  SCALE: ${{ github.event.inputs.scale || '1' }}
+  SEED_BASE: ${{ github.event.inputs.seed_base || github.run_number }}
+  CARGO_TERM_COLOR: never
+
+jobs:
+  host:
+    name: host stress ${{ matrix.shard }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-stress-host-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+      - name: Build tests
+        run: cargo test --release --workspace --no-run
+      - name: Run
+        run: |
+          set -euo pipefail
+          [[ "$SCALE" =~ ^[0-9]+$ && "$SEED_BASE" =~ ^[0-9]+$ ]] || { echo 'scale and seed_base must be integers'; exit 1; }
+          seed=$(( SEED_BASE * 1000003 + ${{ matrix.shard }} * 7919 + 1 ))
+          echo "seed=$seed scale=$SCALE"
+          export AMM_STRESS_SEED=$seed
+          AMM_STRESS_CASES=$(( 1000000 * SCALE )) cargo test --release -p sharded-amm --test math_properties -- --nocapture
+          AMM_STRESS_CASES=$(( 200000 * SCALE )) cargo test --release -p sharded-amm --test engine_model -- --nocapture | tee engine.log
+          AMM_STRESS_CASES=$(( 1000000 * SCALE )) cargo test --release -p amm-model -- --nocapture
+          {
+            echo "### host shard ${{ matrix.shard }} (seed $seed)"
+            echo '```'
+            grep -h STATS engine.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  ticks:
+    name: every tick exact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare all 887,273 ticks
+        run: |
+          set -euo pipefail
+          [[ "$SCALE" =~ ^[0-9]+$ && "$SEED_BASE" =~ ^[0-9]+$ ]] || { echo 'scale and seed_base must be integers'; exit 1; }
+          python3 -I tools/reference/all_tick_prices.py "$RUNNER_TEMP/ticks.bin"
+          AMM_FULL_TICK_TABLE="$RUNNER_TEMP/ticks.bin" cargo test --release -p sharded-amm --test math_vectors full_tick_table -- --nocapture
+
+  sbf:
+    name: build SBF program
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Agave (checksum verified)
+        run: |
+          set -euo pipefail
+          [[ "$SCALE" =~ ^[0-9]+$ && "$SEED_BASE" =~ ^[0-9]+$ ]] || { echo 'scale and seed_base must be integers'; exit 1; }
+          url="https://github.com/anza-xyz/agave/releases/download/v${AGAVE_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 "$url" -o agave.tar.bz2
+          echo "${AGAVE_SHA256}  agave.tar.bz2" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/agave"
+          tar -xjf agave.tar.bz2 -C "$RUNNER_TEMP/agave"
+          rm agave.tar.bz2
+          echo "$RUNNER_TEMP/agave/solana-release/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/solana
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-stress-sbf-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+      - run: cargo build-sbf --manifest-path programs/sharded-amm/Cargo.toml --tools-version v1.58
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sharded-amm-so
+          path: target/deploy/sharded_amm.so
+
+  svm:
+    name: on-chain stress ${{ matrix.shard }}
+    needs: sbf
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sharded-amm-so
+          path: ${{ runner.temp }}/so
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tests/svm/target
+          key: ${{ runner.os }}-stress-svm-${{ hashFiles('tests/svm/Cargo.lock', 'tests/svm/rust-toolchain.toml') }}
+      - name: Run
+        working-directory: tests/svm
+        run: |
+          set -euo pipefail
+          [[ "$SCALE" =~ ^[0-9]+$ && "$SEED_BASE" =~ ^[0-9]+$ ]] || { echo 'scale and seed_base must be integers'; exit 1; }
+          export SHARDED_AMM_SO="$RUNNER_TEMP/so/sharded_amm.so"
+          seed=$(( SEED_BASE * 1000003 + ${{ matrix.shard }} * 104729 + 7 ))
+          echo "seed=$seed scale=$SCALE"
+          AMM_SVM_SEED=$seed AMM_SVM_CASES=$(( 20000 * SCALE )) \
+            cargo test --release --test eng06_swap random_workload -- --nocapture | tee svm.log
+          # Every other suite once per shard (they are deterministic apart
+          # from fresh keypairs, which change every PDA and vault address).
+          cargo test --release -- --skip random_workload
+          {
+            echo "### on-chain shard ${{ matrix.shard }} (seed $seed)"
+            echo '```'
+            grep -h STATS svm.log || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  sim:
+    name: ENG-09 simulation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run
+        run: |
+          set -euo pipefail
+          [[ "$SCALE" =~ ^[0-9]+$ && "$SEED_BASE" =~ ^[0-9]+$ ]] || { echo 'scale and seed_base must be integers'; exit 1; }
+          SIM_SEEDS=$(( 32 * SCALE )) cargo run --release -p amm-sim --bin eng09 "$RUNNER_TEMP/eng09.md"
+          cat "$RUNNER_TEMP/eng09.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eng09-results
+          path: ${{ runner.temp }}/eng09.md

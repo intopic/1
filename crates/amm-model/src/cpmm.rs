@@ -354,7 +354,11 @@ mod tests {
     /// the protocol plus remaining reserves account for every token.
     #[test]
     fn randomized_sequences_keep_the_ledger() {
-        let mut r = Rng(0x1234_5678_9abc_def1);
+        let seed = std::env::var("AMM_STRESS_SEED")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0x1234_5678_9abc_def1);
+        let mut r = Rng(seed | 1);
         for case in 0..cases() {
             let fee = [0, 500, 1000, 3000, 100_000][(r.next() % 5) as usize];
             let mut p = Pool::new(fee, (r.next() % 5001) as u16).unwrap();
