@@ -89,6 +89,29 @@ pub fn fees_owed(liquidity: u128, inside_now: U256, checkpoint: U256) -> MathRes
     to_u64(mul_div(U256::from(liquidity), delta, Q128, false)?)
 }
 
+/// The checkpoint after paying `earned = fees_owed(liquidity, inside_now,
+/// checkpoint)`: it advances only by the growth that `earned` used up,
+/// `ceil(earned * 2^128 / liquidity)`, so the rounding remainder (worth less
+/// than one token unit) stays for the next refresh instead of being lost.
+/// Collecting often then pays exactly what one collect at the end would.
+/// With zero liquidity there is nothing to carry and the checkpoint is
+/// `inside_now`. The advance never exceeds `inside_now - checkpoint`.
+pub fn advance_checkpoint(
+    liquidity: u128,
+    inside_now: U256,
+    checkpoint: U256,
+    earned: u64,
+) -> MathResult<U256> {
+    if liquidity == 0 {
+        return Ok(inside_now);
+    }
+    let used = mul_div(U256::from(earned), Q128, U256::from(liquidity), true)?;
+    if used > inside_now.overflowing_sub(checkpoint).0 {
+        return Err(AmmError::MathInvariantViolated);
+    }
+    Ok(checkpoint.overflowing_add(used).0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,6 +127,39 @@ mod tests {
         assert_eq!(split_fee(1, 2000).unwrap(), (0, 1));
         assert_eq!(split_fee(7, 10_000).unwrap(), (7, 0));
         assert_eq!(split_fee(7, 10_001), Err(AmmError::InvalidProtocolShare));
+    }
+
+    #[test]
+    fn frequent_refreshes_pay_what_one_refresh_pays() {
+        // 1 000 swaps of 7 units each on L = 3: one refresh at the end pays
+        // floor(7000 * 3 / 3) minus the per-swap growth rounding; refreshing
+        // after every swap must pay exactly the same with the carried
+        // remainder, and less without it.
+        let l = 3u128;
+        let mut global = U256::zero();
+        let (mut ckpt, mut ckpt_old, mut paid, mut paid_old) =
+            (U256::zero(), U256::zero(), 0u64, 0u64);
+        for _ in 0..1_000 {
+            global = add_growth(global, growth_delta(7, l).unwrap()).unwrap();
+            let e = fees_owed(l, global, ckpt).unwrap();
+            ckpt = advance_checkpoint(l, global, ckpt, e).unwrap();
+            paid += e;
+            paid_old += fees_owed(l, global, ckpt_old).unwrap();
+            ckpt_old = global;
+        }
+        let once = fees_owed(l, global, U256::zero()).unwrap();
+        assert_eq!(paid, once);
+        assert!(paid_old < once, "{paid_old} vs {once}");
+        // The carried remainder is worth less than one unit.
+        assert_eq!(fees_owed(l, global, ckpt).unwrap(), 0);
+        assert_eq!(
+            advance_checkpoint(0, global, U256::zero(), 0).unwrap(),
+            global
+        );
+        assert_eq!(
+            advance_checkpoint(l, global, global, 1),
+            Err(AmmError::MathInvariantViolated)
+        );
     }
 
     #[test]
