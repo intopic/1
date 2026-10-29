@@ -2,7 +2,7 @@
 
 use crate::constants::{MAX_TICK, MIN_TICK};
 use crate::errors::AmmError;
-use crate::math::fee_math::{advance_checkpoint, fees_owed, growth_inside, initial_outside};
+use crate::math::fee_math::{fees_since, growth_inside, initial_outside};
 use crate::math::liquidity_math::{add_delta, amounts_for_liquidity, max_liquidity_per_tick};
 use crate::math::tick_math::sqrt_price_at_tick;
 use crate::math::wide::U256;
@@ -20,6 +20,9 @@ pub struct PositionState {
     pub inside_last_b: U256,
     pub owed_a: u64,
     pub owed_b: u64,
+    /// Fees already moved to `owed` since `inside_last_*` (`fee_math::fees_since`).
+    pub credited_a: u64,
+    pub credited_b: u64,
 }
 
 impl PositionState {
@@ -32,6 +35,8 @@ impl PositionState {
             inside_last_b: U256(p.fee_growth_inside_last_b),
             owed_a: p.tokens_owed_a,
             owed_b: p.tokens_owed_b,
+            credited_a: p.fees_credited_a,
+            credited_b: p.fees_credited_b,
         }
     }
 
@@ -41,6 +46,8 @@ impl PositionState {
         p.fee_growth_inside_last_b = self.inside_last_b.0;
         p.tokens_owed_a = self.owed_a;
         p.tokens_owed_b = self.owed_b;
+        p.fees_credited_a = self.credited_a;
+        p.fees_credited_b = self.credited_b;
     }
 }
 
@@ -148,8 +155,8 @@ pub fn modify_position(
         lower.outside_b(),
         upper.outside_b(),
     )?;
-    let earned_a = fees_owed(pos.liquidity, inside_a, pos.inside_last_a)?;
-    let earned_b = fees_owed(pos.liquidity, inside_b, pos.inside_last_b)?;
+    let earned_a = fees_since(pos.liquidity, inside_a, pos.inside_last_a, pos.credited_a)?;
+    let earned_b = fees_since(pos.liquidity, inside_b, pos.inside_last_b, pos.credited_b)?;
     let owed_a = pos
         .owed_a
         .checked_add(earned_a)
@@ -188,17 +195,22 @@ pub fn modify_position(
         arrays[idx].initialized_count =
             u32::try_from(c).map_err(|_| AmmError::MathInvariantViolated)?;
     }
-    // The checkpoint keeps the rounding remainder while the position's
-    // liquidity does not grow (fee refreshes, collects, decreases); on an
-    // increase it moves to `inside`, so new liquidity never earns a
-    // remainder accrued before it existed.
-    let (last_a, last_b) = if delta <= 0 {
+    // With unchanged liquidity the checkpoint stays and `credited` grows, so
+    // the fee is rounded once over the whole period; a liquidity change
+    // starts a new period at `inside`.
+    let (last_a, last_b, credited_a, credited_b) = if delta == 0 {
         (
-            advance_checkpoint(pos.liquidity, inside_a, pos.inside_last_a, earned_a)?,
-            advance_checkpoint(pos.liquidity, inside_b, pos.inside_last_b, earned_b)?,
+            pos.inside_last_a,
+            pos.inside_last_b,
+            pos.credited_a
+                .checked_add(earned_a)
+                .ok_or(AmmError::MathOverflow)?,
+            pos.credited_b
+                .checked_add(earned_b)
+                .ok_or(AmmError::MathOverflow)?,
         )
     } else {
-        (inside_a, inside_b)
+        (inside_a, inside_b, 0, 0)
     };
     pool.liquidity = new_pool_l;
     *pos = PositionState {
@@ -207,6 +219,8 @@ pub fn modify_position(
         inside_last_b: last_b,
         owed_a,
         owed_b,
+        credited_a,
+        credited_b,
         ..*pos
     };
     Ok(amounts)

@@ -66,7 +66,10 @@ Shard-et e tjera vazhdojnë, dhe daljet e LP-ve nga shard-i i ndaluar mbeten të
 - `PAUSE_SWAPS | PAUSE_REBALANCE` e ngrin shard-in plotësisht. Daljet e LP-ve mbeten edhe atëherë.
 
 `PAUSE_SWAPS` nuk mund të hiqet me `set_shard_pause_flags` (`ReopenNeedsPriceCheck`). Atë e heq vetëm `reopen_shard(flags)`, vetëm admini, dhe vetëm nëse në të njëjtin transaksion kalojnë këto kontrolle:
-- jepen të paktën `MIN_REOPEN_REFERENCES` (3) shard-e reference, vetëm për lexim, aktive, që po tregtojnë, të ndryshme nga njëra-tjetra dhe nga vetë shard-i;
+- jepen shard-e reference, vetëm për lexim, aktive, të ndryshme nga njëra-tjetra dhe nga vetë shard-i. Sa duhen varet nga sa shard-e tregtojnë. Këtë e tregon `registry.swap_paused_mask`, të cilin e mbajnë `set_shard_pause_flags` dhe `reopen_shard`, dhe swap-et nuk e lexojnë:
+  - nëse tregtojnë të paktën 3: duhen të paktën 3 prej tyre;
+  - nëse tregtojnë 1 ose 2: duhen të gjithë ata;
+  - nëse nuk tregton asnjë, **bootstrap** (riauditimi P2-1): pranohen edhe shard-e të ndalura, të paktën 3, ose të gjithë të tjerët nëse janë më pak. Bootstrap-i kontrollon vetëm përputhjen mes shard-eve, jo me tregjet e jashtme, dhe eventi `ShardReopened` e shënon me `bootstrap: true`. Pastaj shard-et e tjera rihapen kundrejt atij që u hap. Kështu rikuperimi nuk varet më nga tre shard-e që vetë nuk mund të rihapen;
 - çmimi i shard-it është brenda `readiness.max_activation_deviation_bps` nga **mediana** e çmimeve të tyre. Përndryshe rihapja dështon dhe shard-i mbetet i ndalur.
 
 Mediana dhe jo një shard i vetëm, sepse edhe një referencë mund të jetë e devijuar. Kjo e **kufizon** ekspozimin ndaj çmimit të vjetër, por nuk e eliminon: tregu mund të lëvizë menjëherë pas rihapjes, dhe arbitrazhi mund të shfaqet përsëri. Pauza globale mbetet për incidente që prekin disa shard-e, tokenin ose një varësi të përbashkët. "Daljet nuk bllokohen" do të thotë që politika jonë nuk i bllokon kurrë. Transferi mund të dështojë gjithsesi nga freeze i tokenit ose nga mungesa e fondeve.

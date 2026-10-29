@@ -1040,3 +1040,44 @@ pub fn bytemuck_from<T: Copy>(bytes: &[u8]) -> &T {
     );
     unsafe { &*(bytes.as_ptr() as *const T) }
 }
+
+/// `set_shard_pause_flags` on shard `id`.
+pub fn ix_shard_flags(
+    m: &Market,
+    authority: &Pubkey,
+    id: u8,
+    flags: u8,
+) -> solana_instruction::Instruction {
+    ix(
+        sharded_amm::accounts::SetShardPauseFlags {
+            authority: *authority,
+            market: m.market,
+            registry: m.registry,
+            shard: shard_addrs(m, id, 0).shard,
+        },
+        sharded_amm::instruction::SetShardPauseFlags { flags },
+    )
+}
+
+/// `reopen_shard` on shard `id` with `refs` as read-only references.
+pub fn ix_reopen(
+    m: &Market,
+    admin: &Pubkey,
+    id: u8,
+    flags: u8,
+    refs: &[u8],
+) -> solana_instruction::Instruction {
+    let mut i = ix(
+        sharded_amm::accounts::ReopenShard {
+            admin: *admin,
+            market: m.market,
+            registry: m.registry,
+            shard: shard_addrs(m, id, 0).shard,
+        },
+        sharded_amm::instruction::ReopenShard { flags },
+    );
+    i.accounts.extend(refs.iter().map(|r| {
+        solana_instruction::AccountMeta::new_readonly(shard_addrs(m, *r, 0).shard, false)
+    }));
+    i
+}

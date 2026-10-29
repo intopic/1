@@ -51,4 +51,8 @@ Router-i nuk ka privilegj dhe nuk është i detyrueshëm. Kushdo mund të ndërt
 - Cilësia e çmimit (`power_of_two_gives_up_at_most_the_regret_bound`, host). Testi përdor 40 botë me 8 shard-e, ku çmimet janë larguar nga tregti të rastit, dhe 2 000 urdhra të rastit. Krahasuar me më të mirin nga të 8 shard-et, power of two jep mesatarisht −0,004 bps, pra praktikisht njësoj. Rasti më i keq është 0,39 bps, nën kufirin `max_regret_bps`.
 - Benchmark-u në validator me router-in real ([validator-bench.md](../bench/validator-bench.md)): router-i determinist 1,00×, power of two 2,43×, round-robin 2,50×.
 
+Riauditimi i 29 tetorit (e219657):
+- **P2-3:** zgjedhja e rastit merrte vetëm 64 bit. Me pesha mbi 2^64 zgjidhej gjithmonë i pari: me 8 shard-e të barabarta me L = 2^65, të 100 seed-et shkuan te shard-i 0. Tani vlera e rastit merret me 128 bit dhe rejection sampling, dhe peshat zhvendosen nëse shuma kalon 128 bit. Teste: `sampling_is_fair_above_64_bits`, që mbulon 8 × 2^65, pesha 1:3 mbi 2^66, renditje të kundërt dhe tejmbushje.
+- **P2-4:** `max_regret_bps` kontrollohej mbi një probe, jo mbi urdhrin e plotë, dhe rezultati mund të ishte 4,87 bps më keq. Tani `plan` e krahason output-in përfundimtar me baseline-in, që është më i miri nga plani determinist dhe shard-i më i mirë për gjithë shumën. Nëse e kalon kufirin, kthen baseline-in. Test: `final_output_stays_within_the_regret_bound`, me 30 botë me thellësi të ndryshme dhe 1 200 urdhra; testi rrëzon versionin e vjetër.
+
 Ende pa bërë: simulim i kostos së tregtarit dhe i numrit mesatar të shard-eve për urdhër me router-in dhe rebalancer-in tonë.

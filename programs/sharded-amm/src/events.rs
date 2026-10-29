@@ -93,6 +93,8 @@ pub struct ShardReopened {
     pub sqrt_price_x64: u128,
     pub median_sqrt_price_x64: u128,
     pub references: u8,
+    /// No other shard was trading: references were swap-paused shards.
+    pub bootstrap: bool,
 }
 
 #[event]

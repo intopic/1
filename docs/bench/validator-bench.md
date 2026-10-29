@@ -4,7 +4,7 @@ Data: 29 tetor 2026 (përsëritur me kapital total të barabartë dhe me router-
 
 ## Çfarë mat
 
-I njëjti numër swap-esh të pavarur (256 tregtarë × 16 = 4 096 për çdo provë) dërgohet në një `solana-test-validator` (Agave 4.3.2) me programin real SBF. Swap-et shpërndahen mbi 1, 2, 4 ose 8 shard-e. **Kapitali total është i njëjtë në çdo konfigurim:** secili ka tregun e vet me të njëjtin likuiditet total (L = 10^18), të ndarë në mënyrë të barabartë mes shard-eve që përdor. Shard-et e tjera të atij tregu mbajnë vetëm minimumin e gatishmërisë (L = 10^9), që tregu të hapet, dhe nuk marrin swap-e. Çdo tregtar ka payer-in dhe llogaritë e veta të tokenave, prandaj të vetmet llogari writable që dy swap-e mund të ndajnë janë ato të shard-it: `ShardState`, dy vault-et dhe tick arrays.
+I njëjti numër swap-esh të pavarur (256 tregtarë × 16 = 4 096 për çdo provë) dërgohet në një `solana-test-validator` (Agave 4.3.2) me programin real SBF. Swap-et shpërndahen mbi 1, 2, 4 ose 8 shard-e. **Kapitali total është i njëjtë në çdo konfigurim:** secili ka tregun e vet me të njëjtin likuiditet total (L = 10^15, `TOTAL_LIQUIDITY` në `bench_setup.rs`), të ndarë në mënyrë të barabartë mes shard-eve që përdor. Shard-et e tjera të atij tregu mbajnë vetëm minimumin e gatishmërisë (L = 10^9), që tregu të hapet, dhe nuk marrin swap-e. Çdo tregtar ka payer-in dhe llogaritë e veta të tokenave, prandaj të vetmet llogari writable që dy swap-e mund të ndajnë janë ato të shard-it: `ShardState`, dy vault-et dhe tick arrays.
 
 **Me router-in real** (auditimi i paralelizmit, P-01): në vend të round-robin-it, shard-in e çdo swap-i e zgjedh `amm_router::plan`. Të gjithë klientët e një shpërthimi planifikojnë nga i njëjti snapshot i freskët, i lexuar nga validatori, dhe secili me seed-in e vet. Provohen dy mënyra: router-i determinist i mëparshëm (gjithmonë më i miri global, me id si barazues) dhe router-i me "power of two choices".
 
@@ -13,6 +13,8 @@ Kontrolli negativ: 8 shard-e, por i njëjti fee payer për çdo swap. Payer-i ë
 Metrika kryesore është **swap/slot maks.**: sa swap-e të suksesshme hynë në slot-in më të ngarkuar. Për atë slot lexohet blloku dhe mblidhen CU-të që swap-et përdorën realisht.
 
 ## Rezultati (lokal, 4 CPU, 3 përsëritje, rendi i alternuar 1→8 dhe 8→1)
+
+Origjina e kësaj tabele: ekzekutim lokal në commit `fe9f7fe`, me `rounds=16` dhe `repeats=3`. Hash-i i SBF-së nuk u regjistrua në atë kohë, dhe kjo është mangësi e riprodhueshmërisë që e vuri në dukje riauditimi (P3). Nga 29 tetor 2026, `scripts/bench-validator.sh` shkruan në krye të çdo tabele commit-in, nëse pema është e pastër, sha256-në e `sharded_amm.so`, versionin e validatorit, CPU-të, parametrat, likuiditetin dhe lidhjen e ekzekutimit në CI. Tabela zëvendësohet me rezultatin e workflow-t `bench` sapo ai të kalojë mbi commit-in e fundit.
 
 | konfigurimi | swap/slot maks. (mediana) | herë më shumë se 1 shard |
 |---|---:|---:|
@@ -48,7 +50,7 @@ Metrika kryesore është **swap/slot maks.**: sa swap-e të suksesshme hynë në
 | 8 shard-e, payer i përbashkët (kontroll negativ) | 2 | 4096 | 4096 | 0 | 0 | 880 | 36.4 | 4 / 6 | 614 |
 | 8 shard-e, payer i përbashkët (kontroll negativ) | 3 | 4096 | 4096 | 0 | 0 | 881 | 36.4 | 4 / 6 | 468 |
 
-Asnjë swap nuk dështoi. "Pa status" janë transaksione që validatori i hodhi pa i ekzekutuar (`maxRetries: 0`, pa ridërgim); ato nuk numërohen si sukses. Tarifa e çdo transaksioni është tarifa bazë 5 000 lamports, pa priority fee. Swap-i kërkon 60 000 CU dhe përdor rreth 40 000.
+Asnjë swap nuk dështoi. "Pa status" janë transaksione që nuk morën status brenda 40 sekondave të pritjes (`maxRetries: 0`, pa ridërgim). Rezultati i tyre është i **panjohur**: matja nuk provon që nuk u ekzekutuan, vetëm që nuk u panë. Ato nuk numërohen si sukses, kështu që swap/slot mund të jetë pak më i ulët se në realitet, por kurrë më i lartë. Tarifa e çdo transaksioni është tarifa bazë 5 000 lamports, pa priority fee. Swap-i kërkon 60 000 CU dhe përdor rreth 40 000.
 
 ## Si shpjegohet
 

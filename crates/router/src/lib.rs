@@ -240,19 +240,38 @@ fn next(state: &mut u64) -> u64 {
     z ^ (z >> 31)
 }
 
+/// Uniform in `0..n` (`n > 0`) from 128 random bits, by rejection, so a
+/// total weight above 2^64 is drawn without bias (re-audit P2-3).
+fn below(rng: &mut u64, n: u128) -> u128 {
+    let zone = u128::MAX - (u128::MAX - n + 1) % n;
+    loop {
+        let x = (u128::from(next(rng)) << 64) | u128::from(next(rng));
+        if x <= zone {
+            return x % n;
+        }
+    }
+}
+
 /// `d` distinct indices of `books`, drawn with probability proportional to
-/// active liquidity (uniform if all are empty).
+/// active liquidity (uniform if all are empty). Weights are shifted right
+/// together if their sum would not fit in 128 bits.
 fn sample(books: &[Book], d: usize, seed: u64) -> Vec<usize> {
     let mut rng = seed;
     let mut left: Vec<usize> = (0..books.len()).collect();
     let mut out = Vec::with_capacity(d);
     while out.len() < d && !left.is_empty() {
-        let w: Vec<u128> = left
-            .iter()
-            .map(|&i| books[i].pool.liquidity.max(1))
-            .collect();
-        let total: u128 = w.iter().sum();
-        let mut r = u128::from(next(&mut rng)) % total;
+        let mut shift = 0;
+        let (w, total) = loop {
+            let w: Vec<u128> = left
+                .iter()
+                .map(|&i| (books[i].pool.liquidity >> shift).max(1))
+                .collect();
+            match w.iter().try_fold(0u128, |s, x| s.checked_add(*x)) {
+                Some(t) => break (w, t),
+                None => shift += 8,
+            }
+        };
+        let mut r = below(&mut rng, total);
         let mut pick = 0;
         for (j, wj) in w.iter().enumerate() {
             if r < *wj {
@@ -330,11 +349,68 @@ fn split(
     (plan.tx_accounts() <= TX_ACCOUNT_LIMIT).then_some(plan)
 }
 
+/// `out` is within `bps` of `base`.
+fn within_regret(out: u64, base: u64, bps: u32) -> bool {
+    u128::from(base) * 10_000 <= u128::from(out) * (10_000 + u128::from(bps))
+}
+
 /// Threshold routing: the smallest number of shards after which one more
 /// shard would add less than `min_gain_bps + split_tax_bps` (and
 /// `leg_cost_out`) to the output. The first shard is chosen by power of two
 /// choices with `seed`; the others follow by quote.
+///
+/// The final plan's output for the full amount is never more than
+/// `max_regret_bps` below the baseline: the better of the deterministic
+/// threshold plan and the best single shard for the full amount
+/// (re-audit P2-4); otherwise the baseline is returned.
 pub fn plan(
+    books: &[Book],
+    m: &MarketCfg,
+    slot: u64,
+    a_to_b: bool,
+    amount_in: u64,
+    cfg: RouterConfig,
+    seed: u64,
+) -> Option<Plan> {
+    let picked = plan_from(books, m, slot, a_to_b, amount_in, cfg, seed);
+    let base = baseline(books, m, slot, a_to_b, amount_in, cfg);
+    match (picked, base) {
+        (Some(p), Some(b)) if !within_regret(p.amount_out, b.amount_out, cfg.max_regret_bps) => {
+            Some(b)
+        }
+        (p, b) => p.or(b),
+    }
+}
+
+/// The better of the deterministic threshold plan and the best single shard
+/// for the full amount.
+fn baseline(
+    books: &[Book],
+    m: &MarketCfg,
+    slot: u64,
+    a_to_b: bool,
+    amount_in: u64,
+    cfg: RouterConfig,
+) -> Option<Plan> {
+    let det = plan_from(
+        books,
+        m,
+        slot,
+        a_to_b,
+        amount_in,
+        RouterConfig { choices: 0, ..cfg },
+        0,
+    );
+    let single = (0..books.len())
+        .filter_map(|i| split(books, m, slot, a_to_b, amount_in, &[i]))
+        .max_by_key(|p| p.amount_out);
+    [det, single]
+        .into_iter()
+        .flatten()
+        .max_by_key(|p| p.amount_out)
+}
+
+fn plan_from(
     books: &[Book],
     m: &MarketCfg,
     slot: u64,
@@ -378,10 +454,7 @@ pub fn plan(
                 _ => Some(x),
             });
         if let Some((q, i)) = pick {
-            let best = rank[0].0;
-            let regret_ok = u128::from(best) * 10_000
-                <= u128::from(q) * (10_000 + u128::from(cfg.max_regret_bps));
-            if regret_ok {
+            if within_regret(q, rank[0].0, cfg.max_regret_bps) {
                 order.retain(|&j| j != i);
                 order.insert(0, i);
             }
@@ -607,6 +680,8 @@ mod tests {
                     inside_last_b: Default::default(),
                     owed_a: 0,
                     owed_b: 0,
+                    credited_a: 0,
+                    credited_b: 0,
                 };
                 let mut refs: Vec<&mut TickArray> = arrays.iter_mut().collect();
                 modify_position(&mut pool, &mut refs, SPACING, &mut pos, liquidity as i128)
@@ -770,6 +845,94 @@ mod tests {
             n[p.legs[0].id as usize] += 1;
         }
         n
+    }
+
+    #[test]
+    fn final_output_stays_within_the_regret_bound() {
+        // Re-audit P2-4: the regret was checked on a probe of
+        // amount_in / max_shards, then the full order could go to a shallower
+        // shard (4.87 bps worse with max_regret_bps = 1). Heterogeneous depth
+        // and drifted prices; the bound now holds on the final output.
+        let m = cfg();
+        let mut r = 7u64;
+        for world in 0..30 {
+            let mut bs: Vec<Book> = (0..8u8)
+                .map(|id| {
+                    let mut b = books(1, 1u128 << (34 + next(&mut r) % 10)).remove(0);
+                    b.id = id;
+                    b
+                })
+                .collect();
+            for b in bs.iter_mut() {
+                let x = 1 + next(&mut r) % (1 << 28);
+                b.apply(&m, 0, next(&mut r).is_multiple_of(2), x, 0)
+                    .unwrap();
+            }
+            for k in 0..40u64 {
+                let a_to_b = next(&mut r).is_multiple_of(2);
+                let amount = 1 + next(&mut r) % (1 << (12 + next(&mut r) % 20));
+                let rc = RouterConfig::default();
+                let Some(p) = plan(&bs, &m, 0, a_to_b, amount, rc, world * 100 + k) else {
+                    continue;
+                };
+                let base = baseline(&bs, &m, 0, a_to_b, amount, rc).unwrap();
+                assert!(
+                    within_regret(p.amount_out, base.amount_out, rc.max_regret_bps),
+                    "world {world} order {k}: {} vs {}",
+                    p.amount_out,
+                    base.amount_out
+                );
+                for i in 0..bs.len() {
+                    if let Some(s) = split(&bs, &m, 0, a_to_b, amount, &[i]) {
+                        assert!(within_regret(p.amount_out, s.amount_out, rc.max_regret_bps));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sampling_is_fair_above_64_bits() {
+        // Re-audit P2-3: eight equal shards with L = 2^65 all went to shard 0
+        // (only the weights matter here, so the pools are set directly).
+        let mut eq = books(8, 1 << 40);
+        for b in eq.iter_mut() {
+            b.pool.liquidity = 1 << 65;
+        }
+        let mut n = [0usize; 8];
+        for seed in 0..8_000 {
+            for i in sample(&eq, 2, seed) {
+                n[i] += 1;
+            }
+        }
+        assert!(n.iter().all(|&c| (1_700..=2_300).contains(&c)), "{n:?}");
+        // Heterogeneous weights above 2^64: first draw ~ proportional to L.
+        let mut bs = books(2, 1 << 40);
+        bs[0].pool.liquidity = 1 << 66;
+        bs[1].pool.liquidity = 3 << 66;
+        let mut first = [0usize; 2];
+        for seed in 0..4_000 {
+            first[sample(&bs, 1, seed)[0]] += 1;
+        }
+        assert!((850..=1_150).contains(&first[0]), "{first:?}");
+        // The order of the books does not change who is drawn, by id.
+        let mut rev = bs.clone();
+        rev.reverse();
+        let mut by_id = [0usize; 2];
+        for seed in 0..4_000 {
+            by_id[rev[sample(&rev, 1, seed)[0]].id as usize] += 1;
+        }
+        assert!((850..=1_150).contains(&by_id[0]), "{by_id:?}");
+        // Weights whose sum overflows u128 are scaled, not wrapped.
+        let mut huge = books(3, 1 << 40);
+        for b in huge.iter_mut() {
+            b.pool.liquidity = u128::MAX / 2;
+        }
+        let mut hit = [0usize; 3];
+        for seed in 0..3_000 {
+            hit[sample(&huge, 1, seed)[0]] += 1;
+        }
+        assert!(hit.iter().all(|&c| (800..=1_200).contains(&c)), "{hit:?}");
     }
 
     #[test]

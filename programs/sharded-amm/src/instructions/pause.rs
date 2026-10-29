@@ -7,9 +7,14 @@
 //! `PAUSE_SWAPS`; that is `reopen_shard`.
 //! `reopen_shard` — admin only: lifts `PAUSE_SWAPS` (and sets the other bits
 //! to `flags`) only if, in the same transaction, the shard's price is within
-//! `readiness.max_activation_deviation_bps` of the median price of at least
-//! `MIN_REOPEN_REFERENCES` other active shards that are trading (remaining
-//! accounts, read-only). Otherwise it fails and the shard stays paused.
+//! `readiness.max_activation_deviation_bps` of the median price of its
+//! references (remaining accounts, read-only): at least
+//! `MIN_REOPEN_REFERENCES` other active shards that are trading, or all of
+//! them if fewer trade. If none trades, it is a bootstrap: the references
+//! may be swap-paused active shards (at least `MIN_REOPEN_REFERENCES`, or all
+//! others if fewer exist), which checks consistency among the shards but not
+//! against outside markets. Otherwise it fails and the shard stays paused.
+//! The registry's `swap_paused_mask` mirrors which shards are swap-paused.
 //!
 //! Accounts: `authority` signer; `market` W (R for the shard variant);
 //! `shard` W (`has_one = market`). Moves no funds. A paused market
@@ -36,6 +41,8 @@ pub struct SetPaused<'info> {
 pub struct SetShardPauseFlags<'info> {
     pub authority: Signer<'info>,
     pub market: Box<Account<'info, MarketConfig>>,
+    #[account(mut, seeds = [REGISTRY_SEED, market.key().as_ref()], bump = registry.bump, has_one = market)]
+    pub registry: Box<Account<'info, ShardRegistry>>,
     #[account(mut, has_one = market)]
     pub shard: Box<Account<'info, ShardState>>,
 }
@@ -49,6 +56,10 @@ pub fn handle_set_shard_pause_flags(ctx: Context<SetShardPauseFlags>, flags: u8)
         AmmError::ReopenNeedsPriceCheck
     );
     ctx.accounts.shard.pause_flags = flags;
+    let bit = 1u64 << ctx.accounts.shard.id;
+    if flags & PAUSE_SWAPS != 0 {
+        ctx.accounts.registry.swap_paused_mask |= bit;
+    }
     emit!(ShardPauseFlagsChanged {
         market: ctx.accounts.market.key(),
         shard: ctx.accounts.shard.key(),
@@ -65,7 +76,7 @@ pub struct ReopenShard<'info> {
     pub admin: Signer<'info>,
     #[account(has_one = admin)]
     pub market: Box<Account<'info, MarketConfig>>,
-    #[account(seeds = [REGISTRY_SEED, market.key().as_ref()], bump = registry.bump, has_one = market)]
+    #[account(mut, seeds = [REGISTRY_SEED, market.key().as_ref()], bump = registry.bump, has_one = market)]
     pub registry: Box<Account<'info, ShardRegistry>>,
     #[account(mut, has_one = market)]
     pub shard: Box<Account<'info, ShardState>>,
@@ -85,8 +96,16 @@ pub fn handle_reopen_shard<'info>(
     );
     acc.market
         .check_pause_change(&acc.admin.key(), shard.pause_flags, flags)?;
+    // References: at least MIN_REOPEN_REFERENCES trading shards; if fewer
+    // trade, all of them; if none trades (every other shard swap-paused,
+    // re-audit P2-1), a bootstrap against paused active shards, so recovery
+    // never depends on shards that cannot reopen themselves.
+    let open = acc.registry.open_others(shard.id).count_ones() as usize;
+    let others = (acc.registry.active_mask & !(1u64 << shard.id)).count_ones() as usize;
+    let bootstrap = open == 0;
+    let required = if bootstrap { others } else { open }.min(MIN_REOPEN_REFERENCES);
     require!(
-        ctx.remaining_accounts.len() >= MIN_REOPEN_REFERENCES,
+        ctx.remaining_accounts.len() >= required,
         AmmError::InvalidAccountCount
     );
     let mut ids = 0u64;
@@ -103,11 +122,15 @@ pub fn handle_reopen_shard<'info>(
             r.status == ShardStatus::Active && acc.registry.is_active(r.id),
             AmmError::ShardNotActive
         );
-        require!(!r.swaps_paused(), AmmError::ShardPaused);
+        require!(bootstrap || !r.swaps_paused(), AmmError::ShardPaused);
         prices.push(r.sqrt_price_x64);
     }
     prices.sort_unstable();
-    let median = prices[prices.len() / 2];
+    // No other active shard at all (a one-shard market): nothing to compare.
+    let median = prices
+        .get(prices.len() / 2)
+        .copied()
+        .unwrap_or(shard.sqrt_price_x64);
     require!(
         within_deviation(
             shard.sqrt_price_x64,
@@ -118,6 +141,8 @@ pub fn handle_reopen_shard<'info>(
     );
     let old = shard.pause_flags;
     ctx.accounts.shard.pause_flags = flags;
+    let bit = 1u64 << ctx.accounts.shard.id;
+    ctx.accounts.registry.swap_paused_mask &= !bit;
     emit!(ShardReopened {
         market: ctx.accounts.market.key(),
         shard: ctx.accounts.shard.key(),
@@ -127,6 +152,7 @@ pub fn handle_reopen_shard<'info>(
         sqrt_price_x64: ctx.accounts.shard.sqrt_price_x64,
         median_sqrt_price_x64: median,
         references: prices.len() as u8,
+        bootstrap,
     });
     Ok(())
 }

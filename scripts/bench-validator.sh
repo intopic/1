@@ -34,7 +34,12 @@ for ((attempt = 0; attempt < 240; attempt++)); do
   if curl --silent --fail --max-time 2 -H 'Content-Type: application/json' \
     --data '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' http://127.0.0.1:18899 | grep -q '"ok"'; then
     {
-      echo "<!-- solana-test-validator $(solana-test-validator --version | head -1), $(nproc) CPU, rounds=$rounds repeats=$repeats -->"
+      commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+      dirty=$([[ -z $(git status --porcelain 2>/dev/null) ]] && echo clean || echo dirty)
+      liquidity=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["total_liquidity"])' "$run_dir/bench/bench.json")
+      run=${GITHUB_RUN_ID:+, CI run ${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}/actions/runs/$GITHUB_RUN_ID}
+      echo "**Provenance:** commit \`$commit\` ($dirty), \`sharded_amm.so\` sha256 \`$(sha256sum "$program" | cut -d' ' -f1)\`, $(solana-test-validator --version | head -1), $(nproc) CPU, rounds=$rounds, repeats=$repeats, total liquidity per market $liquidity$run."
+      echo
     } >"$out.meta"
     (cd tests/svm && cargo run -q --release --example bench_run -- "$run_dir/bench" http://127.0.0.1:18899 "$rounds" "$repeats" "$out")
     cat "$out.meta" "$out" >"$out.tmp" && mv "$out.tmp" "$out" && rm "$out.meta"

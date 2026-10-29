@@ -4,8 +4,9 @@
 //! - `verify_depth` runs two probe sales (A and B) on copies; a shard whose
 //!   liquidity and vault balances meet the thresholds but whose depth is one
 //!   narrow range fails it, and `open_market` refuses the market.
-//! - A liquidity decrease clears the mark; the market cannot open until the
-//!   probe passes again.
+//! - Any liquidity change (decrease or increase) clears the mark, and a mark
+//!   made before an applied fee change is not accepted; the market cannot
+//!   open until the probe passes again.
 //! - The probe writes only the shard's flag: tick arrays are passed
 //!   read-only and stay byte-identical. Active shards cannot be probed.
 //! - Expansion: `activate_shard` refuses an unverified shard.
@@ -182,4 +183,46 @@ fn expansion_shard_needs_the_probe() {
     let i = Env::ix_activate(&m, &keeper.pubkey(), 8, 0);
     env.send(&[i], &[&keeper]).unwrap();
     assert_eq!(env.registry(&m).active_mask, 0x1ff);
+}
+
+/// Re-audit P2-5: a depth mark made before a fee change is not accepted
+/// after it, and an increase of liquidity clears the mark like a decrease.
+#[test]
+fn fee_change_and_increase_invalidate_the_mark() {
+    let mut env = Env::new();
+    let m = strict_market(&mut env);
+    let lp = seeded(&mut env, &m, None);
+    assert!((0..8).all(|id| env.shard_state(&m, id).depth_verified));
+    let v0 = env.market_state(&m).config_version;
+    let admin = env.admin.insecure_clone();
+    env.send(
+        &[Env::ix_update_fees(&m, &admin.pubkey(), 1_000, 2_000)],
+        &[&admin],
+    )
+    .unwrap();
+    env.warp(sharded_amm::constants::FEE_TIMELOCK_SECONDS);
+    env.send(&[Env::ix_apply_fees(&m, &admin.pubkey())], &[&admin])
+        .unwrap();
+    assert_eq!(env.market_state(&m).config_version, v0 + 1);
+    // The marks are still set but were made under the old fee.
+    assert!(env.shard_state(&m, 0).depth_verified);
+    expect_custom(
+        open(&mut env, &m),
+        amm_code(AmmError::InitialShardsNotReady),
+    );
+    for id in 0..8 {
+        env.verify_depth(&m, id).unwrap();
+        assert_eq!(env.shard_state(&m, id).depth_config_version, v0 + 1);
+    }
+    // An increase (sent directly, without the helper's re-probe) clears it.
+    let i = env.ix_increase(&m, &lp, 5, -1200, 1200, 1_000);
+    let kp = lp.kp.insecure_clone();
+    env.send(&[i], &[&kp]).unwrap();
+    assert!(!env.shard_state(&m, 5).depth_verified, "increase clears it");
+    expect_custom(
+        open(&mut env, &m),
+        amm_code(AmmError::InitialShardsNotReady),
+    );
+    env.verify_depth(&m, 5).unwrap();
+    open(&mut env, &m).unwrap();
 }

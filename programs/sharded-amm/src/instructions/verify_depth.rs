@@ -61,6 +61,7 @@ pub fn handle_verify_depth<'info>(
         },
     )?;
     ctx.accounts.shard.depth_verified = true;
+    ctx.accounts.shard.depth_config_version = ctx.accounts.market.config_version;
     emit!(DepthVerified {
         shard: key,
         tick: pool.tick,

@@ -28,6 +28,11 @@ pub struct ShardRegistry {
     pub active_mask: u64,
     pub registry_version: u64,
     pub bump: u8,
+    /// Shards whose own `PAUSE_SWAPS` is set, mirrored by
+    /// `set_shard_pause_flags` and `reopen_shard` so `reopen_shard` knows
+    /// how many shards are trading. Not membership: `registry_version` does
+    /// not change with it. Never read by swaps.
+    pub swap_paused_mask: u64,
 }
 
 impl ShardRegistry {
@@ -45,6 +50,11 @@ impl ShardRegistry {
     pub fn active_count(&self) -> std::result::Result<u32, AmmError> {
         self.validate()?;
         Ok(self.active_mask.count_ones())
+    }
+
+    /// Active shards other than `id` that are not swap-paused.
+    pub fn open_others(&self, id: u8) -> u64 {
+        self.active_mask & !self.swap_paused_mask & !(1u64 << id)
     }
 
     pub fn is_active(&self, id: u8) -> bool {
@@ -167,6 +177,7 @@ mod tests {
             active_mask: 0,
             registry_version: 0,
             bump: 255,
+            swap_paused_mask: 0,
         }
     }
 

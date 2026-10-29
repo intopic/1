@@ -120,6 +120,8 @@ impl Clmm {
                 inside_last_b: Default::default(),
                 owed_a: 0,
                 owed_b: 0,
+                credited_a: 0,
+                credited_b: 0,
             },
         };
         let (sa, sb) = (

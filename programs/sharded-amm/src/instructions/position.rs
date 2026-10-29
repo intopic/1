@@ -65,6 +65,8 @@ pub fn handle_open_position(
         liquidity: 0,
         fee_growth_inside_last_a: [0; 4],
         fee_growth_inside_last_b: [0; 4],
+        fees_credited_a: 0,
+        fees_credited_b: 0,
         tokens_owed_a: 0,
         tokens_owed_b: 0,
         bump: ctx.bumps.position,
@@ -124,6 +126,10 @@ pub fn handle_increase_liquidity<'info>(
     require!(liquidity > 0, AmmError::ZeroAmount);
     let delta = i128::try_from(liquidity).map_err(|_| AmmError::MathOverflow)?;
     let (a, b) = apply(&mut ctx, delta)?;
+    // Any change of liquidity can change what a probe trade does (more
+    // liquidity can also make a probe output round to zero), so the depth
+    // mark is cleared on increases too (re-audit P2-5).
+    ctx.accounts.shard.depth_verified = false;
     require!(
         a <= amount_a_max && b <= amount_b_max,
         AmmError::SlippageExceeded
@@ -167,7 +173,7 @@ pub fn handle_decrease_liquidity<'info>(
         .ok_or(AmmError::MathOverflow)?;
     let (a, b) = apply(&mut ctx, delta)?;
     // Less liquidity may mean less depth: `verify_depth` must run again
-    // before a prepared shard can open or activate.
+    // before a prepared shard can open or activate (also on increases).
     ctx.accounts.shard.depth_verified = false;
     require!(
         a >= amount_a_min && b >= amount_b_min,

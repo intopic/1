@@ -456,22 +456,6 @@ fn pause_flags_roles_and_exits() {
     env.add_liquidity(&m, &t, 0, -600, 600, 1_000_000).unwrap();
 }
 
-fn ix_shard_flags(
-    m: &Market,
-    authority: &Pubkey,
-    id: u8,
-    flags: u8,
-) -> solana_instruction::Instruction {
-    ix(
-        sharded_amm::accounts::SetShardPauseFlags {
-            authority: *authority,
-            market: m.market,
-            shard: shard_addrs(m, id, 0).shard,
-        },
-        sharded_amm::instruction::SetShardPauseFlags { flags },
-    )
-}
-
 /// One shard paused: the other seven keep trading, its LPs can still leave,
 /// and the roles are those of the market flags.
 #[test]
@@ -557,28 +541,6 @@ fn shard_pause_stops_one_shard_only() {
     .unwrap();
     env.swap(&m, &t, 1, true, 1_000_000).unwrap();
     env.add_liquidity(&m, &t, 1, -600, 600, 1_000_000).unwrap();
-}
-
-fn ix_reopen(
-    m: &Market,
-    admin: &Pubkey,
-    id: u8,
-    flags: u8,
-    refs: &[u8],
-) -> solana_instruction::Instruction {
-    let mut i = ix(
-        sharded_amm::accounts::ReopenShard {
-            admin: *admin,
-            market: m.market,
-            registry: m.registry,
-            shard: shard_addrs(m, id, 0).shard,
-        },
-        sharded_amm::instruction::ReopenShard { flags },
-    );
-    i.accounts.extend(refs.iter().map(|r| {
-        solana_instruction::AccountMeta::new_readonly(shard_addrs(m, *r, 0).shard, false)
-    }));
-    i
 }
 
 /// Shard 0's price is more than 1% off the others when its swaps are
@@ -670,4 +632,61 @@ fn controlled_reopen_after_recovery() {
         reopen(&mut env, &[1, 2, 3]),
         amm_code(AmmError::NoPendingChange),
     );
+}
+
+/// Re-audit P2-1: reopening never depends on three shards that cannot
+/// reopen themselves. With 1 or 2 trading shards they are the references;
+/// with none, a bootstrap checks the shard against paused ones.
+#[test]
+fn reopen_with_fewer_than_three_trading_shards() {
+    let mut env = Env::new();
+    let (m, _) = env.open_seeded_market();
+    let (admin, pauser) = (env.admin.insecure_clone(), env.pauser.insecure_clone());
+    let pause = |env: &mut Env, id: u8| {
+        env.send(
+            &[ix_shard_flags(&m, &pauser.pubkey(), id, PAUSE_SWAPS)],
+            &[&pauser],
+        )
+        .unwrap();
+    };
+    let reopen = |env: &mut Env, id: u8, refs: &[u8]| {
+        env.send(&[ix_reopen(&m, &admin.pubkey(), id, 0, refs)], &[&admin])
+    };
+    for id in 0..6 {
+        pause(&mut env, id);
+    }
+    assert_eq!(env.registry(&m).swap_paused_mask, 0b11_1111);
+    // Two trading (6, 7): both are required, paused ones are not accepted.
+    expect_custom(
+        reopen(&mut env, 0, &[6]),
+        amm_code(AmmError::InvalidAccountCount),
+    );
+    expect_custom(
+        reopen(&mut env, 0, &[1, 6, 7]),
+        amm_code(AmmError::ShardPaused),
+    );
+    reopen(&mut env, 0, &[6, 7]).unwrap();
+    assert_eq!(env.registry(&m).swap_paused_mask, 0b11_1110);
+    pause(&mut env, 0);
+    // One trading (7).
+    pause(&mut env, 6);
+    reopen(&mut env, 1, &[7]).unwrap();
+    pause(&mut env, 1);
+    // None trading: bootstrap against paused active shards, still >= 3.
+    pause(&mut env, 7);
+    assert_eq!(env.registry(&m).swap_paused_mask, 0xff);
+    let t = env.user(&m, 1_000_000_000);
+    expect_custom(
+        env.swap(&m, &t, 2, true, 1_000),
+        amm_code(AmmError::ShardPaused),
+    );
+    expect_custom(
+        reopen(&mut env, 2, &[3, 4]),
+        amm_code(AmmError::InvalidAccountCount),
+    );
+    reopen(&mut env, 2, &[3, 4, 5]).unwrap();
+    env.swap(&m, &t, 2, true, 1_000).unwrap();
+    // From there on the others reopen against the trading shard 2.
+    reopen(&mut env, 3, &[2]).unwrap();
+    assert_eq!(env.registry(&m).swap_paused_mask, 0xff & !0b1100);
 }

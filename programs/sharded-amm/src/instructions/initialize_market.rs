@@ -101,7 +101,8 @@ pub fn handle_initialize_market(
             Pubkey::default(),
         ],
         pending_rebalancers: PendingRebalancers::default(),
-        reserved: [0; 14],
+        config_version: 0,
+        reserved: [0; 10],
     });
     ctx.accounts.registry.set_inner(ShardRegistry {
         market: market_key,
@@ -109,6 +110,7 @@ pub fn handle_initialize_market(
         active_mask: 0,
         registry_version: 0,
         bump: ctx.bumps.registry,
+        swap_paused_mask: 0,
     });
 
     emit!(MarketInitialized {

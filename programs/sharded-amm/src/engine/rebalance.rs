@@ -127,6 +127,8 @@ mod tests {
                 inside_last_b: Default::default(),
                 owed_a: 0,
                 owed_b: 0,
+                credited_a: 0,
+                credited_b: 0,
             };
             let mut refs: Vec<&mut TickArray> = s.arrays.iter_mut().collect();
             modify_position(&mut s.pool, &mut refs, SPACING, &mut pos, liquidity as i128).unwrap();

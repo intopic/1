@@ -107,16 +107,16 @@ Pozicioni:
 outside(init) = tick ≤ current ? global : 0                   // checked, 0 ≤ outside ≤ global
 outside(cross)= global − outside                              // checked
 inside(now)   = global − below(lower) − above(upper)          // mod 2^256
-owed_delta    = floor(old_position_L · (inside(now) − checkpoint mod 2^256) / 2^128)   // 384 bit → U512
+total         = floor(old_position_L · (inside(now) − checkpoint mod 2^256) / 2^128)   // 384 bit → U512
+owed_delta    = total − credited                              // checked: MathInvariantViolated
 owed          = owed.checked_add(owed_delta)  → gabim në overflow
-checkpoint    = Δliquidity ≤ 0 && old_position_L > 0
-                  ? checkpoint + ceil(owed_delta · 2^128 / old_position_L)   // mod 2^256, ≤ inside(now)
-                  : inside(now)
+Δliquidity = 0: checkpoint mbetet, credited = total
+Δliquidity ≠ 0: checkpoint = inside(now), credited = 0
 ```
 
-Checkpoint-i lëviz vetëm sa growth përdori `owed_delta` (29 tetor 2026, ide nga Orca). Mbetja e rrumbullakimit, më pak se një njësi token, ruhet për herën tjetër dhe nuk humbet. Kështu, mbledhja pas çdo swap-i paguan saktësisht sa një mbledhje e vetme në fund (`fee_math::tests::frequent_refreshes_pay_what_one_refresh_pays`, `eng15_fee_checkpoint`). Për të njëjtin pozicion, shuma e paguar deri tani është gjithmonë `floor(L · (inside(now) − checkpoint_fillestar) / 2^128)`, pra aq sa do të merrte një pozicion që s'mblidhet kurrë. Prandaj aftësia paguese nuk ndryshon.
+Kur likuiditeti nuk ndryshon, checkpoint-i nuk lëviz, dhe `credited` mban sa është kaluar tashmë te `owed` (29 tetor 2026, riauditimi P2-2). Rrumbullakimi bëhet vetëm një herë për gjithë periudhën, kështu që mbledhja pas çdo swap-i paguan **saktësisht** sa një mbledhje e vetme në fund. Testet: `fee_math::tests::frequent_refreshes_pay_what_one_refresh_pays`, që përfshin rastin e riauditimit (L = 3 dhe L = 1, katër swap-e me nga 1 njësi tarifë) dhe 500 raste të rastit, plus `eng15_fee_checkpoint`.
 
-Kur pozicioni rrit likuiditetin, checkpoint-i kalon në `inside(now)`. Përndryshe likuiditeti i ri do të merrte pjesë nga një mbetje e krijuar para se ai të ekzistonte, dhe kjo mund të paguante më shumë se sa është në vault. Kur likuiditeti ulet, mbetja e mbartur paguhet me L më të vogël, pra kurrë më shumë se pjesa që i takonte.
+Versioni i mëparshëm e lëvizte checkpoint-in me `ceil(paid · 2^128 / L)`, gjë që përdorte pak më shumë growth se sa duhej. Rasti i riauditimit paguante 2 në vend të 3. Kur likuiditeti ndryshon, në rritje ose ulje, nis një periudhë e re. Mbetja që humbet atje është më pak se 1 njësi token për çdo ndryshim, dhe i mbetet vault-it. Shuma e paguar nuk e kalon kurrë `floor(L · growth / 2^128)` të çdo periudhe, prandaj aftësia paguese nuk preket.
 
 - `global` është monoton dhe **checked** (`add_growth` refuzon overflow). `outside` **nuk** është monoton: në çdo kalim bëhet `global − outside`, pra mund të ulet; ajo që garantohet dhe kontrollohet është `0 ≤ outside ≤ global` (`cross_outside` dhe `growth_inside` kthejnë `MathInvariantViolated` përndryshe). `inside` nuk mund të jetë checked: me inicializimin standard ai del negativ për një range që çmimi nuk e ka prekur ende (kundërshembulli në `math::fee_math::tests::inside_can_be_negative`). Prandaj `inside` llogaritet mod `2^256` dhe përdoren vetëm diferencat e tij. Diferenca reale (growth brenda range-it që nga checkpoint-i) është jo-negative dhe `< 2^256`, kështu që zbritja modulare është ekzakte. Asnjë shumë, L ose balancë nuk përdor wrapping.
 - Tarifat historike llogariten me **L e vjetër** përpara çdo add/remove. Tarifa nuk shtohet kurrë në L aktiv.

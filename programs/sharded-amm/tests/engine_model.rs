@@ -23,7 +23,7 @@ use anchor_lang::prelude::Pubkey;
 use sharded_amm::constants::MAX_DYNAMIC_FEE_RATE_PPM;
 use sharded_amm::engine::{dynamic_fee, modify_position, swap, Pool, PositionState, SwapParams};
 use sharded_amm::errors::AmmError;
-use sharded_amm::math::fee_math::{fees_owed, growth_inside};
+use sharded_amm::math::fee_math::{fees_since, growth_inside};
 use sharded_amm::math::liquidity_math::amounts_for_liquidity;
 use sharded_amm::math::tick_math::sqrt_price_at_tick;
 use sharded_amm::math::wide::U256;
@@ -264,8 +264,8 @@ impl World {
         )
         .unwrap();
         (
-            fees_owed(q.liquidity, ia, q.inside_last_a).unwrap(),
-            fees_owed(q.liquidity, ib, q.inside_last_b).unwrap(),
+            fees_since(q.liquidity, ia, q.inside_last_a, q.credited_a).unwrap(),
+            fees_since(q.liquidity, ib, q.inside_last_b, q.credited_b).unwrap(),
         )
     }
 

@@ -25,6 +25,7 @@ use crate::state::{MarketConfig, ReadinessParams, ShardRegistry, ShardState, Sha
 fn shard_ready(
     shard: &ShardState,
     market: &Pubkey,
+    config_version: u32,
     vault_a: &Account<TokenAccount>,
     vault_b: &Account<TokenAccount>,
     r: &ReadinessParams,
@@ -36,6 +37,7 @@ fn shard_ready(
     );
     Ok(shard.sqrt_price_x64 != 0
         && shard.depth_verified
+        && shard.depth_config_version == config_version
         && r.is_ready(shard.liquidity, vault_a.amount, vault_b.amount))
 }
 
@@ -72,7 +74,14 @@ pub fn handle_open_market<'info>(ctx: Context<'info, OpenMarket<'info>>) -> Resu
             shard.id == id && shard.status == ShardStatus::Prepared,
             AmmError::ShardMismatch
         );
-        if shard_ready(&shard, &market_key, &vault_a, &vault_b, &m.readiness)? {
+        if shard_ready(
+            &shard,
+            &market_key,
+            m.config_version,
+            &vault_a,
+            &vault_b,
+            &m.readiness,
+        )? {
             ready_mask |= 1 << id;
         }
         shards.push(shard);
@@ -158,6 +167,7 @@ pub fn handle_activate_shard(ctx: Context<ActivateShard>) -> Result<()> {
     let ready = shard_ready(
         shard,
         &m.key(),
+        m.config_version,
         &ctx.accounts.vault_a,
         &ctx.accounts.vault_b,
         &m.readiness,

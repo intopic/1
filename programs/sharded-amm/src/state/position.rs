@@ -19,4 +19,8 @@ pub struct Position {
     pub tokens_owed_a: u64,
     pub tokens_owed_b: u64,
     pub bump: u8,
+    /// Fees already moved to `tokens_owed_*` since the checkpoint; the
+    /// checkpoint moves only when liquidity changes (`fee_math::fees_since`).
+    pub fees_credited_a: u64,
+    pub fees_credited_b: u64,
 }

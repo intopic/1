@@ -89,27 +89,24 @@ pub fn fees_owed(liquidity: u128, inside_now: U256, checkpoint: U256) -> MathRes
     to_u64(mul_div(U256::from(liquidity), delta, Q128, false)?)
 }
 
-/// The checkpoint after paying `earned = fees_owed(liquidity, inside_now,
-/// checkpoint)`: it advances only by the growth that `earned` used up,
-/// `ceil(earned * 2^128 / liquidity)`, so the rounding remainder (worth less
-/// than one token unit) stays for the next refresh instead of being lost.
-/// Collecting often then pays exactly what one collect at the end would.
-/// With zero liquidity there is nothing to carry and the checkpoint is
-/// `inside_now`. The advance never exceeds `inside_now - checkpoint`.
-pub fn advance_checkpoint(
+/// Fees earned since the checkpoint and not yet credited to `owed`:
+/// `floor(L * (inside_now - checkpoint) / 2^128) - credited`.
+///
+/// While a position's liquidity is unchanged its checkpoint stays put and
+/// `credited` counts what was already moved to `owed`, so the rounding is
+/// done once over the whole period: refreshing (collecting) after every swap
+/// credits exactly what one refresh at the end would. A liquidity change
+/// moves the checkpoint to `inside_now` and resets `credited` to 0; the
+/// remainder lost there is below one token unit per change.
+pub fn fees_since(
     liquidity: u128,
     inside_now: U256,
     checkpoint: U256,
-    earned: u64,
-) -> MathResult<U256> {
-    if liquidity == 0 {
-        return Ok(inside_now);
-    }
-    let used = mul_div(U256::from(earned), Q128, U256::from(liquidity), true)?;
-    if used > inside_now.overflowing_sub(checkpoint).0 {
-        return Err(AmmError::MathInvariantViolated);
-    }
-    Ok(checkpoint.overflowing_add(used).0)
+    credited: u64,
+) -> MathResult<u64> {
+    fees_owed(liquidity, inside_now, checkpoint)?
+        .checked_sub(credited)
+        .ok_or(AmmError::MathInvariantViolated)
 }
 
 #[cfg(test)]
@@ -129,35 +126,48 @@ mod tests {
         assert_eq!(split_fee(7, 10_001), Err(AmmError::InvalidProtocolShare));
     }
 
+    /// Refreshes `n` times over `fees` (one swap each) on positions sharing
+    /// the range; returns what each was credited.
+    fn credited(ls: &[u128], fees: &[u64], every: bool) -> Vec<u64> {
+        let total: u128 = ls.iter().sum();
+        let mut global = U256::zero();
+        let mut credited = vec![0u64; ls.len()];
+        let mut paid = vec![0u64; ls.len()];
+        for (k, f) in fees.iter().enumerate() {
+            global = add_growth(global, growth_delta(*f, total).unwrap()).unwrap();
+            if every || k + 1 == fees.len() {
+                for (i, l) in ls.iter().enumerate() {
+                    let e = fees_since(*l, global, U256::zero(), credited[i]).unwrap();
+                    credited[i] += e;
+                    paid[i] += e;
+                }
+            }
+        }
+        paid
+    }
+
     #[test]
     fn frequent_refreshes_pay_what_one_refresh_pays() {
-        // 1 000 swaps of 7 units each on L = 3: one refresh at the end pays
-        // floor(7000 * 3 / 3) minus the per-swap growth rounding; refreshing
-        // after every swap must pay exactly the same with the carried
-        // remainder, and less without it.
-        let l = 3u128;
-        let mut global = U256::zero();
-        let (mut ckpt, mut ckpt_old, mut paid, mut paid_old) =
-            (U256::zero(), U256::zero(), 0u64, 0u64);
-        for _ in 0..1_000 {
-            global = add_growth(global, growth_delta(7, l).unwrap()).unwrap();
-            let e = fees_owed(l, global, ckpt).unwrap();
-            ckpt = advance_checkpoint(l, global, ckpt, e).unwrap();
-            paid += e;
-            paid_old += fees_owed(l, global, ckpt_old).unwrap();
-            ckpt_old = global;
+        // The re-audit's case: L = 3 and L = 1, four swaps of one unit each.
+        // A ceil-advanced checkpoint paid [0, 1, 1, 0] = 2 to L = 3.
+        assert_eq!(credited(&[3, 1], &[1; 4], true), vec![3, 1]);
+        assert_eq!(credited(&[3, 1], &[1; 4], false), vec![3, 1]);
+        // Random liquidities, fees and refresh patterns.
+        let mut r = 0x5eed_u64;
+        let mut next = || {
+            r ^= r << 13;
+            r ^= r >> 7;
+            r ^= r << 17;
+            r
+        };
+        for _ in 0..500 {
+            let n = 1 + (next() % 4) as usize;
+            let ls: Vec<u128> = (0..n).map(|_| 1 + u128::from(next() % 1_000)).collect();
+            let fees: Vec<u64> = (0..1 + next() % 40).map(|_| next() % 50).collect();
+            assert_eq!(credited(&ls, &fees, true), credited(&ls, &fees, false));
         }
-        let once = fees_owed(l, global, U256::zero()).unwrap();
-        assert_eq!(paid, once);
-        assert!(paid_old < once, "{paid_old} vs {once}");
-        // The carried remainder is worth less than one unit.
-        assert_eq!(fees_owed(l, global, ckpt).unwrap(), 0);
         assert_eq!(
-            advance_checkpoint(0, global, U256::zero(), 0).unwrap(),
-            global
-        );
-        assert_eq!(
-            advance_checkpoint(l, global, global, 1),
+            fees_since(3, U256::zero(), U256::zero(), 1),
             Err(AmmError::MathInvariantViolated)
         );
     }

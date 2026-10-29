@@ -35,10 +35,13 @@ pub struct ShardState {
     /// Set by `verify_depth` while `Prepared`, cleared by any liquidity
     /// decrease; `open_market` and `activate_shard` require it (rule 4).
     pub depth_verified: bool,
+    /// `MarketConfig::config_version` the depth probe ran under; the mark is
+    /// valid only while they are equal.
+    pub depth_config_version: u32,
     /// Pauses of this shard only (`PAUSE_*`), set like the market's
     /// (`set_shard_pause_flags`); none blocks LP exits.
     pub pause_flags: u8,
-    pub reserved: [u8; 32],
+    pub reserved: [u8; 28],
 }
 
 impl ShardState {

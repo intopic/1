@@ -49,8 +49,12 @@ pub struct MarketConfig {
     pub rebalancers: [Pubkey; MAX_REBALANCERS],
     /// Rebalancer change waiting for `FEE_TIMELOCK_SECONDS`.
     pub pending_rebalancers: PendingRebalancers,
+    /// Bumped by every applied change of parameters a depth probe depends on
+    /// (`apply_fees`); a shard's depth certificate is valid only for the
+    /// version it was made under (re-audit P2-5).
+    pub config_version: u32,
     /// Zeroed space for future fields without a realloc.
-    pub reserved: [u8; 14],
+    pub reserved: [u8; 10],
 }
 
 #[derive(
@@ -358,6 +362,7 @@ impl MarketConfig {
         self.params = new;
         self.dynamic_fees = p.dynamic;
         self.pending_fees = PendingFees::default();
+        self.config_version = self.config_version.wrapping_add(1);
         Ok((old, new))
     }
 
@@ -558,7 +563,8 @@ mod tests {
                 Pubkey::default(),
             ],
             pending_rebalancers: PendingRebalancers::default(),
-            reserved: [0; 14],
+            config_version: 0,
+            reserved: [0; 10],
         }
     }
 

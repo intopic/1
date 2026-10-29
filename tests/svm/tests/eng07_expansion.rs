@@ -213,3 +213,51 @@ fn all_56_shards_can_be_active() {
     // Full: no further shard ID exists.
     expect_err(env.prepare(&m, &keeper, 56));
 }
+
+/// Re-audit P2-1 at capacity: with 54 of 56 shards swap-paused the two
+/// trading ones are enough to reopen; with all 56 paused a bootstrap against
+/// paused shards still reopens one, and then the rest against it.
+#[test]
+fn reopen_at_capacity_with_few_or_no_trading_shards() {
+    let mut env = Env::new();
+    let (m, lp) = env.open_seeded_market();
+    let keeper = env.keeper.insecure_clone();
+    for id in 8u8..56 {
+        stage(&mut env, &m, &lp, id, Q64, 1_000_000_000);
+        let reference = id - 1 - (id % 7);
+        env.send(
+            &[Env::ix_activate(&m, &keeper.pubkey(), id, reference)],
+            &[&keeper],
+        )
+        .unwrap();
+    }
+    let (admin, pauser) = (env.admin.insecure_clone(), env.pauser.insecure_clone());
+    let flags = sharded_amm::constants::PAUSE_SWAPS;
+    for id in 0u8..54 {
+        env.send(
+            &[ix_shard_flags(&m, &pauser.pubkey(), id, flags)],
+            &[&pauser],
+        )
+        .unwrap();
+    }
+    let reopen = |env: &mut Env, id: u8, refs: &[u8]| {
+        env.send(&[ix_reopen(&m, &admin.pubkey(), id, 0, refs)], &[&admin])
+    };
+    expect_custom(
+        reopen(&mut env, 10, &[54]),
+        amm_code(AmmError::InvalidAccountCount),
+    );
+    reopen(&mut env, 10, &[54, 55]).unwrap();
+    for id in [10u8, 54, 55] {
+        env.send(
+            &[ix_shard_flags(&m, &pauser.pubkey(), id, flags)],
+            &[&pauser],
+        )
+        .unwrap();
+    }
+    assert_eq!(env.registry(&m).swap_paused_mask, (1u64 << 56) - 1);
+    reopen(&mut env, 20, &[21, 22, 23]).unwrap();
+    reopen(&mut env, 21, &[20]).unwrap();
+    let t = env.user(&m, 1_000_000_000);
+    env.swap(&m, &t, 21, true, 100_000).unwrap();
+}
