@@ -31,6 +31,7 @@ pub use solana_instruction::error::InstructionError;
 pub const TOKEN_PROGRAM: Pubkey = anchor_spl::token::ID;
 pub const TOKEN_2022_PROGRAM: Pubkey = anchor_spl::token_2022::ID;
 pub const SYSTEM_PROGRAM: Pubkey = anchor_lang::system_program::ID;
+pub const NATIVE_MINT: Pubkey = anchor_lang::pubkey!("So11111111111111111111111111111111111111112");
 pub const RENT_SYSVAR: Pubkey = anchor_lang::pubkey!("SysvarRent111111111111111111111111111111111");
 
 /// Anchor's numeric codes for account-constraint failures used below.
@@ -462,10 +463,19 @@ pub struct Lp {
 }
 
 impl Env {
+    /// A classic SPL token account. For the native mint (WSOL) it is a real
+    /// native account: `is_native = Some(rent)` and lamports = rent + amount,
+    /// as the token program requires to move wrapped SOL.
     pub fn token_account(&mut self, mint: &Pubkey, owner: &Pubkey, amount: u64) -> Pubkey {
         let key = Pubkey::new_unique();
-        let data = token_account_data(mint, owner, amount);
-        let lamports = self.svm.minimum_balance_for_rent_exemption(165);
+        let mut data = token_account_data(mint, owner, amount);
+        let rent = self.svm.minimum_balance_for_rent_exemption(165);
+        let mut lamports = rent;
+        if *mint == NATIVE_MINT {
+            data[109..113].copy_from_slice(&1u32.to_le_bytes());
+            data[113..121].copy_from_slice(&rent.to_le_bytes());
+            lamports += amount;
+        }
         self.svm
             .set_account(
                 key,
