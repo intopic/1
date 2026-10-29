@@ -127,8 +127,10 @@ shard:       ["shard", market, shard_id_u8, generation_u64_le]
 vault_auth:  ["vault_auth", shard]
 vault:       ["vault", shard, mint]
 ticks:       ["ticks", shard, start_tick_i32_le]
-position:    ["lp_pos", shard, owner, position_id_u64_le]
+position:    ["lp_pos", shard, owner, tick_lower_i32_le, tick_upper_i32_le]
 ```
+
+Seed-et normative janë në [account-layout.md](account-layout.md) (auditimi F-02).
 
 ID është `u8`; ndërrimi i gjerësisë së seed-it më vonë ndryshon adresën dhe kërkon versionim. Mint-et kanë renditje kanonike. Çdo instruksion kontrollon owner, seeds/bump, mint, authority dhe lidhjet market/shard. Fushat e çmimit/likuiditetit dhe aritmetika fixed-point përcaktohen plotësisht para implementimit CLMM; emërtimi i tyre këtu nuk përbën matematikë të përfunduar.
 

@@ -1,0 +1,220 @@
+{
+ "program_id": "B6rXDCwiXe1CyXyCS4JS1Tn9J5yud87cREWapUoD5hEy",
+ "abi": 1,
+ "fixtures": [
+  {
+   "kind": "market",
+   "inputs": {
+    "schema": 1,
+    "mint_a": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+    "mint_b": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+    "market_id": 7
+   },
+   "seeds_hex": [
+    "6d61726b6574",
+    "0100",
+    "0101010101010101010101010101010101010101010101010101010101010101",
+    "0202020202020202020202020202020202020202020202020202020202020202",
+    "0700000000000000"
+   ],
+   "address": "Fc9Vr1ZFgZBhNYLjM8XyK4Jb56LhqfqDe8P9CHP9dkfX",
+   "bump": 255
+  },
+  {
+   "kind": "registry",
+   "inputs": {
+    "market": "Fc9Vr1ZFgZBhNYLjM8XyK4Jb56LhqfqDe8P9CHP9dkfX"
+   },
+   "seeds_hex": [
+    "7265676973747279",
+    "d9048da17ccc0dd9092476d1cd835c1576bb3a6053719c67b12568d399972f26"
+   ],
+   "address": "7MjGagVfVTv3YKe5HtrBFh1YAM68PAtdqXy7EaZXGGpc",
+   "bump": 253
+  },
+  {
+   "kind": "shard",
+   "inputs": {
+    "market": "Fc9Vr1ZFgZBhNYLjM8XyK4Jb56LhqfqDe8P9CHP9dkfX",
+    "id": 0,
+    "generation": 0
+   },
+   "seeds_hex": [
+    "7368617264",
+    "d9048da17ccc0dd9092476d1cd835c1576bb3a6053719c67b12568d399972f26",
+    "00",
+    "0000000000000000"
+   ],
+   "address": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB",
+   "bump": 255
+  },
+  {
+   "kind": "vault_auth",
+   "inputs": {
+    "shard": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB"
+   },
+   "seeds_hex": [
+    "7661756c745f61757468",
+    "041f99ba28af6b77b679bbfb463508b4e0cd7acb26b5dd2b898edee6ae129308"
+   ],
+   "address": "3TuvbU6DTE1SE7Edw2cErxvjNRULALUDGkp7FBGTh8TC",
+   "bump": 254
+  },
+  {
+   "kind": "vault",
+   "inputs": {
+    "shard": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB",
+    "mint": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+   },
+   "seeds_hex": [
+    "7661756c74",
+    "041f99ba28af6b77b679bbfb463508b4e0cd7acb26b5dd2b898edee6ae129308",
+    "0101010101010101010101010101010101010101010101010101010101010101"
+   ],
+   "address": "3TcKXnjdcJXTrQF79n5XYs4dHT8tzdDTstZrVC9QCNvi",
+   "bump": 254
+  },
+  {
+   "kind": "vault",
+   "inputs": {
+    "shard": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB",
+    "mint": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+   },
+   "seeds_hex": [
+    "7661756c74",
+    "041f99ba28af6b77b679bbfb463508b4e0cd7acb26b5dd2b898edee6ae129308",
+    "0202020202020202020202020202020202020202020202020202020202020202"
+   ],
+   "address": "7RiKmwJ1P6LGJwupbU6dfVQMcdHCs9owQhKLTTjRswFW",
+   "bump": 252
+  },
+  {
+   "kind": "ticks",
+   "inputs": {
+    "shard": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB",
+    "start": 0
+   },
+   "seeds_hex": [
+    "7469636b73",
+    "041f99ba28af6b77b679bbfb463508b4e0cd7acb26b5dd2b898edee6ae129308",
+    "00000000"
+   ],
+   "address": "7Tf9nT1Z8get65vyrViZq6NYBp8BKhtGgcnZ1zVx9KMb",
+   "bump": 255
+  },
+  {
+   "kind": "ticks",
+   "inputs": {
+    "shard": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB",
+    "start": -1920
+   },
+   "seeds_hex": [
+    "7469636b73",
+    "041f99ba28af6b77b679bbfb463508b4e0cd7acb26b5dd2b898edee6ae129308",
+    "80f8ffff"
+   ],
+   "address": "AM8CXmagPnnhCdN1CdeRNT7djZBGqH84P1RUR5B644ZW",
+   "bump": 255
+  },
+  {
+   "kind": "ticks",
+   "inputs": {
+    "shard": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB",
+    "start": 443520
+   },
+   "seeds_hex": [
+    "7469636b73",
+    "041f99ba28af6b77b679bbfb463508b4e0cd7acb26b5dd2b898edee6ae129308",
+    "80c40600"
+   ],
+   "address": "25Ve1QqLpdsGtcv8oXij2eK4WTPzxk4CaZeDmJQVxttD",
+   "bump": 254
+  },
+  {
+   "kind": "position",
+   "inputs": {
+    "shard": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB",
+    "owner": "GyGKxMyg1p9SsHfm15MkNUu1u9TN2JtTspcdmrtGUdse",
+    "lower": -1200,
+    "upper": 1200
+   },
+   "seeds_hex": [
+    "6c705f706f73",
+    "041f99ba28af6b77b679bbfb463508b4e0cd7acb26b5dd2b898edee6ae129308",
+    "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+    "50fbffff",
+    "b0040000"
+   ],
+   "address": "CFk8s9cGMPq7cXhVb8HcbwyercgirjHX68b4UhYpGbC1",
+   "bump": 254
+  },
+  {
+   "kind": "position",
+   "inputs": {
+    "shard": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB",
+    "owner": "GyGKxMyg1p9SsHfm15MkNUu1u9TN2JtTspcdmrtGUdse",
+    "lower": -443580,
+    "upper": 443580
+   },
+   "seeds_hex": [
+    "6c705f706f73",
+    "041f99ba28af6b77b679bbfb463508b4e0cd7acb26b5dd2b898edee6ae129308",
+    "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+    "443bf9ff",
+    "bcc40600"
+   ],
+   "address": "BfT9wKVN51z8ZVx6LKAvkGTFQdUjYjioURdRKNbeTZLX",
+   "bump": 254
+  },
+  {
+   "kind": "position",
+   "inputs": {
+    "shard": "H6aYqknGdTpxwdvAVXV13CccQxpFvcnmXFHovNXEHxB",
+    "owner": "GyGKxMyg1p9SsHfm15MkNUu1u9TN2JtTspcdmrtGUdse",
+    "lower": -60,
+    "upper": 0
+   },
+   "seeds_hex": [
+    "6c705f706f73",
+    "041f99ba28af6b77b679bbfb463508b4e0cd7acb26b5dd2b898edee6ae129308",
+    "ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1",
+    "c4ffffff",
+    "00000000"
+   ],
+   "address": "51xuDC2Y6urdUNU9oY1fzLbFMreYrMV1Uy9LG4Dr21MM",
+   "bump": 254
+  },
+  {
+   "kind": "shard",
+   "inputs": {
+    "market": "Fc9Vr1ZFgZBhNYLjM8XyK4Jb56LhqfqDe8P9CHP9dkfX",
+    "id": 7,
+    "generation": 0
+   },
+   "seeds_hex": [
+    "7368617264",
+    "d9048da17ccc0dd9092476d1cd835c1576bb3a6053719c67b12568d399972f26",
+    "07",
+    "0000000000000000"
+   ],
+   "address": "CUV2jQiBCMhYJ1kSEMeAEEGRskstjBrS3qvrt4B1HEmG",
+   "bump": 255
+  },
+  {
+   "kind": "shard",
+   "inputs": {
+    "market": "Fc9Vr1ZFgZBhNYLjM8XyK4Jb56LhqfqDe8P9CHP9dkfX",
+    "id": 55,
+    "generation": 3
+   },
+   "seeds_hex": [
+    "7368617264",
+    "d9048da17ccc0dd9092476d1cd835c1576bb3a6053719c67b12568d399972f26",
+    "37",
+    "0300000000000000"
+   ],
+   "address": "7QiU9efoFdmvsDeu9fpftx5SxuU6QcE3cXaRKiMSgPnJ",
+   "bump": 254
+  }
+ ]
+}

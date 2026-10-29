@@ -180,6 +180,29 @@ fn idl_is_complete_and_decodes_real_events() {
             .as_u64()
             .unwrap() as u32
     };
+    // F-02: the IDL publishes the same position seeds as the ABI doc.
+    let open = idl["instructions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["name"] == "open_position")
+        .unwrap();
+    let pos = open["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["name"] == "position")
+        .unwrap();
+    assert_eq!(
+        pos["pda"]["seeds"],
+        serde_json::json!([
+            {"kind": "const", "value": b"lp_pos".to_vec()},
+            {"kind": "account", "path": "shard"},
+            {"kind": "account", "path": "owner"},
+            {"kind": "arg", "path": "tick_lower"},
+            {"kind": "arg", "path": "tick_upper"},
+        ])
+    );
     use sharded_amm::errors::AmmError;
     for (name, e) in [
         ("SlippageExceeded", AmmError::SlippageExceeded),

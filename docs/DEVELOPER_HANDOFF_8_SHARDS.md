@@ -103,8 +103,10 @@ shard:      ["shard", market_pubkey, id_u8, generation_u64_le]
 vault_auth: ["vault_auth", shard_pubkey]
 vault:      ["vault", shard_pubkey, mint_pubkey]
 tick_array: ["ticks", shard_pubkey, start_tick_i32_le]
-position:   ["lp_pos", shard_pubkey, owner_pubkey, position_id_u64_le]
+position:   ["lp_pos", shard_pubkey, owner_pubkey, tick_lower_i32_le, tick_upper_i32_le]
 ```
+
+> **Përditësim (auditimi F-02):** varianti i mëparshëm me `position_id_u64_le` u zëvendësua. ABI normative është në [account-layout.md](account-layout.md), me fixture adresash në `docs/vectors/pda_fixtures.json`.
 
 Ky është ABI i programit tonë; nuk supozohet kompatibilitet adresash me Raydium. Në veçanti, seed byte order i tick arrays nuk merret pa shqyrtim nga upstream-i. Inicializimi i vault-eve përdor token program-in e lejuar dhe autoritetin lokal; vault authority nuk ka të drejtë administratori për të transferuar principal arbitrarisht.
 

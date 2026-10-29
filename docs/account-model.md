@@ -14,7 +14,7 @@ Seed-et janë tentative. `shard_id` kodohet si një bajt `u8`; numrat e tjerë k
 | `VaultAuthority` | `["vault_auth", shard_state]` | PDA signer; mund të jetë pa data |
 | `VaultA/B` | `["vault", shard_state, mint]` | SPL Token; authority = `VaultAuthority` |
 | `TickArray` | `["ticks", shard_state, start_tick_i32]` | Programi AMM |
-| `LpPosition` | `["lp_pos", shard_state, owner, position_id_u64]` | Programi AMM |
+| `LpPosition` | `["lp_pos", shard_state, owner, tick_lower_i32, tick_upper_i32]` (normative: [account-layout.md](account-layout.md)) | Programi AMM |
 | `ReserveLane` | `["reserve", market, lane_id_u32, generation_u64]` | Programi i huadhënies ose modul i të njëjtit program; vendim i hapur |
 | `ReserveAuthority` | `["reserve_auth", reserve_lane]` | PDA signer |
 | `DebtVault/CollateralVault` | `["reserve_vault", reserve_lane, mint]` | SPL Token; authority = `ReserveAuthority` |

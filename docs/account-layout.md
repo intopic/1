@@ -13,8 +13,16 @@ shard:      ["shard", market, id_u8, generation_u64_le]
 vault_auth: ["vault_auth", shard]        (pa data, vetëm signer i vault-eve)
 vault:      ["vault", shard, mint]       (SPL Token account, authority = vault_auth)
 ticks:      ["ticks", shard, start_tick_i32_le]          (ENG-05)
-position:   ["lp_pos", shard, owner, position_id_u64_le] (ENG-05)
+position:   ["lp_pos", shard, owner, tick_lower_i32_le, tick_upper_i32_le]
 ```
+
+Adresat e plota për input-e fikse janë në [`docs/vectors/pda_fixtures.json`](vectors/pda_fixtures.json), të gjeneruara nga `tools/reference/pda_fixtures.py` (i pavarur nga kodi Rust). Testi SVM `pda_abi` kontrollon që programi real krijon pikërisht këto adresa dhe bump-e.
+
+### Pse pozicioni identifikohet nga range-i (ABI v1)
+
+Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Shtimi i likuiditetit në të njëjtin range e rrit pozicionin ekzistues; tarifat e fituara deri atëherë kalojnë në `tokens_owed` para se të ndryshojë likuiditeti, kështu që bashkimi nuk humb asgjë. Përparësitë: klienti e gjen adresën pa numërues onchain, nuk ka llogari counter që bëhet pikë konflikti write-lock-u, dhe nuk ka rrezik garash për `position_id`. Kufizimi: pozicioni nuk transferohet (nuk ka NFT) dhe i njëjti pronar nuk mban dy pozicione të ndara në të njëjtin range. Nëse duhet transferim, kjo bëhet ABI v2.
+
+**Versionimi:** versioni i ABI-së mbahet në seed-in e market-it (`schema_u16_le`). Shard-i lidhet me market-in, pozicioni me shard-in, prandaj çdo ndryshim i seed-eve të pozicionit kërkon `SCHEMA_VERSION = 2`, që jep market, shard dhe pozicione me adresa të reja. Varianti `position_id_u64_le` në dokumentet e vjetra **nuk është ABI** dhe nuk është implementuar.
 
 ## `MarketConfig` — 316 bajt
 
