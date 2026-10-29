@@ -25,7 +25,18 @@ Përditësuar: 29 tetor 2026. Repository: `github.com/intopic/1`, branch `claude
 
 ## Stresi masiv (ENG-10)
 
-Shiko seksionin "Rezultatet e stresit" (plotësohet nga ekzekutimi i fundit i `stress.yml`).
+Ekzekutimi i parë: [stress #1](https://github.com/intopic/1/actions/runs/40792480311), 29 tetor 2026, seed_base 1. Të 35 punët **kaluan pa asnjë dështim**. Puna u nda në 16 punë host dhe 16 punë on-chain që ekzekutohen paralelisht.
+
+| Pjesa | Sasia në një ekzekutim | Çfarë kontrollohet |
+|---|---|---|
+| Vetitë matematikore | ~61 milionë raste | rrumbullakim ekzakt floor/ceil, çmimi tjetër që s'e kalon objektivin, hapat e swap-it në favor të pool-it, ndarja e input-it, fee growth, likuiditeti |
+| Modeli i motorit | 3.2 milionë sekuenca me shumë LP, ~110 milionë tentativa swap (~11 milionë kalime ticks) | të gjitha invariantet pas çdo veprimi, gjendje e pandryshuar pas dështimit, dalje e plotë |
+| CPMM baseline | 16 milionë sekuenca × 40 hapa | ledger, k, pa fitim nga round-trip |
+| Ticks | 887 273 (i gjithë domain-i) | floor ekzakt dhe inversi |
+| On-chain (programi SBF real në LiteSVM) | 16 × 20 000 veprime të rastit, dhe të gjitha suitat SVM 16 herë | çdo swap bit-për-bit me motorin host, ruajtja e token-ave, dalja e plotë |
+| Simulimi ENG-09 | 32 seeds | përfundimet e [analizës](docs/sim/eng09-analysis.md) |
+
+Ekzekutimi riprodhohet nga GitHub Actions → stress → Run workflow, me `scale` (shumëzues) dhe `seed_base`. Çdo punë e shtyp seed-in e vet.
 
 ## Kufizime të njohura
 

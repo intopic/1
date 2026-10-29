@@ -5,9 +5,10 @@ name: stress
 # AMM_STRESS_SEED / AMM_SVM_SEED and case count to reproduce a failure.
 #
 # Default scale per run (16 host shards + 16 SVM shards):
-#   - math properties: 7 properties x 1,000,000 cases x 16 = 112M checks
+#   - math properties: ~3.8M cases per shard x 16 = ~61M exact checks
 #   - engine model: 200,000 random multi-LP sequences x 16 = 3.2M sequences
-#   - CPMM baseline: 1,000,000 random sequences x 16 = 16M sequences
+#     (~110M swap attempts, every invariant checked after each operation)
+#   - CPMM baseline: 1,000,000 random 40-step sequences x 16
 #   - every one of the 887,273 ticks against an exact reference
 #   - on-chain (LiteSVM, real SBF program): 20,000 random operations x 16,
 #     each swap compared bit for bit with the host engine, plus all suites
