@@ -1,0 +1,15 @@
+[package]
+name = "amm-sim"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+description = "ENG-09: fee tier / tick spacing / sharding simulation against the CPMM baseline"
+
+[[bin]]
+name = "eng09"
+path = "src/main.rs"
+
+[dependencies]
+amm-model = { path = "../amm-model" }
+sharded-amm = { path = "../../programs/sharded-amm", features = ["no-entrypoint"] }
+anchor-lang = { version = "=1.2.1", default-features = false, features = ["solana-v4"] }

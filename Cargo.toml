@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/amm-model", "programs/sharded-amm"]
+members = ["crates/amm-model", "crates/sim", "programs/sharded-amm"]
 exclude = ["env-smoke", "env-anchor", "tests/svm"]
 resolver = "2"
 
