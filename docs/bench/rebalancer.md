@@ -7,7 +7,7 @@ Bot-i jashtë zinxhirit për `rebalance_pair` (ADR-0006): [`tests/svm/examples/r
 Çdo raund:
 
 1. **Snapshot.** Tregu, 8 shard-et dhe tick arrays rreth çmimit të secilit lexohen me një `getMultipleAccounts`, pra nga i njëjti slot.
-2. **Plani.** `rebalance_round` gjen deri në 4 rebalancime në çifte shard-esh që nuk ndajnë asnjë shard: hendekun më të gjerë, pastaj më të gjerin mes shard-eve që mbetën, e kështu me radhë. Çdo shard ka state, vault-e dhe tick arrays të vetat, kështu që transaksionet nuk shkruajnë asnjë llogari të përbashkët dhe mund të zbresin në të njëjtin slot.
+2. **Plani.** `rebalance_round` llogarit fitimin për çdo çift shard-esh (28 me 8 shard-e) dhe zgjedh saktësisht grupin me deri në 4 çifte pa asnjë shard të përbashkët me fitimin total më të madh (maximum weight matching, me kërkim branch and bound). Propozim i gerfa-s, 29 tetor 2026. Krahasuar me versionin e parë (hendeku më i gjerë, pastaj më i gjeri mes shard-eve që mbetën), në 40 botë të rastit me thellësi të ndryshme: fitim total më i madh se 1% në 25 nga 40 botë, mediana +2,4%, maksimumi +21,9% (testi host `a_round_is_the_best_set_of_disjoint_pairs`, i krahasuar edhe me forcë brutale mbi të gjitha kombinimet). Koha për raund: ~16 ms me 8 shard-e; me më shumë se 16 shard-e llogariten vetëm 8 më të lirët dhe 8 më të shtrenjtët (~64 ms me 56), sepse të 1 540 çiftet marrin ~0,9 s. Çdo shard ka state, vault-e dhe tick arrays të vetat, kështu që transaksionet nuk shkruajnë asnjë llogari të përbashkët dhe mund të zbresin në të njëjtin slot.
 3. **Pragu i fitimit.** Një plan dërgohet vetëm nëse fitimi në tokenin e vet është të paktën sa kostoja e një transaksioni në atë token (`--min-a`, `--min-b`). Onchain `min_profit` vendoset 90% e fitimit të parashikuar, por kurrë nën pragun. Nëse çmimet lëvizin ndërkohë, transaksioni dështon në vend që të paguajë më pak se kostoja.
 4. **Dërgimi.** Plani `k` nënshkruhet dhe paguhet nga çelësi `k`, një nga 4 rebalancer-at e listuar. Asnjë payer i përbashkët, që do t'i serializonte (shih kontrollin negativ në [validator-bench.md](validator-bench.md)).
 5. **Pas dërgimit.** `recovery::after_send`: dështimi dekodohet në gabimin e programit dhe klasifikohet. Transaksioni që nuk shihet ridërgohet me të njëjtat bajte sa kohë blockhash-i është i vlefshëm, dhe braktiset vetëm kur ka skaduar dhe historiku i plotë tregon që nuk ka ekzekutuar.
@@ -66,7 +66,7 @@ Floors: 5000 A, 5000 B per transaction. Four rebalancer keys, each its own fee p
 
 Hendeku: 179.8 bps pas shtyrjes, 60.3 bps pas fazës së qetë, 60.3 bps në fund. Brezi i tarifave (dy tarifa) është 60.0 bps: brenda tij asnjë rebalancim nuk paguan.
 
-**Lexo kështu.** Në raundin e parë 4 rebalancime në 4 çifte të ndara zbritën në **të njëjtin slot**. Gjatë zhurmës, dështimet (`RebalanceUnprofitable`) ndodhin kur një swap i trader-it zbret para rebalancimit: transaksioni dështon, bot-i humb vetëm tarifën e transaksionit (5 000 lamports), jo tokena. CU për rebalancim: rreth 73k; me limit 300k.
+**Lexo kështu.** Në këtë skenar (gjysma poshtë, gjysma lart) matching-u dhe versioni i parë zgjedhin të njëjtat çifte. Në raundin e parë 4 rebalancime në 4 çifte të ndara zbritën në **të njëjtin slot**. Gjatë zhurmës, dështimet (`RebalanceUnprofitable`) ndodhin kur një swap i trader-it zbret para rebalancimit: transaksioni dështon, bot-i humb vetëm tarifën e transaksionit (5 000 lamports), jo tokena. CU për rebalancim: rreth 73k; me limit 300k.
 
 ## Kufijtë
 

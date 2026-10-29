@@ -558,6 +558,19 @@ pub fn find_rebalance_min(
     };
     let lo = open().min_by_key(|b| (b.pool.sqrt_price, b.id))?;
     let hi = open().max_by_key(|b| (b.pool.sqrt_price, u8::MAX - b.id))?;
+    pair_plan(lo, hi, m, slot, min_profit).map(|(r, _)| r)
+}
+
+/// The best rebalance between `lo` and `hi` (`lo` cheaper), if one clears
+/// its floor, with its value in B (A valued at the geometric mean of the
+/// two prices).
+fn pair_plan(
+    lo: &Book,
+    hi: &Book,
+    m: &MarketCfg,
+    slot: u64,
+    min_profit: [u64; 2],
+) -> Option<(RebalancePlan, f64)> {
     if lo.pause_flags & hi.pause_flags & PAUSE_SWAPS != 0 {
         return None;
     }
@@ -565,6 +578,13 @@ pub fn find_rebalance_min(
         return None;
     }
     let q64 = |x: u128| x as f64 / 18_446_744_073_709_551_616.0;
+    // Cheap filter: a gap inside the two fees never pays (with a small
+    // allowance for f64 rounding, so no paying pair is dropped).
+    let ratio = (q64(hi.pool.sqrt_price) / q64(lo.pool.sqrt_price)).powi(2);
+    let fees = f64::from(lo.fee_ppm(m, slot)) + f64::from(hi.fee_ppm(m, slot));
+    if (ratio - 1.0) * 1e6 < fees * 0.99 {
+        return None;
+    }
     let b_per_a = q64(lo.pool.sqrt_price) * q64(hi.pool.sqrt_price);
     let mut best: Option<(u64, bool, u64, f64)> = None;
     for input_is_a in [false, true] {
@@ -581,16 +601,19 @@ pub fn find_rebalance_min(
             best = Some((x, input_is_a, p, value));
         }
     }
-    let (amount_in, input_is_a, profit, _) = best?;
-    Some(RebalancePlan {
-        lo: lo.id,
-        hi: hi.id,
-        input_is_a,
-        amount_in,
-        profit,
-        lo_array_starts: lo.array_starts(m.tick_spacing, false),
-        hi_array_starts: hi.array_starts(m.tick_spacing, true),
-    })
+    let (amount_in, input_is_a, profit, value) = best?;
+    Some((
+        RebalancePlan {
+            lo: lo.id,
+            hi: hi.id,
+            input_is_a,
+            amount_in,
+            profit,
+            lo_array_starts: lo.array_starts(m.tick_spacing, false),
+            hi_array_starts: hi.array_starts(m.tick_spacing, true),
+        },
+        value,
+    ))
 }
 
 /// The input amount with the most profit in one direction, and that profit.
@@ -630,12 +653,18 @@ fn best_amount(
 }
 
 /// One round for a bot with several rebalancer keys: up to `max_pairs`
-/// rebalances on disjoint shard pairs, found greedily (the widest gap, then
-/// the widest among the shards left, ...). Disjoint pairs write disjoint
-/// accounts (each shard has its own state, vaults and tick arrays), so the
-/// transactions can land in the same slot. Each plan is priced on the
-/// snapshot as it is, which stays exact because no two plans touch the same
-/// shard.
+/// rebalances on disjoint shard pairs with the largest total value
+/// (a maximum weight matching of at most `max_pairs` edges). Every pair of
+/// shards that can be rebalanced is priced (28 pairs with 8 shards; see
+/// below for more shards), then
+/// the best set of pairs with no shard in common is chosen exactly, by a
+/// search over the pairs sorted by value that stops a branch as soon as it
+/// cannot beat the best set found.
+///
+/// Disjoint pairs write disjoint accounts (each shard has its own state,
+/// vaults and tick arrays), so the transactions can land in the same slot,
+/// and each plan's profit is exact on the snapshot because no two plans
+/// touch the same shard.
 pub fn rebalance_round(
     books: &[Book],
     m: &MarketCfg,
@@ -643,16 +672,74 @@ pub fn rebalance_round(
     min_profit: [u64; 2],
     max_pairs: usize,
 ) -> Vec<RebalancePlan> {
-    let mut left: Vec<Book> = books.to_vec();
-    let mut out = Vec::new();
-    while out.len() < max_pairs {
-        let Some(r) = find_rebalance_min(&left, m, slot, min_profit) else {
-            break;
-        };
-        left.retain(|b| b.id != r.lo && b.id != r.hi);
-        out.push(r);
+    let mut open: Vec<&Book> = books
+        .iter()
+        .filter(|b| b.pause_flags & PAUSE_REBALANCE == 0)
+        .collect();
+    // Above 4 * max_pairs shards (16 for four keys) only the 2 * max_pairs
+    // cheapest and the 2 * max_pairs dearest are priced: at 56 shards all
+    // 1 540 pairs take ~0.9 s on one core, too slow for a 200 ms slot. The
+    // matching is exact over the shards kept.
+    let keep = 2 * max_pairs;
+    if open.len() > 2 * keep {
+        open.sort_by_key(|b| (b.pool.sqrt_price, b.id));
+        open.drain(keep..open.len() - keep);
     }
-    out
+    let mut edges: Vec<(RebalancePlan, f64)> = Vec::new();
+    for (i, x) in open.iter().enumerate() {
+        for y in &open[i + 1..] {
+            let (lo, hi) = if (x.pool.sqrt_price, x.id) < (y.pool.sqrt_price, y.id) {
+                (x, y)
+            } else {
+                (y, x)
+            };
+            edges.extend(pair_plan(lo, hi, m, slot, min_profit));
+        }
+    }
+    edges.sort_by(|a, b| {
+        b.1.total_cmp(&a.1)
+            .then((a.0.lo, a.0.hi).cmp(&(b.0.lo, b.0.hi)))
+    });
+    let mut best = (0.0, Vec::new());
+    let mut cur = Vec::new();
+    best_matching(&edges, 0, max_pairs, 0.0, &mut cur, &mut best);
+    best.1.into_iter().map(|i| edges[i].0.clone()).collect()
+}
+
+/// Branch and bound over `edges` (sorted by value, highest first): the set
+/// of at most `left` more disjoint edges, from `from` on, with the largest
+/// total. A branch stops when even `left` copies of its next edge's value
+/// cannot beat the best.
+fn best_matching(
+    edges: &[(RebalancePlan, f64)],
+    from: usize,
+    left: usize,
+    total: f64,
+    cur: &mut Vec<usize>,
+    best: &mut (f64, Vec<usize>),
+) {
+    if total > best.0 {
+        *best = (total, cur.clone());
+    }
+    if left == 0 {
+        return;
+    }
+    for i in from..edges.len() {
+        let (e, v) = &edges[i];
+        if total + v * left as f64 <= best.0 {
+            break;
+        }
+        let used = |id: u8| {
+            cur.iter()
+                .any(|&j| edges[j].0.lo == id || edges[j].0.hi == id)
+        };
+        if used(e.lo) || used(e.hi) {
+            continue;
+        }
+        cur.push(i);
+        best_matching(edges, i + 1, left - 1, total + v, cur, best);
+        cur.pop();
+    }
 }
 
 /// Executes a rebalance on the books, as the program would. Returns the
@@ -929,6 +1016,116 @@ mod tests {
         // No more than `max_pairs`, and nothing below the floor.
         assert!(rebalance_round(&bs, &m, 0, [1, 1], 0).is_empty());
         assert!(rebalance_round(&bs, &m, 0, [u64::MAX, u64::MAX], 4).is_empty());
+    }
+
+    /// Value in B of a set of plans, priced on `bs`.
+    fn round_value(bs: &[Book], m: &MarketCfg, plans: &[RebalancePlan]) -> f64 {
+        plans
+            .iter()
+            .map(|r| {
+                let (lo, hi) = (&bs[r.lo as usize], &bs[r.hi as usize]);
+                pair_plan(lo, hi, m, 0, [1, 1]).unwrap().1
+            })
+            .sum()
+    }
+
+    #[test]
+    fn a_round_is_the_best_set_of_disjoint_pairs() {
+        // The user's proposal: price all 28 pairs and take the best set of
+        // up to 4 with no shard in common. Checked against every matching
+        // (brute force), and against the earlier greedy round (widest gap
+        // first), on random worlds with uneven depth and drifted prices.
+        let m = cfg();
+        let mut r = 11u64;
+        let mut strictly_better = 0;
+        let mut gain = Vec::new();
+        for world in 0..40 {
+            let mut bs: Vec<Book> = (0..8u8)
+                .map(|id| {
+                    let mut b = books(1, 1u128 << (36 + next(&mut r) % 6)).remove(0);
+                    b.id = id;
+                    b
+                })
+                .collect();
+            for b in bs.iter_mut() {
+                // Up to ~2% of price on the shallowest shard.
+                let x = 1 + next(&mut r) % (1 << 31);
+                b.apply(&m, 0, next(&mut r).is_multiple_of(2), x, 0)
+                    .unwrap();
+            }
+            let round = rebalance_round(&bs, &m, 0, [1, 1], 4);
+            let mut ids: Vec<u8> = round.iter().flat_map(|p| [p.lo, p.hi]).collect();
+            let n = ids.len();
+            ids.sort_unstable();
+            ids.dedup();
+            assert_eq!(ids.len(), n, "world {world}: pairs share a shard");
+            let got = round_value(&bs, &m, &round);
+            // Brute force over every matching of the 8 shards.
+            let mut edges = Vec::new();
+            for i in 0..8u8 {
+                for j in i + 1..8 {
+                    let (lo, hi) =
+                        if bs[i as usize].pool.sqrt_price < bs[j as usize].pool.sqrt_price {
+                            (i, j)
+                        } else {
+                            (j, i)
+                        };
+                    if let Some((_, v)) =
+                        pair_plan(&bs[lo as usize], &bs[hi as usize], &m, 0, [1, 1])
+                    {
+                        edges.push((lo, hi, v));
+                    }
+                }
+            }
+            fn brute(e: &[(u8, u8, f64)], used: u8, k: usize) -> f64 {
+                if k == 0 {
+                    return 0.0;
+                }
+                let mut best = 0.0f64;
+                for (i, &(a, b, v)) in e.iter().enumerate() {
+                    if used & (1 << a) == 0 && used & (1 << b) == 0 {
+                        best = best.max(v + brute(&e[i + 1..], used | 1 << a | 1 << b, k - 1));
+                    }
+                }
+                best
+            }
+            let opt = brute(&edges, 0, 4);
+            assert!(
+                (got - opt).abs() <= opt * 1e-12,
+                "world {world}: {got} vs {opt}"
+            );
+            // The greedy round it replaces (widest gap among the shards left).
+            let mut left = bs.clone();
+            let mut greedy = Vec::new();
+            while greedy.len() < 4 {
+                let Some(p) = find_rebalance_min(&left, &m, 0, [1, 1]) else {
+                    break;
+                };
+                left.retain(|b| b.id != p.lo && b.id != p.hi);
+                greedy.push(p);
+            }
+            let g = round_value(&bs, &m, &greedy);
+            assert!(
+                got >= g * (1.0 - 1e-12),
+                "world {world}: {got} < greedy {g}"
+            );
+            if got > g * 1.01 {
+                strictly_better += 1;
+            }
+            gain.push(if g > 0.0 { got / g } else { 1.0 });
+            // Applied one after the other, every plan pays what it was priced at.
+            let mut after = bs.clone();
+            for p in &round {
+                assert_eq!(apply_rebalance(&mut after, &m, 0, p).unwrap(), p.profit);
+            }
+        }
+        gain.sort_by(f64::total_cmp);
+        println!(
+            "matching beat the greedy round by > 1% in {strictly_better} of 40 worlds; value / greedy: median {:.3}, max {:.3}",
+            gain[gain.len() / 2],
+            gain[gain.len() - 1]
+        );
+        assert!(strictly_better > 0, "no world where the matching helps");
     }
 
     #[test]
@@ -1211,5 +1408,28 @@ mod tests {
         );
         // max_regret_bps (1) bounds the first leg's probe quote; allow rounding.
         assert!(worst <= 1.5, "worst {worst} bps");
+    }
+}
+
+#[cfg(test)]
+mod round_timing {
+    use super::tests::{books, cfg};
+    use super::*;
+
+    /// Not a check: prints how long one round takes at 8 and 56 shards.
+    #[test]
+    #[ignore]
+    fn round_time() {
+        let m = cfg();
+        for n in [8u8, 56] {
+            let mut bs = books(n, 1 << 40);
+            for (i, b) in bs.iter_mut().enumerate() {
+                b.apply(&m, 0, i % 2 == 0, (1 << 35) + (i as u64) * (1 << 30), 0)
+                    .unwrap();
+            }
+            let t = std::time::Instant::now();
+            let r = rebalance_round(&bs, &m, 0, [1, 1], 4);
+            println!("{n} shards: {} pairs in {:?}", r.len(), t.elapsed());
+        }
     }
 }
