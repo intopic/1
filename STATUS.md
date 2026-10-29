@@ -22,10 +22,11 @@ Përditësuar: 29 tetor 2026. Repository: `github.com/intopic/1`, branch `claude
 | ENG-08 WSOL/USDC | **PASS** | `eng08_wsol` (3 teste): vault-e native me `lamports = rent + amount`; wrap, swap dhe unwrap në një transaksion; lamports pa `SyncNative` nuk tregtohen. |
 | ENG-09 Simulimi | **PASS (model)** | `crates/sim`: [rezultatet](docs/sim/eng09-results.md) dhe [analiza](docs/sim/eng09-analysis.md). Gjetja kryesore: me 8 shard-e, router-i duhet ta ndajë urdhrin nëpër shard-e, përndryshe kostoja e trader-it rritet disa herë. |
 | ENG-10 Stres dhe sulme | **PASS** | `eng10_attacks` (5 skenarë sulmi) dhe [`stress.yml`](.github/workflows/stress.yml): 16 + 16 punë paralele. Rezultatet janë në seksionin më poshtë. |
-| A-10 Benchmark në validator | **PASS (lokal)** | [validator-bench.md](docs/bench/validator-bench.md), workflow `bench`: 1 shard 923 swap/slot, 2 shard-e 1.9×, 4–8 shard-e 2.5× (kufiri i bllokut), payer i përbashkët 0.98×. Validator me një nyje, jo mainnet. |
+| A-10 Benchmark në validator | **PASS (lokal)** | [validator-bench.md](docs/bench/validator-bench.md), workflow `bench`: 1 shard 899 swap/slot, 2 shard-e 2.0×, 4–8 shard-e 2.5× (kufiri i bllokut), payer i përbashkët 0.98×; kapital total i barabartë në çdo konfigurim. Validator me një nyje, jo mainnet. |
 | ADR-0005 Tarifa dinamike për shard | **PASS (implementuar, simuluar)** | `engine::dynamic_fee`, `eng11_dynamic_fee`, eng06 krahason host me onchain. Kufijtë 0,03%–0,80%, vetëm me timelock; fikur si parazgjedhje. [Rezultatet e simulimit](docs/sim/dynamic-fee-results.md). |
 | ADR-0006 `rebalance_pair` + pauza | **PASS** | `engine::rebalance`, `eng12_rebalance`: pa kapital, vetëm për rebalancer-at e listuar (keeper-i në krijim, ndryshim me timelock 24h), fitimi i parashikuar saktë; bit-e pauze që s'bllokojnë kurrë daljet e LP-ve. ~69k CU. |
 | ADR-0007 Router me prag | **PASS** | `crates/router`, `eng13_router`: urdhri i vogël në 1 shard, i madhi në disa; dalja e planit = dalja onchain; `find_rebalance` jep fitimin e saktë. |
+| ADR-0008 Tetë rregullat | **PASS** | [ADR-0008](docs/adr/0008-non-negotiable-rules.md): 6 rregulla mbaheshin tashmë; rregulli 4 shtoi `verify_depth` (`engine::depth`, `eng14_depth`); rregulli 8 përsëriti A-10 me kapital total të barabartë. |
 | Krahasimi publik | **I rishkruar** | [comparison.md](docs/comparison.md): vetëm pretendime të matura, Raydium/Orca me burime në commit të fiksuar. |
 
 ## Stresi masiv (ENG-10)

@@ -24,7 +24,7 @@ Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Sh
 
 **Versionimi:** versioni i ABI-së mbahet në seed-in e market-it (`schema_u16_le`). Shard-i lidhet me market-in, pozicioni me shard-in, prandaj çdo ndryshim i seed-eve të pozicionit kërkon `SCHEMA_VERSION = 2`, që jep market, shard dhe pozicione me adresa të reja. Varianti `position_id_u64_le` në dokumentet e vjetra **nuk është ABI** dhe nuk është implementuar.
 
-## `MarketConfig` — 625 bajt
+## `MarketConfig` — 643 bajt
 
 | Fusha | Lloji | Bajt |
 |---|---|---:|
@@ -37,14 +37,14 @@ Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Sh
 | dynamic_fees.max_fee_rate_ppm / vol_coeff_ppm / load_coeff_ppm / max_vol_accumulator / filter_slots / decay_slots / reduction_bps | u32 ×4 / u16 ×3 | 22 |
 | status | MarketStatus (u8: 0 Initializing, 1 Open, 2 Paused, 3 Cancelled) | 1 |
 | bump | u8 | 1 |
-| readiness.min_liquidity / min_reserve_a / min_reserve_b / max_activation_deviation_bps | u128 / u64 / u64 / u16 | 34 |
+| readiness.min_liquidity / min_reserve_a / min_reserve_b / max_activation_deviation_bps / depth_probe_a / depth_probe_b / max_depth_impact_bps | u128 / u64 / u64 / u16 / u64 / u64 / u16 | 52 |
 | pending_fees.fee_rate_ppm / protocol_share_bps / dynamic / eta / active | u32 / u16 / DynamicFeeParams / i64 / bool | 37 |
 | pause_flags | u8 (bit 0 swap-e, 1 depozita, 2 rebalancim; ADR-0006) | 1 |
 | rebalancers | Pubkey ×4 (bosh = `Pubkey::default()`; ADR-0006) | 128 |
 | pending_rebalancers.keys / eta / active | Pubkey ×4 / i64 / bool | 137 |
 | reserved | [u8; 14] | 14 |
 
-`readiness` dhe `pending_fees` (timelock 24 orë për tarifat) zunë 49 bajt nga `reserved`; madhësia mbeti 316. Tarifa dinamike ([ADR-0005](adr/0005-dynamic-fee-per-shard.md), 2026-10-29) shtoi `dynamic_fees` dhe `pending_fees.dynamic` (44 bajt) dhe e çoi tregun në 360 bajt. Lista e rebalancer-ave dhe ndryshimi i saj me timelock (ADR-0006, 2026-10-29) shtuan 265 bajt, deri në 625. Të dyja ndodhën para çdo deploy-i; prandaj `SCHEMA_VERSION` mbetet 1. Gjatë swap-it tregu mbetet vetëm për lexim.
+`readiness` dhe `pending_fees` (timelock 24 orë për tarifat) zunë 49 bajt nga `reserved`; madhësia mbeti 316. Tarifa dinamike ([ADR-0005](adr/0005-dynamic-fee-per-shard.md), 2026-10-29) shtoi `dynamic_fees` dhe `pending_fees.dynamic` (44 bajt) dhe e çoi tregun në 360 bajt. Lista e rebalancer-ave dhe ndryshimi i saj me timelock (ADR-0006, 2026-10-29) shtuan 265 bajt, deri në 625. Prova e thellësisë (rregulli 4) shtoi 18 bajt në `readiness`, deri në 643. Të dyja ndodhën para çdo deploy-i; prandaj `SCHEMA_VERSION` mbetet 1. Gjatë swap-it tregu mbetet vetëm për lexim.
 
 ## `ShardRegistry` — 65 bajt
 
@@ -68,7 +68,8 @@ market (32), prepared_mask u64, active_mask u64, registry_version u64, bump u8.
 | protocol_fees_a/b | u64 ×2 | 16 |
 | bump | u8 | 1 |
 | dynamic_fee.vol_accumulator / vol_reference / tick_reference / reference_slot / last_update_slot / slot_swaps | u32 / u32 / i32 / u64 / u64 / u16 | 30 |
-| reserved | [u8; 34] | 34 |
+| depth_verified | bool (vendoset nga `verify_depth`, fshihet nga çdo `decrease_liquidity`) | 1 |
+| reserved | [u8; 33] | 33 |
 
 Gjendja e tarifës dinamike (ADR-0005) zuri 30 bajt nga `reserved`; madhësia mbeti 296. Shkruhet vetëm nga swap-et e këtij shard-i.
 

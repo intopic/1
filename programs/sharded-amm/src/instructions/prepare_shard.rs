@@ -105,7 +105,8 @@ pub fn handle_prepare_shard(ctx: Context<PrepareShard>, id: u8, generation: u64)
         protocol_fees_b: 0,
         bump: ctx.bumps.shard,
         dynamic_fee: DynamicFeeState::default(),
-        reserved: [0; 34],
+        depth_verified: false,
+        reserved: [0; 33],
     });
 
     emit!(ShardPrepared {

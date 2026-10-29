@@ -123,6 +123,9 @@ pub fn default_readiness() -> ReadinessParams {
         min_reserve_a: 1_000,
         min_reserve_b: 1_000,
         max_activation_deviation_bps: 100,
+        depth_probe_a: 1_000,
+        depth_probe_b: 1_000,
+        max_depth_impact_bps: 2_000,
     }
 }
 
@@ -786,7 +789,43 @@ impl Env {
         }
         ixs.push(self.ix_increase(m, lp, id, lower, upper, liquidity));
         let kp = lp.kp.insecure_clone();
-        self.send(&ixs, &[&kp])
+        let r = self.send(&ixs, &[&kp]);
+        // A prepared shard needs a passing depth probe before it can open or
+        // activate (rule 4); re-run it after every deposit, as a keeper
+        // would. A shard too shallow to pass simply stays unverified.
+        if r.is_ok() && self.shard_state(m, id).status == sharded_amm::state::ShardStatus::Prepared
+        {
+            let _ = self.verify_depth(m, id);
+        }
+        r
+    }
+
+    /// `verify_depth` with up to three arrays each way from the current tick.
+    pub fn ix_verify_depth(&self, m: &Market, id: u8) -> Instruction {
+        let down = self.swap_arrays(m, id, true);
+        let up = self.swap_arrays(m, id, false);
+        let a = shard_addrs(m, id, 0);
+        let i = ix(
+            sharded_amm::accounts::VerifyDepth {
+                market: m.market,
+                shard: a.shard,
+            },
+            sharded_amm::instruction::VerifyDepth {
+                arrays_a_to_b: down.len() as u8,
+            },
+        );
+        let metas: Vec<Pubkey> = down.into_iter().chain(up).collect();
+        let mut i = with_remaining(i, &metas);
+        for meta in i.accounts.iter_mut().skip(2) {
+            meta.is_writable = false;
+        }
+        i
+    }
+
+    pub fn verify_depth(&mut self, m: &Market, id: u8) -> Result<u64, TransactionError> {
+        let i = self.ix_verify_depth(m, id);
+        let keeper = self.keeper.insecure_clone();
+        self.send(&[i], &[&keeper])
     }
 
     pub fn ix_open_market(&self, m: &Market, authority: &Pubkey, ids: &[u8]) -> Instruction {

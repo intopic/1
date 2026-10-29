@@ -34,7 +34,9 @@ fn shard_ready(
         vault_a.key() == shard.vault_a && vault_b.key() == shard.vault_b,
         AmmError::InvalidVault
     );
-    Ok(shard.sqrt_price_x64 != 0 && r.is_ready(shard.liquidity, vault_a.amount, vault_b.amount))
+    Ok(shard.sqrt_price_x64 != 0
+        && shard.depth_verified
+        && r.is_ready(shard.liquidity, vault_a.amount, vault_b.amount))
 }
 
 #[derive(Accounts)]

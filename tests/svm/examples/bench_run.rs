@@ -1,6 +1,7 @@
 //! Validator benchmark, step 2 (acceptance A-10): sends the same number of
 //! independent swaps to a local `solana-test-validator` spread over 1, 2, 4
-//! and 8 shards, and measures how many land per slot.
+//! and 8 shards, and measures how many land per slot. Each configuration is
+//! its own market with the same total liquidity, split over its lanes.
 //!
 //! Every trader has its own fee payer and token accounts, so the only
 //! writable accounts two swaps can share are the shard's (shard state, vaults,
@@ -99,12 +100,13 @@ struct Shard {
     vault_authority: Pubkey,
     arrays_a_to_b: Vec<Pubkey>,
     arrays_b_to_a: Vec<Pubkey>,
+    market: Pubkey,
+    registry: Pubkey,
 }
 
 /// One swap by `t`; `payer` pays the fee (the trader itself, or a shared
 /// payer for the negative control).
 fn swap_tx(
-    bench: &Value,
     s: &Shard,
     t: &Trader,
     payer: &Keypair,
@@ -119,8 +121,8 @@ fn swap_tx(
     };
     let accounts = sharded_amm::accounts::SwapExactIn {
         user: t.kp.pubkey(),
-        market: key(&bench["market"]),
-        registry: key(&bench["registry"]),
+        market: s.market,
+        registry: s.registry,
         shard: s.shard,
         vault_a: s.vault_a,
         vault_b: s.vault_b,
@@ -207,7 +209,8 @@ struct Load {
     shared_payer: bool,
 }
 
-fn run(rpc: &Arc<Rpc>, bench: &Value, shards: &[Shard], traders: &[Trader], load: Load) -> Outcome {
+/// `shards` are the lanes of the market built for `load.n_shards`.
+fn run(rpc: &Arc<Rpc>, shards: &[Shard], traders: &[Trader], load: Load) -> Outcome {
     let Load {
         n_shards,
         rounds,
@@ -223,7 +226,7 @@ fn run(rpc: &Arc<Rpc>, bench: &Value, shards: &[Shard], traders: &[Trader], load
             // Distinct amounts keep every signature unique across runs.
             let amount = 10_000 + salt * 1_000 + round as u64;
             let payer = if shared_payer { &traders[0].kp } else { &t.kp };
-            txs.push(swap_tx(bench, s, t, payer, a_to_b, amount, &blockhash));
+            txs.push(swap_tx(s, t, payer, a_to_b, amount, &blockhash));
         }
     }
     let sigs: Vec<String> = txs.iter().map(|t| t.0.clone()).collect();
@@ -332,27 +335,29 @@ fn main() {
     let bench: Value =
         serde_json::from_slice(&std::fs::read(dir.join("bench.json")).unwrap()).unwrap();
     assert_eq!(bench["program_id"], sharded_amm::ID.to_string());
-    let shards: Vec<Shard> = bench["shards"]
+    let keys = |v: &Value| -> Vec<Pubkey> { v.as_array().unwrap().iter().map(key).collect() };
+    // Lanes of the market built for each configuration (equal total capital).
+    let markets: std::collections::BTreeMap<usize, Vec<Shard>> = bench["markets"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|s| Shard {
-            shard: key(&s["shard"]),
-            vault_a: key(&s["vault_a"]),
-            vault_b: key(&s["vault_b"]),
-            vault_authority: key(&s["vault_authority"]),
-            arrays_a_to_b: s["arrays_a_to_b"]
+        .map(|m| {
+            let shards = m["shards"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(key)
-                .collect(),
-            arrays_b_to_a: s["arrays_b_to_a"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(key)
-                .collect(),
+                .map(|s| Shard {
+                    shard: key(&s["shard"]),
+                    vault_a: key(&s["vault_a"]),
+                    vault_b: key(&s["vault_b"]),
+                    vault_authority: key(&s["vault_authority"]),
+                    arrays_a_to_b: keys(&s["arrays_a_to_b"]),
+                    arrays_b_to_a: keys(&s["arrays_b_to_a"]),
+                    market: key(&m["market"]),
+                    registry: key(&m["registry"]),
+                })
+                .collect();
+            (m["n_shards"].as_u64().unwrap() as usize, shards)
         })
         .collect();
     let traders: Vec<Trader> = bench["traders"]
@@ -383,8 +388,7 @@ fn main() {
     // Warm-up: one swap per shard, so program loading is not measured.
     let warm = run(
         &rpc,
-        &bench,
-        &shards,
+        &markets[&8],
         &traders[..8],
         Load {
             n_shards: 8,
@@ -412,8 +416,7 @@ fn main() {
         for n in order {
             let o = run(
                 &rpc,
-                &bench,
-                &shards,
+                &markets[&n],
                 &traders,
                 Load {
                     n_shards: n,
@@ -437,8 +440,7 @@ fn main() {
     for _ in 0..repeats {
         let o = run(
             &rpc,
-            &bench,
-            &shards,
+            &markets[&8],
             &traders,
             Load {
                 n_shards: 8,

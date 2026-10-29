@@ -11,3 +11,4 @@
 | [0005](0005-dynamic-fee-per-shard.md) | Tarifa dinamike për shard: gjendja në `ShardState`, parametrat me timelock, 0,80% maksimum | PROPOSED (implementuar dhe simuluar) |
 | [0006](0006-open-rebalance-pair.md) | `rebalance_pair` pa kapital, vetëm për rebalancer-at e listuar (timelock 24h); bit-e pauze për swap, depozita, rebalancim | PROPOSED (implementuar dhe testuar) |
 | [0007](0007-threshold-router.md) | Router off-chain me prag: 1 shard për urdhra të vegjël, pak shard-e për të mëdhenjtë; `find_rebalance` | PROPOSED (implementuar dhe testuar) |
+| [0008](0008-non-negotiable-rules.md) | Tetë rregullat e panegociueshme; prova e thellësisë në të dy drejtimet (`verify_depth`); pretendime vetëm me kapital total të barabartë | ACCEPTED |

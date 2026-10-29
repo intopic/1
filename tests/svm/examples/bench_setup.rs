@@ -1,5 +1,6 @@
-//! Validator benchmark, step 1 (acceptance A-10): builds an open market with
-//! 8 seeded shards and funded traders in LiteSVM with the real SBF program,
+//! Validator benchmark, step 1 (acceptance A-10): builds one open market per
+//! configuration (1, 2, 4, 8 lanes), each with the same total liquidity, and
+//! funded traders in LiteSVM with the real SBF program,
 //! then writes every account as a `solana-test-validator --account-dir` JSON
 //! file plus `bench.json` (addresses, tick arrays, trader keys).
 //!
@@ -20,6 +21,10 @@ use solana_signer::Signer;
 /// span 1920), so small swaps never leave it and every swap can list the
 /// same arrays.
 const START_TICK: i32 = 960;
+/// Liquidity of every configuration, split evenly over its active lanes.
+const TOTAL_LIQUIDITY: u128 = 1_000_000_000_000_000;
+/// Shards a configuration does not use: just above the readiness minimum.
+const IDLE_LIQUIDITY: u128 = 1_000_000_000;
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -29,57 +34,81 @@ fn main() {
     std::fs::create_dir_all(&accounts_dir).unwrap();
 
     let mut env = Env::new();
-    let m = env.market();
     let keeper = env.keeper.insecure_clone();
-    let lp = env.user(&m, u64::MAX / 4);
+    let (mint_a, mint_b) = env.sorted_mints();
     let sqrt = sqrt_price_at_tick(START_TICK).unwrap();
-    for id in 0..8 {
-        env.prepare(&m, &keeper, id).unwrap();
-        env.send(
-            &[Env::ix_initialize_price(&m, &keeper.pubkey(), id, sqrt)],
-            &[&keeper],
-        )
-        .unwrap();
-        env.add_liquidity(&m, &lp, id, -3840, 5760, 1_000_000_000_000_000)
-            .unwrap();
-    }
-    let open = env.ix_open_market(&m, &keeper.pubkey(), &(0..8).collect::<Vec<_>>());
-    env.send(&[open], &[&keeper]).unwrap();
-
-    let spacing = env.market_state(&m).params.tick_spacing;
-    let span = sharded_amm::state::array_span(spacing);
-    let mut keys = vec![m.mint_a, m.mint_b, m.market, m.registry];
-    let mut shards = Vec::new();
-    for id in 0..8u8 {
-        let a = shard_addrs(&m, id, 0);
-        let mut arrays = Vec::new();
-        let mut start = -2 * span;
-        while start <= 3 * span {
-            let k = tick_array_pda(&a.shard, start);
-            if env.raw(&k).is_some() {
-                arrays.push((start, k));
-                keys.push(k);
-            }
-            start += span;
+    let mut keys = vec![mint_a, mint_b];
+    let mut markets = Vec::new();
+    let mut lp = None;
+    let mut first = None;
+    // One market per configuration, all with the same total liquidity
+    // (equal capital): `n` shards share TOTAL_LIQUIDITY, the other 8 - n
+    // hold only the readiness minimum so the market can open.
+    for n in [1u8, 2, 4, 8] {
+        let m = env.market_with(mint_a, mint_b, u64::from(n));
+        if lp.is_none() {
+            lp = Some(env.user(&m, u64::MAX / 4));
         }
-        let pick = |starts: [i32; 2]| -> Vec<String> {
-            starts
-                .iter()
-                .map(|s| tick_array_pda(&a.shard, *s).to_string())
-                .collect()
-        };
-        shards.push(json!({
-            "id": id,
-            "shard": a.shard.to_string(),
-            "vault_a": a.vault_a.to_string(),
-            "vault_b": a.vault_b.to_string(),
-            "vault_authority": a.vault_authority.to_string(),
-            "arrays_a_to_b": pick([0, -span]),
-            "arrays_b_to_a": pick([0, span]),
+        let lp = lp.as_ref().unwrap();
+        for id in 0..8 {
+            env.prepare(&m, &keeper, id).unwrap();
+            env.send(
+                &[Env::ix_initialize_price(&m, &keeper.pubkey(), id, sqrt)],
+                &[&keeper],
+            )
+            .unwrap();
+            let l = if id < n {
+                TOTAL_LIQUIDITY / u128::from(n)
+            } else {
+                IDLE_LIQUIDITY
+            };
+            env.add_liquidity(&m, lp, id, -3840, 5760, l).unwrap();
+        }
+        let open = env.ix_open_market(&m, &keeper.pubkey(), &(0..8).collect::<Vec<_>>());
+        env.send(&[open], &[&keeper]).unwrap();
+
+        let spacing = env.market_state(&m).params.tick_spacing;
+        let span = sharded_amm::state::array_span(spacing);
+        keys.extend([m.market, m.registry]);
+        let mut shards = Vec::new();
+        for id in 0..n {
+            let a = shard_addrs(&m, id, 0);
+            let mut start = -2 * span;
+            while start <= 3 * span {
+                let k = tick_array_pda(&a.shard, start);
+                if env.raw(&k).is_some() {
+                    keys.push(k);
+                }
+                start += span;
+            }
+            let pick = |starts: [i32; 2]| -> Vec<String> {
+                starts
+                    .iter()
+                    .map(|s| tick_array_pda(&a.shard, *s).to_string())
+                    .collect()
+            };
+            shards.push(json!({
+                "id": id,
+                "shard": a.shard.to_string(),
+                "vault_a": a.vault_a.to_string(),
+                "vault_b": a.vault_b.to_string(),
+                "vault_authority": a.vault_authority.to_string(),
+                "arrays_a_to_b": pick([0, -span]),
+                "arrays_b_to_a": pick([0, span]),
+            }));
+            keys.extend([a.shard, a.vault_a, a.vault_b]);
+            assert_eq!(env.shard_state(&m, id).tick_current, START_TICK);
+        }
+        markets.push(json!({
+            "n_shards": n,
+            "market": m.market.to_string(),
+            "registry": m.registry.to_string(),
+            "total_liquidity": TOTAL_LIQUIDITY.to_string(),
+            "shards": shards,
         }));
-        keys.extend([a.shard, a.vault_a, a.vault_b]);
-        assert_eq!(env.shard_state(&m, id).tick_current, START_TICK);
+        first.get_or_insert(m);
     }
+    let m = first.unwrap();
 
     let mut trader_rows = Vec::new();
     for _ in 0..traders {
@@ -114,12 +143,10 @@ fn main() {
     }
     let bench = json!({
         "program_id": sharded_amm::ID.to_string(),
-        "market": m.market.to_string(),
-        "registry": m.registry.to_string(),
-        "mint_a": m.mint_a.to_string(),
-        "mint_b": m.mint_b.to_string(),
+        "mint_a": mint_a.to_string(),
+        "mint_b": mint_b.to_string(),
         "start_tick": START_TICK,
-        "shards": shards,
+        "markets": markets,
         "traders": trader_rows,
     });
     std::fs::write(out.join("bench.json"), serde_json::to_vec(&bench).unwrap()).unwrap();

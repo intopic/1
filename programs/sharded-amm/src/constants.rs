@@ -62,5 +62,8 @@ pub const PAUSE_FLAGS_MASK: u8 = PAUSE_SWAPS | PAUSE_DEPOSITS | PAUSE_REBALANCE;
 /// Keys allowed to call `rebalance_pair` (ADR-0006); `Pubkey::default()`
 /// marks an empty slot. Changed only through the fee timelock delay.
 pub const MAX_REBALANCERS: usize = 4;
+/// Upper bound on `ReadinessParams::max_depth_impact_bps` (rule 4: usable
+/// depth both ways before a shard is routable).
+pub const MAX_DEPTH_IMPACT_BPS: u16 = 2_000;
 /// Upper bound on the activation price tolerance.
 pub const MAX_ACTIVATION_DEVIATION_BPS: u16 = 10_000;

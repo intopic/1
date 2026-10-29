@@ -79,6 +79,29 @@ pub fn load_tick_arrays<'info>(
     Ok(out)
 }
 
+/// Owned copies of read-only tick arrays of `shard`, for quotes and probes
+/// that must not write the accounts.
+pub fn copy_tick_arrays<'info>(
+    accounts: &'info [AccountInfo<'info>],
+    shard: &Pubkey,
+    max: usize,
+) -> Result<Vec<TickArray>> {
+    require!(
+        !accounts.is_empty() && accounts.len() <= max,
+        AmmError::InvalidAccountCount
+    );
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::with_capacity(accounts.len());
+    for info in accounts {
+        require!(seen.insert(info.key()), AmmError::DuplicateAccount);
+        let loader = AccountLoader::<TickArray>::try_from(info)?;
+        let a = *loader.load()?;
+        require!(a.shard == *shard, AmmError::TickArrayMismatch);
+        out.push(a);
+    }
+    Ok(out)
+}
+
 pub fn borrow_all<'a, 'info>(
     loaders: &'a [AccountLoader<'info, TickArray>],
 ) -> Result<Vec<RefMut<'a, TickArray>>> {

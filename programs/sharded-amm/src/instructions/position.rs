@@ -164,6 +164,9 @@ pub fn handle_decrease_liquidity<'info>(
         .checked_neg()
         .ok_or(AmmError::MathOverflow)?;
     let (a, b) = apply(&mut ctx, delta)?;
+    // Less liquidity may mean less depth: `verify_depth` must run again
+    // before a prepared shard can open or activate.
+    ctx.accounts.shard.depth_verified = false;
     require!(
         a >= amount_a_min && b >= amount_b_min,
         AmmError::SlippageExceeded

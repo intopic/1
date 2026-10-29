@@ -54,6 +54,17 @@ pub struct RebalancersUpdated {
     pub by: Pubkey,
 }
 
+/// A prepared shard passed the two-way depth probe (rule 4).
+#[event]
+pub struct DepthVerified {
+    pub shard: Pubkey,
+    pub tick: i32,
+    pub tick_after_a: i32,
+    pub tick_after_b: i32,
+    pub probe_a: u64,
+    pub probe_b: u64,
+}
+
 #[event]
 pub struct PauseFlagsChanged {
     pub market: Pubkey,

@@ -10,6 +10,7 @@ pub mod rebalance;
 pub mod swap;
 pub mod token_util;
 pub mod update_parameters;
+pub mod verify_depth;
 
 pub use init_tick_array::*;
 pub use initialize_market::*;
@@ -22,3 +23,4 @@ pub use protocol_fees::*;
 pub use rebalance::*;
 pub use swap::*;
 pub use update_parameters::*;
+pub use verify_depth::*;

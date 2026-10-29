@@ -130,4 +130,6 @@ pub enum AmmError {
     NotRebalancer,
     #[msg("Rebalancer list has a duplicate key")]
     InvalidRebalancers,
+    #[msg("Probe trade moved the price more than the readiness limit")]
+    InsufficientDepth,
 }

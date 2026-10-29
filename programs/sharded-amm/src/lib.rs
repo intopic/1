@@ -66,6 +66,15 @@ pub mod sharded_amm {
         handle_cancel_fee_change(ctx)
     }
 
+    /// Two-way depth probe on a prepared shard; required before it opens or
+    /// activates (rule 4). Open to anyone; writes only the shard's flag.
+    pub fn verify_depth<'info>(
+        ctx: Context<'info, VerifyDepth<'info>>,
+        arrays_a_to_b: u8,
+    ) -> Result<()> {
+        handle_verify_depth(ctx, arrays_a_to_b)
+    }
+
     /// Proposes the keys allowed to call `rebalance_pair`; applied by
     /// `apply_rebalancers` after the timelock.
     pub fn update_rebalancers(

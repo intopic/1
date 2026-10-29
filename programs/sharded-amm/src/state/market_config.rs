@@ -8,10 +8,10 @@
 use anchor_lang::prelude::*;
 
 use crate::constants::{
-    FEE_TIMELOCK_SECONDS, MAX_ACTIVATION_DEVIATION_BPS, MAX_DYNAMIC_COEFF_PPM,
-    MAX_DYNAMIC_FEE_RATE_PPM, MAX_FEE_RATE_PPM, MAX_PROTOCOL_SHARE_BPS, MAX_REBALANCERS,
-    MAX_TICK_SPACING, MAX_VOL_ACCUMULATOR, PAUSE_DEPOSITS, PAUSE_FLAGS_MASK, PAUSE_REBALANCE,
-    PAUSE_SWAPS,
+    FEE_TIMELOCK_SECONDS, MAX_ACTIVATION_DEVIATION_BPS, MAX_DEPTH_IMPACT_BPS,
+    MAX_DYNAMIC_COEFF_PPM, MAX_DYNAMIC_FEE_RATE_PPM, MAX_FEE_RATE_PPM, MAX_PROTOCOL_SHARE_BPS,
+    MAX_REBALANCERS, MAX_TICK_SPACING, MAX_VOL_ACCUMULATOR, PAUSE_DEPOSITS, PAUSE_FLAGS_MASK,
+    PAUSE_REBALANCE, PAUSE_SWAPS,
 };
 use crate::errors::AmmError;
 use crate::state::MarketStatus;
@@ -64,6 +64,12 @@ pub struct ReadinessParams {
     pub min_reserve_b: u64,
     /// Expansion only: max price difference from an active reference shard.
     pub max_activation_deviation_bps: u16,
+    /// Usable depth both ways (`verify_depth`): selling `depth_probe_a` of A
+    /// and, separately, `depth_probe_b` of B must each fill completely within
+    /// `max_depth_impact_bps` ticks (1 tick ~ 1 bp of price).
+    pub depth_probe_a: u64,
+    pub depth_probe_b: u64,
+    pub max_depth_impact_bps: u16,
 }
 
 impl ReadinessParams {
@@ -72,6 +78,10 @@ impl ReadinessParams {
             || self.min_reserve_a == 0
             || self.min_reserve_b == 0
             || self.max_activation_deviation_bps > MAX_ACTIVATION_DEVIATION_BPS
+            || self.depth_probe_a == 0
+            || self.depth_probe_b == 0
+            || self.max_depth_impact_bps == 0
+            || self.max_depth_impact_bps > MAX_DEPTH_IMPACT_BPS
         {
             return Err(AmmError::InvalidReadinessParams);
         }
@@ -519,6 +529,9 @@ mod tests {
                 min_reserve_a: 1,
                 min_reserve_b: 1,
                 max_activation_deviation_bps: 100,
+                depth_probe_a: 1,
+                depth_probe_b: 1,
+                max_depth_impact_bps: 100,
             },
             pending_fees: PendingFees::default(),
             pause_flags: 0,
@@ -807,6 +820,22 @@ mod tests {
             },
             ReadinessParams {
                 max_activation_deviation_bps: MAX_ACTIVATION_DEVIATION_BPS + 1,
+                ..r
+            },
+            ReadinessParams {
+                depth_probe_a: 0,
+                ..r
+            },
+            ReadinessParams {
+                depth_probe_b: 0,
+                ..r
+            },
+            ReadinessParams {
+                max_depth_impact_bps: 0,
+                ..r
+            },
+            ReadinessParams {
+                max_depth_impact_bps: MAX_DEPTH_IMPACT_BPS + 1,
                 ..r
             },
         ] {

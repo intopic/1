@@ -30,7 +30,10 @@ pub struct ShardState {
     pub bump: u8,
     /// Per-shard dynamic fee state (ADR-0005); written only by swaps.
     pub dynamic_fee: DynamicFeeState,
-    pub reserved: [u8; 34],
+    /// Set by `verify_depth` while `Prepared`, cleared by any liquidity
+    /// decrease; `open_market` and `activate_shard` require it (rule 4).
+    pub depth_verified: bool,
+    pub reserved: [u8; 33],
 }
 
 /// Volatility and load tracker of one shard (ADR-0005). Lives in the shard,
