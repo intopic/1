@@ -114,4 +114,16 @@ pub enum AmmError {
     InvalidAccountCount,
     #[msg("Invalid dynamic fee parameters")]
     InvalidDynamicFeeParams,
+    #[msg("Swaps are paused")]
+    SwapsPaused,
+    #[msg("New liquidity is paused")]
+    DepositsPaused,
+    #[msg("Rebalancing is paused")]
+    RebalancePaused,
+    #[msg("Unknown pause flag bits")]
+    InvalidPauseFlags,
+    #[msg("Rebalance would not pay for itself")]
+    RebalanceUnprofitable,
+    #[msg("Rebalance needs two shards with different prices")]
+    RebalanceNoPriceGap,
 }

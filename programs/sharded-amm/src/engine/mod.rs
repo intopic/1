@@ -6,8 +6,10 @@
 pub mod dynamic_fee;
 pub mod liquidity;
 pub mod pool;
+pub mod rebalance;
 pub mod swap;
 
 pub use liquidity::*;
 pub use pool::*;
+pub use rebalance::*;
 pub use swap::*;

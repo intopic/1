@@ -39,7 +39,8 @@ Një pronar ka **një pozicion për çdo `(shard, tick_lower, tick_upper)`**. Sh
 | bump | u8 | 1 |
 | readiness.min_liquidity / min_reserve_a / min_reserve_b / max_activation_deviation_bps | u128 / u64 / u64 / u16 | 34 |
 | pending_fees.fee_rate_ppm / protocol_share_bps / dynamic / eta / active | u32 / u16 / DynamicFeeParams / i64 / bool | 37 |
-| reserved | [u8; 15] | 15 |
+| pause_flags | u8 (bit 0 swap-e, 1 depozita, 2 rebalancim; ADR-0006) | 1 |
+| reserved | [u8; 14] | 14 |
 
 `readiness` dhe `pending_fees` (timelock 24 orë për tarifat) zunë 49 bajt nga `reserved`; madhësia mbeti 316. Tarifa dinamike ([ADR-0005](adr/0005-dynamic-fee-per-shard.md), 2026-10-29) shtoi `dynamic_fees` dhe `pending_fees.dynamic` (44 bajt) dhe e çoi tregun në 360 bajt, para çdo deploy-i; prandaj `SCHEMA_VERSION` mbetet 1. Gjatë swap-it tregu mbetet vetëm për lexim.
 

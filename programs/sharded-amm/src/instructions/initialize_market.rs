@@ -93,7 +93,8 @@ pub fn handle_initialize_market(
         bump: ctx.bumps.market,
         readiness: args.readiness,
         pending_fees: PendingFees::default(),
-        reserved: [0; 15],
+        pause_flags: 0,
+        reserved: [0; 14],
     });
     ctx.accounts.registry.set_inner(ShardRegistry {
         market: market_key,

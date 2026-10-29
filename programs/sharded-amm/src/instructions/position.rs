@@ -54,10 +54,7 @@ pub fn handle_open_position(
     tick_upper: i32,
 ) -> Result<()> {
     let market = &ctx.accounts.market;
-    require!(
-        market.status.allows_add_liquidity(),
-        AmmError::InvalidMarketStatus
-    );
+    market.check_deposits()?;
     check_tick_range(tick_lower, tick_upper, market.params.tick_spacing)?;
     ctx.accounts.position.set_inner(Position {
         shard: ctx.accounts.shard.key(),
@@ -121,10 +118,7 @@ pub fn handle_increase_liquidity<'info>(
     amount_a_max: u64,
     amount_b_max: u64,
 ) -> Result<()> {
-    require!(
-        ctx.accounts.market.status.allows_add_liquidity(),
-        AmmError::InvalidMarketStatus
-    );
+    ctx.accounts.market.check_deposits()?;
     require!(liquidity > 0, AmmError::ZeroAmount);
     let delta = i128::try_from(liquidity).map_err(|_| AmmError::MathOverflow)?;
     let (a, b) = apply(&mut ctx, delta)?;

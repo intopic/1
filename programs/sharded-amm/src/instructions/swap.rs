@@ -73,6 +73,7 @@ pub fn handle_swap_exact_in<'info>(
     let acc = &ctx.accounts;
     acc.registry
         .check_swappable(acc.market.status, acc.shard.id)?;
+    acc.market.check_swaps()?;
     require!(
         acc.shard.status == ShardStatus::Active,
         AmmError::ShardNotActive

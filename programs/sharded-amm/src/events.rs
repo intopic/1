@@ -20,6 +20,31 @@ pub struct ShardPrepared {
     pub registry_version: u64,
 }
 
+/// `rebalance_pair` (ADR-0006). `lo` is the shard where A was cheaper.
+#[event]
+pub struct RebalanceExecuted {
+    pub caller: Pubkey,
+    pub shard_lo: Pubkey,
+    pub shard_hi: Pubkey,
+    pub input_is_a: bool,
+    pub amount_in: u64,
+    pub amount_mid: u64,
+    pub amount_out: u64,
+    pub profit: u64,
+    pub fee_lo_ppm: u32,
+    pub fee_hi_ppm: u32,
+    pub sqrt_price_lo_x64: u128,
+    pub sqrt_price_hi_x64: u128,
+}
+
+#[event]
+pub struct PauseFlagsChanged {
+    pub market: Pubkey,
+    pub old: u8,
+    pub new: u8,
+    pub by: Pubkey,
+}
+
 #[event]
 pub struct MarketPauseChanged {
     pub market: Pubkey,

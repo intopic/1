@@ -43,6 +43,11 @@ pub mod sharded_amm {
         handle_set_paused(ctx, paused)
     }
 
+    /// Selective pauses for swaps, new liquidity and rebalancing (ADR-0006).
+    pub fn set_pause_flags(ctx: Context<SetPaused>, flags: u8) -> Result<()> {
+        handle_set_pause_flags(ctx, flags)
+    }
+
     /// Proposes a fee change; applied by `apply_fees` after the timelock.
     pub fn update_fees(
         ctx: Context<UpdateFees>,
@@ -120,6 +125,14 @@ pub mod sharded_amm {
         args: SwapArgs,
     ) -> Result<()> {
         handle_swap_exact_in(ctx, args)
+    }
+
+    /// Capital-free rebalancing between two shards, open to anyone (ADR-0006).
+    pub fn rebalance_pair<'info>(
+        ctx: Context<'info, RebalancePair<'info>>,
+        args: RebalanceArgs,
+    ) -> Result<()> {
+        handle_rebalance_pair(ctx, args)
     }
 
     pub fn collect_protocol_fees(ctx: Context<CollectProtocolFees>) -> Result<()> {

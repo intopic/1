@@ -54,5 +54,10 @@ pub const MAX_VOL_ACCUMULATOR: u32 = 100_000_000;
 /// Upper bound on the volatility and load coefficients, so no term can
 /// overflow `u64` before the clamp.
 pub const MAX_DYNAMIC_COEFF_PPM: u32 = 1_000_000;
+/// `MarketConfig::pause_flags` bits (ADR-0006). No bit ever blocks LP exits.
+pub const PAUSE_SWAPS: u8 = 1 << 0;
+pub const PAUSE_DEPOSITS: u8 = 1 << 1;
+pub const PAUSE_REBALANCE: u8 = 1 << 2;
+pub const PAUSE_FLAGS_MASK: u8 = PAUSE_SWAPS | PAUSE_DEPOSITS | PAUSE_REBALANCE;
 /// Upper bound on the activation price tolerance.
 pub const MAX_ACTIVATION_DEVIATION_BPS: u16 = 10_000;

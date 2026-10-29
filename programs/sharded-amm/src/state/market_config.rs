@@ -10,7 +10,7 @@ use anchor_lang::prelude::*;
 use crate::constants::{
     FEE_TIMELOCK_SECONDS, MAX_ACTIVATION_DEVIATION_BPS, MAX_DYNAMIC_COEFF_PPM,
     MAX_DYNAMIC_FEE_RATE_PPM, MAX_FEE_RATE_PPM, MAX_PROTOCOL_SHARE_BPS, MAX_TICK_SPACING,
-    MAX_VOL_ACCUMULATOR,
+    MAX_VOL_ACCUMULATOR, PAUSE_DEPOSITS, PAUSE_FLAGS_MASK, PAUSE_REBALANCE, PAUSE_SWAPS,
 };
 use crate::errors::AmmError;
 use crate::state::MarketStatus;
@@ -41,8 +41,10 @@ pub struct MarketConfig {
     pub readiness: ReadinessParams,
     /// Fee change waiting for `FEE_TIMELOCK_SECONDS`.
     pub pending_fees: PendingFees,
+    /// Selective pauses (`PAUSE_*`, ADR-0006); none blocks LP exits.
+    pub pause_flags: u8,
     /// Zeroed space for future fields without a realloc.
-    pub reserved: [u8; 15],
+    pub reserved: [u8; 14],
 }
 
 #[derive(
@@ -203,6 +205,53 @@ impl MarketConfig {
             _ => return Err(AmmError::InvalidMarketStatus),
         }
         Ok(())
+    }
+
+    /// Swaps allowed: status permits them and `PAUSE_SWAPS` is clear.
+    pub fn check_swaps(&self) -> std::result::Result<(), AmmError> {
+        if self.pause_flags & PAUSE_SWAPS != 0 {
+            return Err(AmmError::SwapsPaused);
+        }
+        Ok(())
+    }
+
+    /// New liquidity allowed by status and `PAUSE_DEPOSITS`.
+    pub fn check_deposits(&self) -> std::result::Result<(), AmmError> {
+        if !self.status.allows_add_liquidity() {
+            return Err(AmmError::InvalidMarketStatus);
+        }
+        if self.pause_flags & PAUSE_DEPOSITS != 0 {
+            return Err(AmmError::DepositsPaused);
+        }
+        Ok(())
+    }
+
+    /// Rebalancing is two swaps, so both bits must be clear.
+    pub fn check_rebalance(&self) -> std::result::Result<(), AmmError> {
+        self.check_swaps()?;
+        if self.pause_flags & PAUSE_REBALANCE != 0 {
+            return Err(AmmError::RebalancePaused);
+        }
+        Ok(())
+    }
+
+    /// The pauser may only add bits; the admin may set any combination.
+    /// Unknown bits are rejected. Returns the previous flags.
+    pub fn set_pause_flags(
+        &mut self,
+        signer: &Pubkey,
+        flags: u8,
+    ) -> std::result::Result<u8, AmmError> {
+        if flags & !PAUSE_FLAGS_MASK != 0 {
+            return Err(AmmError::InvalidPauseFlags);
+        }
+        let old = self.pause_flags;
+        let allowed = *signer == self.admin || (*signer == self.pauser && flags & old == old);
+        if !allowed {
+            return Err(AmmError::Unauthorized);
+        }
+        self.pause_flags = flags;
+        Ok(old)
     }
 
     /// Admin proposes a fee change within bounds; it can be applied after
@@ -386,7 +435,8 @@ mod tests {
                 max_activation_deviation_bps: 100,
             },
             pending_fees: PendingFees::default(),
-            reserved: [0; 15],
+            pause_flags: 0,
+            reserved: [0; 14],
         }
     }
 
@@ -506,6 +556,43 @@ mod tests {
             self.max_fee_rate_ppm = self.max_fee_rate_ppm.max(base);
             self
         }
+    }
+
+    #[test]
+    fn pause_flags_roles_and_effects() {
+        let mut c = config(MarketStatus::Open);
+        let (admin, pauser, keeper) = (c.admin, c.pauser, c.keeper);
+        assert_eq!(
+            c.set_pause_flags(&keeper, PAUSE_SWAPS),
+            Err(AmmError::Unauthorized)
+        );
+        assert_eq!(
+            c.set_pause_flags(&admin, 1 << 3),
+            Err(AmmError::InvalidPauseFlags)
+        );
+        assert_eq!(c.set_pause_flags(&pauser, PAUSE_REBALANCE), Ok(0));
+        assert_eq!(c.check_rebalance(), Err(AmmError::RebalancePaused));
+        assert_eq!(c.check_swaps(), Ok(()));
+        // The pauser can add, never remove.
+        assert_eq!(
+            c.set_pause_flags(&pauser, PAUSE_REBALANCE | PAUSE_SWAPS),
+            Ok(PAUSE_REBALANCE)
+        );
+        assert_eq!(c.check_swaps(), Err(AmmError::SwapsPaused));
+        assert_eq!(c.check_rebalance(), Err(AmmError::SwapsPaused));
+        assert_eq!(
+            c.set_pause_flags(&pauser, PAUSE_SWAPS),
+            Err(AmmError::Unauthorized)
+        );
+        assert_eq!(c.set_pause_flags(&pauser, 0), Err(AmmError::Unauthorized));
+        assert_eq!(
+            c.set_pause_flags(&admin, PAUSE_DEPOSITS),
+            Ok(PAUSE_REBALANCE | PAUSE_SWAPS)
+        );
+        assert_eq!(c.check_deposits(), Err(AmmError::DepositsPaused));
+        assert_eq!(c.check_swaps(), Ok(()));
+        assert_eq!(c.set_pause_flags(&admin, 0), Ok(PAUSE_DEPOSITS));
+        assert_eq!(c.check_deposits(), Ok(()));
     }
 
     #[test]
