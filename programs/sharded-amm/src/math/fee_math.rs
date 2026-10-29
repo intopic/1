@@ -98,16 +98,31 @@ pub fn fees_owed(liquidity: u128, inside_now: U256, checkpoint: U256) -> MathRes
 /// credits exactly what one refresh at the end would. A liquidity change
 /// moves the checkpoint to `inside_now` and resets `credited` to 0; the
 /// remainder lost there is below one token unit per change.
+///
+/// The cumulative product is kept in U256 and never narrowed: over a long
+/// period it can pass `u64::MAX` (a cheap 9-decimal token reaches 2^64 raw
+/// units of fees in weeks). Only the difference is narrowed, and it is
+/// bounded by fees that sit unpaid in the vault, so it fits a SPL balance;
+/// it saturates instead of failing so that fee math can never block an exit.
+/// `CREDITED_RESET` keeps `credited` far from `u64::MAX`.
 pub fn fees_since(
     liquidity: u128,
     inside_now: U256,
     checkpoint: U256,
     credited: u64,
 ) -> MathResult<u64> {
-    fees_owed(liquidity, inside_now, checkpoint)?
-        .checked_sub(credited)
-        .ok_or(AmmError::MathInvariantViolated)
+    let delta = inside_now.overflowing_sub(checkpoint).0;
+    let total = mul_div(U256::from(liquidity), delta, Q128, false)?;
+    let earned = total
+        .checked_sub(U256::from(credited))
+        .ok_or(AmmError::MathInvariantViolated)?;
+    Ok(to_u64(earned).unwrap_or(u64::MAX))
 }
+
+/// Once `credited` reaches this value the next fee refresh starts a new
+/// period at `inside_now` (as a liquidity change does), losing below one
+/// token unit, so `credited + earned` never overflows.
+pub const CREDITED_RESET: u64 = 1 << 63;
 
 #[cfg(test)]
 mod tests {

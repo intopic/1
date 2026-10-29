@@ -2,7 +2,7 @@
 
 use crate::constants::{MAX_TICK, MIN_TICK};
 use crate::errors::AmmError;
-use crate::math::fee_math::{fees_since, growth_inside, initial_outside};
+use crate::math::fee_math::{fees_since, growth_inside, initial_outside, CREDITED_RESET};
 use crate::math::liquidity_math::{add_delta, amounts_for_liquidity, max_liquidity_per_tick};
 use crate::math::tick_math::sqrt_price_at_tick;
 use crate::math::wide::U256;
@@ -157,14 +157,10 @@ pub fn modify_position(
     )?;
     let earned_a = fees_since(pos.liquidity, inside_a, pos.inside_last_a, pos.credited_a)?;
     let earned_b = fees_since(pos.liquidity, inside_b, pos.inside_last_b, pos.credited_b)?;
-    let owed_a = pos
-        .owed_a
-        .checked_add(earned_a)
-        .ok_or(AmmError::MathOverflow)?;
-    let owed_b = pos
-        .owed_b
-        .checked_add(earned_b)
-        .ok_or(AmmError::MathOverflow)?;
+    // `owed` is paid from a u64 vault, so it cannot usefully pass u64::MAX;
+    // saturating keeps a liquidity removal from ever failing on fees.
+    let owed_a = pos.owed_a.saturating_add(earned_a);
+    let owed_b = pos.owed_b.saturating_add(earned_b);
 
     let in_range = pool.tick >= pos.lower && pool.tick < pos.upper;
     let new_pool_l = if in_range {
@@ -197,21 +193,18 @@ pub fn modify_position(
     }
     // With unchanged liquidity the checkpoint stays and `credited` grows, so
     // the fee is rounded once over the whole period; a liquidity change
-    // starts a new period at `inside`.
-    let (last_a, last_b, credited_a, credited_b) = if delta == 0 {
-        (
-            pos.inside_last_a,
-            pos.inside_last_b,
-            pos.credited_a
-                .checked_add(earned_a)
-                .ok_or(AmmError::MathOverflow)?,
-            pos.credited_b
-                .checked_add(earned_b)
-                .ok_or(AmmError::MathOverflow)?,
-        )
-    } else {
-        (inside_a, inside_b, 0, 0)
+    // starts a new period at `inside`, and so does a refresh once `credited`
+    // reaches `CREDITED_RESET` (each token on its own).
+    let period = |last: U256, inside: U256, credited: u64, earned: u64| {
+        let c = u128::from(credited) + u128::from(earned);
+        if delta != 0 || c >= u128::from(CREDITED_RESET) {
+            (inside, 0)
+        } else {
+            (last, c as u64)
+        }
     };
+    let (last_a, credited_a) = period(pos.inside_last_a, inside_a, pos.credited_a, earned_a);
+    let (last_b, credited_b) = period(pos.inside_last_b, inside_b, pos.credited_b, earned_b);
     pool.liquidity = new_pool_l;
     *pos = PositionState {
         liquidity: new_position_l,

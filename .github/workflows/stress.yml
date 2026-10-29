@@ -67,6 +67,7 @@ jobs:
           AMM_STRESS_CASES=$(( 1000000 * SCALE )) cargo test --release -p sharded-amm --test math_properties -- --nocapture
           AMM_STRESS_CASES=$(( 200000 * SCALE )) cargo test --release -p sharded-amm --test engine_model -- --nocapture | tee engine.log
           AMM_STRESS_CASES=$(( 1000000 * SCALE )) cargo test --release -p amm-model -- --nocapture
+          AMM_STRESS_CASES=$(( 200000 * SCALE )) cargo test --release -p sharded-amm --test fee_overflow -- --nocapture
           {
             echo "### host shard ${{ matrix.shard }} (seed $seed)"
             echo '```'

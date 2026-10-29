@@ -107,12 +107,14 @@ Pozicioni:
 outside(init) = tick ≤ current ? global : 0                   // checked, 0 ≤ outside ≤ global
 outside(cross)= global − outside                              // checked
 inside(now)   = global − below(lower) − above(upper)          // mod 2^256
-total         = floor(old_position_L · (inside(now) − checkpoint mod 2^256) / 2^128)   // 384 bit → U512
-owed_delta    = total − credited                              // checked: MathInvariantViolated
-owed          = owed.checked_add(owed_delta)  → gabim në overflow
-Δliquidity = 0: checkpoint mbetet, credited = total
-Δliquidity ≠ 0: checkpoint = inside(now), credited = 0
+total         = floor(old_position_L · (inside(now) − checkpoint mod 2^256) / 2^128)   // U256, nuk ngushtohet kurrë
+owed_delta    = min(total − credited, u64::MAX)               // checked: MathInvariantViolated
+owed          = owed.saturating_add(owed_delta)
+Δliquidity = 0 dhe credited + owed_delta < 2^63: checkpoint mbetet, credited = total
+përndryshe (Δliquidity ≠ 0 ose credited arrin 2^63): checkpoint = inside(now), credited = 0
 ```
+
+`total` mund të kalojë `u64::MAX` gjatë një periudhe të gjatë pa ndryshim likuiditeti (D-01 te analiza për mainnet: një token 9-decimal rreth $0.000001 e arrin 2^64 njësi tarife në ~18 ditë). Versioni i mëparshëm e ngushtonte `total` në u64, dhe pas kësaj mbledhja e tarifave dhe heqja e likuiditetit dështonin përgjithmonë me `MathOverflow`, pra principal-i i LP-së ngecte. Tani ngushtohet vetëm diferenca, që kufizohet nga tarifat e papaguara në vault (një bilanc SPL u64). Ngopja (`min`, `saturating_add`) nuk ndodh në praktikë dhe ekziston vetëm që matematika e tarifave të mos bllokojë kurrë daljen. Kur `credited` arrin 2^63, nis një periudhë e re, me humbje nën 1 njësi token. Testi: `tests/fee_overflow.rs` (rasti CE-01 dhe raste të rastit me L deri në 2^100, që kalojnë 2^64 njësi për çdo token; të dy dështonin te kodi i vjetër).
 
 Kur likuiditeti nuk ndryshon, checkpoint-i nuk lëviz, dhe `credited` mban sa është kaluar tashmë te `owed` (29 tetor 2026, riauditimi P2-2). Rrumbullakimi bëhet vetëm një herë për gjithë periudhën, kështu që mbledhja pas çdo swap-i paguan **saktësisht** sa një mbledhje e vetme në fund. Testet: `fee_math::tests::frequent_refreshes_pay_what_one_refresh_pays`, që përfshin rastin e riauditimit (L = 3 dhe L = 1, katër swap-e me nga 1 njësi tarifë) dhe 500 raste të rastit, plus `eng15_fee_checkpoint`.
 
