@@ -3,6 +3,12 @@
 Studim i izoluar, pa ndryshim në programet AMM të këtij repository.
 Nuk është kontratë prodhimi dhe nuk pretendon paralelizëm ose siguri8x.
 
+**CI kaloi:** https://github.com/intopic/1/actions/runs/40983318078 .
+31 teste modeli, wire/signatures dhe shlyerja reale SPL në LiteSVM kaluan.
+Tetë shkëmbimet reale përdorën12,293 CU secili. Log-et dhe rezultatet janë te
+artifact-i direct-exchange-evidence. Ekzekutimi SVM është serial; matja e
+paralelizmit të scheduler-it mbetet e hapur.
+
 ## Tri nivele prove
 
 1. **Model integer:** ruajtje tokenësh, autorizim abstrakt, minimumet,

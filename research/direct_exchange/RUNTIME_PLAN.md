@@ -1,10 +1,13 @@
-# Runtime validation gate: NOT PASSED
+# Validator scheduler gate: NOT PASSED; serial SPL SBF gate: PASSED IN CI
 
-Actual attempts and errors: results/runtime_attempts.json. No transaction
-was executed onchain or in LiteSVM during this study. No TPS/CU/scheduler
-speedup is reported. This gate remains required before architecture selection.
+Initial local Windows attempts failed before executing transactions. The
+subsequent Linux CI run executed real SPL SBF in LiteSVM successfully:
+https://github.com/intopic/1/actions/runs/40983318078
+Eight bilateral exchanges used12,293 CU each; atomic rollback, insufficient
+funds, replay and tampered signatures passed. No validator scheduler overlap,
+TPS or8x speedup was measured. The scheduler gate below remains required.
 
-## Available and failed paths
+## Historical local Windows attempts
 
 - Native Agave4.3.2 version/help succeed. Two fresh temporary localhost
   validator startups (normal and escalated) both fail unpacking genesis:
