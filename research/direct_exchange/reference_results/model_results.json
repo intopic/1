@@ -1,0 +1,3505 @@
+{
+  "experiment": "synthetic account-lock graph + integer settlement model",
+  "not_measured": [
+    "Solana scheduler parallelism",
+    "onchain throughput",
+    "MEV resilience",
+    "cryptographic order authorization",
+    "production contract safety"
+  ],
+  "platform": "Windows-10-10.0.19043-SP0",
+  "python": "3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]",
+  "source_sha256": {
+    "model.py": "917ae19f1ba171e2c3df4bc23bc32b87b64ecfba344f03b5bcce044d7aa929cc",
+    "protocol_probe.py": "5d274599c5944f76f9dfd2ccd77d36538122c3f1a3e33b2b218466a3833d6490",
+    "run_study.py": "70818305a3fb5f514c9636f021313b2c7e18f014aba482129e34fd1b8bfed023"
+  },
+  "cases": {
+    "eight_independent": {
+      "candidates": 8,
+      "conflict_edges": 0,
+      "exact_maximum": 8,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 9700,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 8,
+          "solve_ns": 31300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 8,
+          "solve_ns": 61200,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 8,
+          "solve_ns": 2193200,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 8,
+          "solve_ns": 3207900,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    "same_fee_payer": {
+      "candidates": 8,
+      "conflict_edges": 28,
+      "exact_maximum": 1,
+      "selectors": {
+        "first_fit": {
+          "selected": 1,
+          "solve_ns": 14600,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 1,
+          "solve_ns": 26100,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 1,
+          "solve_ns": 165600,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 1,
+          "solve_ns": 6459500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 1,
+          "solve_ns": 9986400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    "same_treasury": {
+      "candidates": 8,
+      "conflict_edges": 28,
+      "exact_maximum": 1,
+      "selectors": {
+        "first_fit": {
+          "selected": 1,
+          "solve_ns": 14000,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 1,
+          "solve_ns": 18600,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 1,
+          "solve_ns": 72500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 1,
+          "solve_ns": 5859300,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 1,
+          "solve_ns": 7812600,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    "same_source_account": {
+      "candidates": 8,
+      "conflict_edges": 28,
+      "exact_maximum": 1,
+      "selectors": {
+        "first_fit": {
+          "selected": 1,
+          "solve_ns": 6500,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 1,
+          "solve_ns": 15800,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 1,
+          "solve_ns": 60600,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 1,
+          "solve_ns": 5372600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 1,
+          "solve_ns": 7884900,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    "four_shared_resources_two_candidates_each": {
+      "candidates": 8,
+      "conflict_edges": 4,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 7900,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 23700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 4,
+          "solve_ns": 52600,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 4,
+          "solve_ns": 3140000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 4,
+          "solve_ns": 6553500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    "adversarial_star": {
+      "candidates": 9,
+      "conflict_edges": 8,
+      "exact_maximum": 8,
+      "selectors": {
+        "first_fit": {
+          "selected": 1,
+          "solve_ns": 6900,
+          "fraction_of_exact": 0.125
+        },
+        "degree_greedy": {
+          "selected": 8,
+          "solve_ns": 35700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 8,
+          "solve_ns": 68300,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 8,
+          "solve_ns": 3792600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 8,
+          "solve_ns": 6429200,
+          "fraction_of_exact": 1.0
+        }
+      }
+    }
+  },
+  "random_graph_count": 96,
+  "random_graphs": [
+    {
+      "density_parameter": 0.1,
+      "seed": 0,
+      "candidates": 16,
+      "conflict_edges": 7,
+      "exact_maximum": 12,
+      "selectors": {
+        "first_fit": {
+          "selected": 11,
+          "solve_ns": 12100,
+          "fraction_of_exact": 0.9166666666666666
+        },
+        "degree_greedy": {
+          "selected": 12,
+          "solve_ns": 95800,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 12,
+          "solve_ns": 97500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 12,
+          "solve_ns": 7071400,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 12,
+          "solve_ns": 9988500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 1,
+      "candidates": 16,
+      "conflict_edges": 13,
+      "exact_maximum": 10,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 30300,
+          "fraction_of_exact": 0.9
+        },
+        "degree_greedy": {
+          "selected": 10,
+          "solve_ns": 115300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 10,
+          "solve_ns": 138900,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 10,
+          "solve_ns": 7101700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 10,
+          "solve_ns": 12964500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 2,
+      "candidates": 16,
+      "conflict_edges": 13,
+      "exact_maximum": 10,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 11500,
+          "fraction_of_exact": 0.8
+        },
+        "degree_greedy": {
+          "selected": 10,
+          "solve_ns": 88400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 90500,
+          "fraction_of_exact": 0.9
+        },
+        "sigmoid_projected": {
+          "selected": 10,
+          "solve_ns": 6796200,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 9,
+          "solve_ns": 12910600,
+          "fraction_of_exact": 0.9
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 3,
+      "candidates": 16,
+      "conflict_edges": 15,
+      "exact_maximum": 9,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 9100,
+          "fraction_of_exact": 0.8888888888888888
+        },
+        "degree_greedy": {
+          "selected": 9,
+          "solve_ns": 52400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 7,
+          "solve_ns": 57500,
+          "fraction_of_exact": 0.7777777777777778
+        },
+        "sigmoid_projected": {
+          "selected": 9,
+          "solve_ns": 4725500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 9,
+          "solve_ns": 11762200,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 4,
+      "candidates": 16,
+      "conflict_edges": 14,
+      "exact_maximum": 10,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 8900,
+          "fraction_of_exact": 0.9
+        },
+        "degree_greedy": {
+          "selected": 10,
+          "solve_ns": 58400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 67800,
+          "fraction_of_exact": 0.9
+        },
+        "sigmoid_projected": {
+          "selected": 10,
+          "solve_ns": 9738900,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 10,
+          "solve_ns": 14798300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 5,
+      "candidates": 16,
+      "conflict_edges": 16,
+      "exact_maximum": 9,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 14600,
+          "fraction_of_exact": 0.8888888888888888
+        },
+        "degree_greedy": {
+          "selected": 9,
+          "solve_ns": 68400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 8,
+          "solve_ns": 96100,
+          "fraction_of_exact": 0.8888888888888888
+        },
+        "sigmoid_projected": {
+          "selected": 9,
+          "solve_ns": 7379700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 8,
+          "solve_ns": 11115100,
+          "fraction_of_exact": 0.8888888888888888
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 6,
+      "candidates": 16,
+      "conflict_edges": 10,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 10,
+          "solve_ns": 8600,
+          "fraction_of_exact": 0.9090909090909091
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 58300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 11,
+          "solve_ns": 67500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 6056300,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 11,
+          "solve_ns": 14598400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 7,
+      "candidates": 16,
+      "conflict_edges": 15,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 8500,
+          "fraction_of_exact": 0.7272727272727273
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 61500,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 65600,
+          "fraction_of_exact": 0.8181818181818182
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 7709900,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 10,
+          "solve_ns": 13652700,
+          "fraction_of_exact": 0.9090909090909091
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 8,
+      "candidates": 16,
+      "conflict_edges": 16,
+      "exact_maximum": 8,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 12800,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 8,
+          "solve_ns": 68400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 8,
+          "solve_ns": 92000,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 8,
+          "solve_ns": 6790100,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 8,
+          "solve_ns": 14926300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 9,
+      "candidates": 16,
+      "conflict_edges": 18,
+      "exact_maximum": 10,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 9000,
+          "fraction_of_exact": 0.9
+        },
+        "degree_greedy": {
+          "selected": 10,
+          "solve_ns": 60400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 64900,
+          "fraction_of_exact": 0.9
+        },
+        "sigmoid_projected": {
+          "selected": 10,
+          "solve_ns": 4651700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 10,
+          "solve_ns": 9761500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 10,
+      "candidates": 16,
+      "conflict_edges": 13,
+      "exact_maximum": 9,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 8600,
+          "fraction_of_exact": 0.8888888888888888
+        },
+        "degree_greedy": {
+          "selected": 9,
+          "solve_ns": 53100,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 8,
+          "solve_ns": 68100,
+          "fraction_of_exact": 0.8888888888888888
+        },
+        "sigmoid_projected": {
+          "selected": 9,
+          "solve_ns": 6421700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 9,
+          "solve_ns": 14942100,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 11,
+      "candidates": 16,
+      "conflict_edges": 13,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 10,
+          "solve_ns": 8200,
+          "fraction_of_exact": 0.9090909090909091
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 59700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 63900,
+          "fraction_of_exact": 0.8181818181818182
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 6252900,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 11,
+          "solve_ns": 8830800,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 12,
+      "candidates": 16,
+      "conflict_edges": 15,
+      "exact_maximum": 9,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 9400,
+          "fraction_of_exact": 0.8888888888888888
+        },
+        "degree_greedy": {
+          "selected": 9,
+          "solve_ns": 53900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 8,
+          "solve_ns": 68900,
+          "fraction_of_exact": 0.8888888888888888
+        },
+        "sigmoid_projected": {
+          "selected": 9,
+          "solve_ns": 7082100,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 9,
+          "solve_ns": 11009700,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 13,
+      "candidates": 16,
+      "conflict_edges": 9,
+      "exact_maximum": 12,
+      "selectors": {
+        "first_fit": {
+          "selected": 12,
+          "solve_ns": 20100,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 12,
+          "solve_ns": 130600,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 11,
+          "solve_ns": 444200,
+          "fraction_of_exact": 0.9166666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 12,
+          "solve_ns": 7229700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 12,
+          "solve_ns": 16819400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 14,
+      "candidates": 16,
+      "conflict_edges": 10,
+      "exact_maximum": 10,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 19100,
+          "fraction_of_exact": 0.9
+        },
+        "degree_greedy": {
+          "selected": 10,
+          "solve_ns": 164200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 230000,
+          "fraction_of_exact": 0.9
+        },
+        "sigmoid_projected": {
+          "selected": 10,
+          "solve_ns": 11619800,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 10,
+          "solve_ns": 17086300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 15,
+      "candidates": 16,
+      "conflict_edges": 13,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 8500,
+          "fraction_of_exact": 0.7272727272727273
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 59900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 10,
+          "solve_ns": 67800,
+          "fraction_of_exact": 0.9090909090909091
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 7689200,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 11,
+          "solve_ns": 15262300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 16,
+      "candidates": 16,
+      "conflict_edges": 13,
+      "exact_maximum": 9,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 14000,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 9,
+          "solve_ns": 57700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 71500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 9,
+          "solve_ns": 7717700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 9,
+          "solve_ns": 15041400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 17,
+      "candidates": 16,
+      "conflict_edges": 12,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 10,
+          "solve_ns": 11900,
+          "fraction_of_exact": 0.9090909090909091
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 95200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 11,
+          "solve_ns": 93400,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 9148500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 11,
+          "solve_ns": 21728300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 18,
+      "candidates": 16,
+      "conflict_edges": 5,
+      "exact_maximum": 12,
+      "selectors": {
+        "first_fit": {
+          "selected": 12,
+          "solve_ns": 12100,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 12,
+          "solve_ns": 86800,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 12,
+          "solve_ns": 86800,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 12,
+          "solve_ns": 7117700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 12,
+          "solve_ns": 16247000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 19,
+      "candidates": 16,
+      "conflict_edges": 12,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 11,
+          "solve_ns": 19500,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 124000,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 10,
+          "solve_ns": 143800,
+          "fraction_of_exact": 0.9090909090909091
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 7250000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 11,
+          "solve_ns": 15538700,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 20,
+      "candidates": 16,
+      "conflict_edges": 16,
+      "exact_maximum": 10,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 8600,
+          "fraction_of_exact": 0.9
+        },
+        "degree_greedy": {
+          "selected": 10,
+          "solve_ns": 57100,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 70900,
+          "fraction_of_exact": 0.9
+        },
+        "sigmoid_projected": {
+          "selected": 10,
+          "solve_ns": 4533100,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 10,
+          "solve_ns": 14578400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 21,
+      "candidates": 16,
+      "conflict_edges": 12,
+      "exact_maximum": 10,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 12600,
+          "fraction_of_exact": 0.9
+        },
+        "degree_greedy": {
+          "selected": 10,
+          "solve_ns": 86100,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 100300,
+          "fraction_of_exact": 0.9
+        },
+        "sigmoid_projected": {
+          "selected": 10,
+          "solve_ns": 9577500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 10,
+          "solve_ns": 12697600,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 22,
+      "candidates": 16,
+      "conflict_edges": 11,
+      "exact_maximum": 12,
+      "selectors": {
+        "first_fit": {
+          "selected": 10,
+          "solve_ns": 10500,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "degree_greedy": {
+          "selected": 12,
+          "solve_ns": 66600,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 10,
+          "solve_ns": 70500,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "sigmoid_projected": {
+          "selected": 12,
+          "solve_ns": 7020400,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 12,
+          "solve_ns": 11283300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 23,
+      "candidates": 16,
+      "conflict_edges": 11,
+      "exact_maximum": 10,
+      "selectors": {
+        "first_fit": {
+          "selected": 10,
+          "solve_ns": 12200,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 10,
+          "solve_ns": 77000,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 8,
+          "solve_ns": 90700,
+          "fraction_of_exact": 0.8
+        },
+        "sigmoid_projected": {
+          "selected": 10,
+          "solve_ns": 6404000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 10,
+          "solve_ns": 14199000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 24,
+      "candidates": 16,
+      "conflict_edges": 12,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 10,
+          "solve_ns": 11800,
+          "fraction_of_exact": 0.9090909090909091
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 78100,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 8,
+          "solve_ns": 77100,
+          "fraction_of_exact": 0.7272727272727273
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 7976700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 11,
+          "solve_ns": 12222900,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 25,
+      "candidates": 16,
+      "conflict_edges": 13,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 13300,
+          "fraction_of_exact": 0.8181818181818182
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 79900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 11,
+          "solve_ns": 103500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 8282900,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 11,
+          "solve_ns": 15499700,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 26,
+      "candidates": 16,
+      "conflict_edges": 22,
+      "exact_maximum": 9,
+      "selectors": {
+        "first_fit": {
+          "selected": 8,
+          "solve_ns": 14700,
+          "fraction_of_exact": 0.8888888888888888
+        },
+        "degree_greedy": {
+          "selected": 9,
+          "solve_ns": 77300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 90800,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 9,
+          "solve_ns": 9159100,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 9,
+          "solve_ns": 17443000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 27,
+      "candidates": 16,
+      "conflict_edges": 13,
+      "exact_maximum": 10,
+      "selectors": {
+        "first_fit": {
+          "selected": 10,
+          "solve_ns": 8800,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 10,
+          "solve_ns": 55500,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 60100,
+          "fraction_of_exact": 0.9
+        },
+        "sigmoid_projected": {
+          "selected": 10,
+          "solve_ns": 8169000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 10,
+          "solve_ns": 15457300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 28,
+      "candidates": 16,
+      "conflict_edges": 8,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 10,
+          "solve_ns": 11700,
+          "fraction_of_exact": 0.9090909090909091
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 85500,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 10,
+          "solve_ns": 80900,
+          "fraction_of_exact": 0.9090909090909091
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 9291600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 11,
+          "solve_ns": 14190600,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 29,
+      "candidates": 16,
+      "conflict_edges": 8,
+      "exact_maximum": 12,
+      "selectors": {
+        "first_fit": {
+          "selected": 12,
+          "solve_ns": 8400,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 12,
+          "solve_ns": 85800,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 12,
+          "solve_ns": 81600,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 12,
+          "solve_ns": 4176600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 12,
+          "solve_ns": 7378600,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 30,
+      "candidates": 16,
+      "conflict_edges": 10,
+      "exact_maximum": 11,
+      "selectors": {
+        "first_fit": {
+          "selected": 10,
+          "solve_ns": 12500,
+          "fraction_of_exact": 0.9090909090909091
+        },
+        "degree_greedy": {
+          "selected": 11,
+          "solve_ns": 63600,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 11,
+          "solve_ns": 148600,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 11,
+          "solve_ns": 7509700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 11,
+          "solve_ns": 15066400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.1,
+      "seed": 31,
+      "candidates": 16,
+      "conflict_edges": 12,
+      "exact_maximum": 9,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 9000,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 9,
+          "solve_ns": 55200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 9,
+          "solve_ns": 66300,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 9,
+          "solve_ns": 4348000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 9,
+          "solve_ns": 12639100,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 0,
+      "candidates": 16,
+      "conflict_edges": 25,
+      "exact_maximum": 8,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 11300,
+          "fraction_of_exact": 0.625
+        },
+        "degree_greedy": {
+          "selected": 8,
+          "solve_ns": 67700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 8,
+          "solve_ns": 103100,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 8,
+          "solve_ns": 12419600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 8,
+          "solve_ns": 16463800,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 1,
+      "candidates": 16,
+      "conflict_edges": 32,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 8500,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "degree_greedy": {
+          "selected": 6,
+          "solve_ns": 45000,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 81200,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 5132000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 15136000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 2,
+      "candidates": 16,
+      "conflict_edges": 34,
+      "exact_maximum": 8,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 13600,
+          "fraction_of_exact": 0.625
+        },
+        "degree_greedy": {
+          "selected": 8,
+          "solve_ns": 135700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 121100,
+          "fraction_of_exact": 0.75
+        },
+        "sigmoid_projected": {
+          "selected": 8,
+          "solve_ns": 11632200,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 8,
+          "solve_ns": 18526800,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 3,
+      "candidates": 16,
+      "conflict_edges": 29,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 15600,
+          "fraction_of_exact": 0.7142857142857143
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 102700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 7,
+          "solve_ns": 152100,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 14331700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 21770900,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 4,
+      "candidates": 16,
+      "conflict_edges": 44,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 19800,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 5,
+          "solve_ns": 110300,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "local_inhibition": {
+          "selected": 4,
+          "solve_ns": 190300,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 7203600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 18264800,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 5,
+      "candidates": 16,
+      "conflict_edges": 39,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 15700,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 6,
+          "solve_ns": 172200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 190000,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 13241300,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 18303400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 6,
+      "candidates": 16,
+      "conflict_edges": 30,
+      "exact_maximum": 8,
+      "selectors": {
+        "first_fit": {
+          "selected": 7,
+          "solve_ns": 16100,
+          "fraction_of_exact": 0.875
+        },
+        "degree_greedy": {
+          "selected": 8,
+          "solve_ns": 124700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 7,
+          "solve_ns": 153600,
+          "fraction_of_exact": 0.875
+        },
+        "sigmoid_projected": {
+          "selected": 8,
+          "solve_ns": 15544000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 8,
+          "solve_ns": 24680500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 7,
+      "candidates": 16,
+      "conflict_edges": 39,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 16400,
+          "fraction_of_exact": 0.42857142857142855
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 98900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 291500,
+          "fraction_of_exact": 0.8571428571428571
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 12677600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 22212800,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 8,
+      "candidates": 16,
+      "conflict_edges": 44,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 18600,
+          "fraction_of_exact": 0.7142857142857143
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 103900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 128000,
+          "fraction_of_exact": 0.7142857142857143
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 12966600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 18402100,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 9,
+      "candidates": 16,
+      "conflict_edges": 42,
+      "exact_maximum": 5,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 14400,
+          "fraction_of_exact": 0.8
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 78900,
+          "fraction_of_exact": 0.8
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 154100,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 5,
+          "solve_ns": 13298600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 5,
+          "solve_ns": 20980000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 10,
+      "candidates": 16,
+      "conflict_edges": 32,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 9700,
+          "fraction_of_exact": 0.5714285714285714
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 60400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 7,
+          "solve_ns": 89700,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 8664700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 17833700,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 11,
+      "candidates": 16,
+      "conflict_edges": 43,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 7,
+          "solve_ns": 12600,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 72900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 4,
+          "solve_ns": 107800,
+          "fraction_of_exact": 0.5714285714285714
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 8690000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 12275700,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 12,
+      "candidates": 16,
+      "conflict_edges": 40,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 13200,
+          "fraction_of_exact": 0.5
+        },
+        "degree_greedy": {
+          "selected": 5,
+          "solve_ns": 44900,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 84700,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 11234000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 18055300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 13,
+      "candidates": 16,
+      "conflict_edges": 41,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 8000,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "degree_greedy": {
+          "selected": 6,
+          "solve_ns": 48300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 74300,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 6940600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 19702600,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 14,
+      "candidates": 16,
+      "conflict_edges": 40,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 6,
+          "solve_ns": 8800,
+          "fraction_of_exact": 0.8571428571428571
+        },
+        "degree_greedy": {
+          "selected": 6,
+          "solve_ns": 91200,
+          "fraction_of_exact": 0.8571428571428571
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 195500,
+          "fraction_of_exact": 0.8571428571428571
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 9288300,
+          "fraction_of_exact": 0.8571428571428571
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 13917700,
+          "fraction_of_exact": 0.8571428571428571
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 15,
+      "candidates": 16,
+      "conflict_edges": 32,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 10400,
+          "fraction_of_exact": 0.5714285714285714
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 64900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 78200,
+          "fraction_of_exact": 0.8571428571428571
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 8734000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 8652400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 16,
+      "candidates": 16,
+      "conflict_edges": 43,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 9500,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "degree_greedy": {
+          "selected": 5,
+          "solve_ns": 44500,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 83300,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 11095500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 16996700,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 17,
+      "candidates": 16,
+      "conflict_edges": 34,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 8800,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "degree_greedy": {
+          "selected": 5,
+          "solve_ns": 46800,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 73500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 7626700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 5,
+          "solve_ns": 11569100,
+          "fraction_of_exact": 0.8333333333333334
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 18,
+      "candidates": 16,
+      "conflict_edges": 34,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 6,
+          "solve_ns": 7400,
+          "fraction_of_exact": 0.8571428571428571
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 56200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 7,
+          "solve_ns": 73700,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 7872800,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 16234700,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 19,
+      "candidates": 16,
+      "conflict_edges": 42,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 10200,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "degree_greedy": {
+          "selected": 5,
+          "solve_ns": 155000,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 132500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 5,
+          "solve_ns": 6060100,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "competitive_projected": {
+          "selected": 5,
+          "solve_ns": 13374000,
+          "fraction_of_exact": 0.8333333333333334
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 20,
+      "candidates": 16,
+      "conflict_edges": 44,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 6,
+          "solve_ns": 8500,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 6,
+          "solve_ns": 48300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 72100,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 7218400,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 18409800,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 21,
+      "candidates": 16,
+      "conflict_edges": 36,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 43000,
+          "fraction_of_exact": 0.7142857142857143
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 69900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 487400,
+          "fraction_of_exact": 0.7142857142857143
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 9675500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 16862400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 22,
+      "candidates": 16,
+      "conflict_edges": 31,
+      "exact_maximum": 9,
+      "selectors": {
+        "first_fit": {
+          "selected": 9,
+          "solve_ns": 11900,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 9,
+          "solve_ns": 78900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 96300,
+          "fraction_of_exact": 0.5555555555555556
+        },
+        "sigmoid_projected": {
+          "selected": 9,
+          "solve_ns": 11213800,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 9,
+          "solve_ns": 17555500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 23,
+      "candidates": 16,
+      "conflict_edges": 34,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 6,
+          "solve_ns": 11400,
+          "fraction_of_exact": 0.8571428571428571
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 74400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 4,
+          "solve_ns": 100900,
+          "fraction_of_exact": 0.5714285714285714
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 11613600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 19608400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 24,
+      "candidates": 16,
+      "conflict_edges": 32,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 8300,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "degree_greedy": {
+          "selected": 6,
+          "solve_ns": 43800,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 65300,
+          "fraction_of_exact": 0.8333333333333334
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 5199200,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 15329500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 25,
+      "candidates": 16,
+      "conflict_edges": 40,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 14900,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 6,
+          "solve_ns": 67200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 99000,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 11118200,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 18968800,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 26,
+      "candidates": 16,
+      "conflict_edges": 37,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 14000,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 6,
+          "solve_ns": 66300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 77600,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 9534500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 6,
+          "solve_ns": 14596600,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 27,
+      "candidates": 16,
+      "conflict_edges": 34,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 5,
+          "solve_ns": 11100,
+          "fraction_of_exact": 0.7142857142857143
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 73400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 7,
+          "solve_ns": 102500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 8779300,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 21155200,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 28,
+      "candidates": 16,
+      "conflict_edges": 38,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 7,
+          "solve_ns": 9100,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 58200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 5,
+          "solve_ns": 76000,
+          "fraction_of_exact": 0.7142857142857143
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 7898900,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 17322500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 29,
+      "candidates": 16,
+      "conflict_edges": 32,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 6,
+          "solve_ns": 11000,
+          "fraction_of_exact": 0.8571428571428571
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 48600,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 7,
+          "solve_ns": 71200,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 7145500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 8714500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 30,
+      "candidates": 16,
+      "conflict_edges": 29,
+      "exact_maximum": 7,
+      "selectors": {
+        "first_fit": {
+          "selected": 7,
+          "solve_ns": 13300,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 7,
+          "solve_ns": 79400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 7,
+          "solve_ns": 119100,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 7,
+          "solve_ns": 10114400,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 7,
+          "solve_ns": 16211300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.3,
+      "seed": 31,
+      "candidates": 16,
+      "conflict_edges": 42,
+      "exact_maximum": 6,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 8200,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 6,
+          "solve_ns": 49200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 6,
+          "solve_ns": 88400,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 6,
+          "solve_ns": 5709000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 5,
+          "solve_ns": 15708800,
+          "fraction_of_exact": 0.8333333333333334
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 0,
+      "candidates": 16,
+      "conflict_edges": 76,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 44500,
+          "fraction_of_exact": 0.75
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 50500,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 96700,
+          "fraction_of_exact": 0.5
+        },
+        "sigmoid_projected": {
+          "selected": 4,
+          "solve_ns": 12556200,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 4,
+          "solve_ns": 23322500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 1,
+      "candidates": 16,
+      "conflict_edges": 82,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 10400,
+          "fraction_of_exact": 0.75
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 37000,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 78900,
+          "fraction_of_exact": 0.75
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 12390700,
+          "fraction_of_exact": 0.75
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 24854400,
+          "fraction_of_exact": 0.75
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 2,
+      "candidates": 16,
+      "conflict_edges": 78,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 9400,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 34900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 79500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 11487800,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 21109300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 3,
+      "candidates": 16,
+      "conflict_edges": 81,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 11300,
+          "fraction_of_exact": 0.75
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 54400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 98900,
+          "fraction_of_exact": 0.75
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 12518900,
+          "fraction_of_exact": 0.75
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 24336700,
+          "fraction_of_exact": 0.75
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 4,
+      "candidates": 16,
+      "conflict_edges": 86,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 10700,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 32000,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 72200,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 10143500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 23351500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 5,
+      "candidates": 16,
+      "conflict_edges": 78,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 22000,
+          "fraction_of_exact": 0.75
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 81400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 150800,
+          "fraction_of_exact": 0.75
+        },
+        "sigmoid_projected": {
+          "selected": 4,
+          "solve_ns": 16741800,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 4,
+          "solve_ns": 27386100,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 6,
+      "candidates": 16,
+      "conflict_edges": 84,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 13100,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 40600,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 99400,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 9077500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 27155000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 7,
+      "candidates": 16,
+      "conflict_edges": 91,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 9300,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 36500,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 86900,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 12860500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 17463400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 8,
+      "candidates": 16,
+      "conflict_edges": 86,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 8500,
+          "fraction_of_exact": 0.75
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 38300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 71900,
+          "fraction_of_exact": 0.5
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 10598200,
+          "fraction_of_exact": 0.75
+        },
+        "competitive_projected": {
+          "selected": 2,
+          "solve_ns": 23565400,
+          "fraction_of_exact": 0.5
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 9,
+      "candidates": 16,
+      "conflict_edges": 88,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 9400,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 40000,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 81700,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 15327800,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 2,
+          "solve_ns": 21688100,
+          "fraction_of_exact": 0.6666666666666666
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 10,
+      "candidates": 16,
+      "conflict_edges": 94,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 19700,
+          "fraction_of_exact": 0.5
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 81200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 4,
+          "solve_ns": 188200,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 4,
+          "solve_ns": 20743700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 4,
+          "solve_ns": 27030200,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 11,
+      "candidates": 16,
+      "conflict_edges": 85,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 27300,
+          "fraction_of_exact": 0.5
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 114600,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 276100,
+          "fraction_of_exact": 0.75
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 15865400,
+          "fraction_of_exact": 0.75
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 43821400,
+          "fraction_of_exact": 0.75
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 12,
+      "candidates": 16,
+      "conflict_edges": 92,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 13300,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 59400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 235000,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 21527900,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 48069300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 13,
+      "candidates": 16,
+      "conflict_edges": 88,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 13600,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 60500,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 128900,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 23766100,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 42260900,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 14,
+      "candidates": 16,
+      "conflict_edges": 90,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 28100,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 99700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 300500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 29270000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 44140300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 15,
+      "candidates": 16,
+      "conflict_edges": 80,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 27400,
+          "fraction_of_exact": 0.5
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 111700,
+          "fraction_of_exact": 0.75
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 294500,
+          "fraction_of_exact": 0.75
+        },
+        "sigmoid_projected": {
+          "selected": 4,
+          "solve_ns": 22420100,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 4,
+          "solve_ns": 48410800,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 16,
+      "candidates": 16,
+      "conflict_edges": 92,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 13800,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 58000,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 130400,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 24956900,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 34991000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 17,
+      "candidates": 16,
+      "conflict_edges": 78,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 13800,
+          "fraction_of_exact": 0.75
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 60200,
+          "fraction_of_exact": 0.75
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 149200,
+          "fraction_of_exact": 0.75
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 21273300,
+          "fraction_of_exact": 0.75
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 35981600,
+          "fraction_of_exact": 0.75
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 18,
+      "candidates": 16,
+      "conflict_edges": 85,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 4,
+          "solve_ns": 21900,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 77000,
+          "fraction_of_exact": 0.75
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 226400,
+          "fraction_of_exact": 0.75
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 23757600,
+          "fraction_of_exact": 0.75
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 41912400,
+          "fraction_of_exact": 0.75
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 19,
+      "candidates": 16,
+      "conflict_edges": 91,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 39900,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 88500,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 146900,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 24882000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 45637500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 20,
+      "candidates": 16,
+      "conflict_edges": 94,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 16900,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 50300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 150300,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 22402600,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 47502000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 21,
+      "candidates": 16,
+      "conflict_edges": 80,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 19200,
+          "fraction_of_exact": 0.5
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 65000,
+          "fraction_of_exact": 0.75
+        },
+        "local_inhibition": {
+          "selected": 4,
+          "solve_ns": 126300,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 4,
+          "solve_ns": 30512500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 53736000,
+          "fraction_of_exact": 0.75
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 22,
+      "candidates": 16,
+      "conflict_edges": 86,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 29900,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 58700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 149700,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 24784300,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 34058400,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 23,
+      "candidates": 16,
+      "conflict_edges": 83,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 12800,
+          "fraction_of_exact": 0.75
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 55400,
+          "fraction_of_exact": 0.75
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 122800,
+          "fraction_of_exact": 0.75
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 20337400,
+          "fraction_of_exact": 0.75
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 43034200,
+          "fraction_of_exact": 0.75
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 24,
+      "candidates": 16,
+      "conflict_edges": 77,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 13400,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 58800,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 111000,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 17317200,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 32557900,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 25,
+      "candidates": 16,
+      "conflict_edges": 92,
+      "exact_maximum": 4,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 7600,
+          "fraction_of_exact": 0.5
+        },
+        "degree_greedy": {
+          "selected": 4,
+          "solve_ns": 36900,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 80500,
+          "fraction_of_exact": 0.5
+        },
+        "sigmoid_projected": {
+          "selected": 4,
+          "solve_ns": 9850000,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 4,
+          "solve_ns": 28571000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 26,
+      "candidates": 16,
+      "conflict_edges": 82,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 19100,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 61700,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 163000,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 15594500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 26839500,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 27,
+      "candidates": 16,
+      "conflict_edges": 83,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 12600,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 56300,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 136100,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 23073700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 27547300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 28,
+      "candidates": 16,
+      "conflict_edges": 90,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 14000,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 55400,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 112800,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 14724700,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 30693700,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 29,
+      "candidates": 16,
+      "conflict_edges": 85,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 3,
+          "solve_ns": 13200,
+          "fraction_of_exact": 1.0
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 55200,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 2,
+          "solve_ns": 132200,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 17394500,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 35312300,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 30,
+      "candidates": 16,
+      "conflict_edges": 85,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 12700,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 68800,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 138500,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 28296800,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 35175000,
+          "fraction_of_exact": 1.0
+        }
+      }
+    },
+    {
+      "density_parameter": 0.7,
+      "seed": 31,
+      "candidates": 16,
+      "conflict_edges": 85,
+      "exact_maximum": 3,
+      "selectors": {
+        "first_fit": {
+          "selected": 2,
+          "solve_ns": 13100,
+          "fraction_of_exact": 0.6666666666666666
+        },
+        "degree_greedy": {
+          "selected": 3,
+          "solve_ns": 58000,
+          "fraction_of_exact": 1.0
+        },
+        "local_inhibition": {
+          "selected": 3,
+          "solve_ns": 125600,
+          "fraction_of_exact": 1.0
+        },
+        "sigmoid_projected": {
+          "selected": 3,
+          "solve_ns": 19059400,
+          "fraction_of_exact": 1.0
+        },
+        "competitive_projected": {
+          "selected": 3,
+          "solve_ns": 30422600,
+          "fraction_of_exact": 1.0
+        }
+      }
+    }
+  ],
+  "aggregate": {
+    "first_fit": {
+      "mean_fraction_of_exact": 0.8245193753006252,
+      "minimum_fraction_of_exact": 0.42857142857142855,
+      "median_solve_us": 12.55
+    },
+    "degree_greedy": {
+      "mean_fraction_of_exact": 0.9747271825396825,
+      "minimum_fraction_of_exact": 0.75,
+      "median_solve_us": 62.65
+    },
+    "local_inhibition": {
+      "mean_fraction_of_exact": 0.8568373466810967,
+      "minimum_fraction_of_exact": 0.5,
+      "median_solve_us": 98.2
+    },
+    "sigmoid_projected": {
+      "mean_fraction_of_exact": 0.978546626984127,
+      "minimum_fraction_of_exact": 0.75,
+      "median_solve_us": 9626.5
+    },
+    "competitive_projected": {
+      "mean_fraction_of_exact": 0.9632478054353054,
+      "minimum_fraction_of_exact": 0.5,
+      "median_solve_us": 17509.45
+    }
+  }
+}

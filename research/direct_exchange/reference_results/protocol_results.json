@@ -1,0 +1,59 @@
+{
+  "scope": "real Solana wire-format and Ed25519 signatures; NO SVM execution",
+  "blockhash": "all-zero placeholder, not submitted",
+  "token_program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "platform": "Windows-10-10.0.19043-SP0",
+  "cases": {
+    "independent": {
+      "transactions": 8,
+      "verified_signatures": 16,
+      "serialized_bytes": [
+        488,
+        488,
+        488,
+        488,
+        488,
+        488,
+        488,
+        488
+      ],
+      "conflict_edges": 0,
+      "exact_maximum_nonconflicting": 8
+    },
+    "same_fee_payer": {
+      "transactions": 8,
+      "verified_signatures": 24,
+      "serialized_bytes": [
+        584,
+        584,
+        584,
+        584,
+        584,
+        584,
+        584,
+        584
+      ],
+      "conflict_edges": 28,
+      "exact_maximum_nonconflicting": 1
+    },
+    "same_source_unique_payers": {
+      "transactions": 8,
+      "verified_signatures": 16,
+      "serialized_bytes": [
+        488,
+        488,
+        488,
+        488,
+        488,
+        488,
+        488,
+        488
+      ],
+      "conflict_edges": 28,
+      "exact_maximum_nonconflicting": 1
+    }
+  },
+  "tampered_amount_rejected": true,
+  "missing_signatures_rejected": true,
+  "source_sha256": "5d274599c5944f76f9dfd2ccd77d36538122c3f1a3e33b2b218466a3833d6490"
+}

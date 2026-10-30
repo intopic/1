@@ -1,0 +1,99 @@
+name: direct-exchange-study
+
+on:
+  pull_request:
+    paths:
+      - 'research/direct_exchange/**'
+      - '.github/workflows/direct-exchange-study.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: direct-exchange-study-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  study:
+    if: github.head_ref == 'research/direct-exchange-study' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      STUDY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    defaults:
+      run:
+        working-directory: research/direct_exchange
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require research-only PR changes
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git diff --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/study-changed-files.txt"
+          python - "$RUNNER_TEMP/study-changed-files.txt" <<'PY'
+          import pathlib, sys
+          files = pathlib.Path(sys.argv[1]).read_text().splitlines()
+          allowed = {'.github/workflows/ci.yml', '.github/workflows/direct-exchange-study.yml'}
+          bad = [p for p in files if not p.startswith('research/direct_exchange/') and p not in allowed]
+          assert not bad, f'Unexpected production changes: {bad}'
+          print(f'Research-only scope checked: {len(files)} files')
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned protocol/runtime package
+        run: |
+          set -euo pipefail
+          mkdir -p results
+          python -m pip install -r requirements-protocol.txt
+          python -m pip freeze > results/python-dependencies.txt
+      - name: Integer model and adversarial tests
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s tests -v 2>&1 | tee results/unit-tests.log
+          python -B run_study.py | tee results/model-run.log
+      - name: Real Solana wire format and signatures
+        run: |
+          set -euo pipefail
+          python -B protocol_probe.py | tee results/protocol-run.log
+          python -B -m unittest discover -s protocol_tests -v 2>&1 | tee results/validator-plan-tests.log
+      - name: Real classic SPL SBF settlement in LiteSVM
+        run: |
+          set -euo pipefail
+          python -B runtime_probe.py 2>&1 | tee results/runtime-run.log
+      - name: Emit evidence summary
+        run: python -B ci_summary.py
+      - name: Install pinned local validator (checksum verified)
+        env:
+          AGAVE_VERSION: '4.3.2'
+          AGAVE_SHA256: '5c9599d7fa397375df69d58e8d4f550ee45463dd6d1ecad9e5a1f053ce8e0933'
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+            "https://github.com/anza-xyz/agave/releases/download/v${AGAVE_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
+            -o "$RUNNER_TEMP/study-agave.tar.bz2"
+          echo "${AGAVE_SHA256}  $RUNNER_TEMP/study-agave.tar.bz2" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/study-agave"
+          tar -xjf "$RUNNER_TEMP/study-agave.tar.bz2" -C "$RUNNER_TEMP/study-agave"
+          echo "$RUNNER_TEMP/study-agave/solana-release/bin" >> "$GITHUB_PATH"
+      - name: Actual local validator equal-workload comparison
+        run: |
+          set -euo pipefail
+          python -B validator_probe.py 2>&1 | tee results/validator-run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: direct-exchange-evidence
+          path: research/direct_exchange/results/
+          if-no-files-found: warn
+          retention-days: 14
