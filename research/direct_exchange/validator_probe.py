@@ -143,9 +143,15 @@ def verify_program_image(program, lookup, expected_elf):
         assert image["owner"] == owner and not image["executable"]
         data = base64.b64decode(image["data"][0])
         assert len(data) >= 45 and struct.unpack_from("<I", data)[0] == 3
-        assert data[12] == 0, "test program must have no upgrade authority"
+        # Agave v4.3.2 test-validator/src/lib.rs stores Some(Pubkey::default())
+        # for CLI --bpf-program, not None. Accept only that exact sentinel or
+        # None; never accept an arbitrary authority. ELF equality remains strict.
+        assert data[12] in (0, 1), "invalid upgrade authority option"
+        if data[12] == 1:
+            assert data[13:45] == bytes(32), "unexpected non-default upgrade authority"
         payload = data[45:]
-        info.update(programdata_address=address, programdata_bytes=len(data))
+        info.update(programdata_address=address, programdata_bytes=len(data),
+                    authority_encoding="none" if data[12] == 0 else "agave-default-pubkey-sentinel")
     else:
         assert owner in ("BPFLoader1111111111111111111111111111111111",
                          "BPFLoader2111111111111111111111111111111111"), f"unexpected loader {owner}, size={len(raw)}"

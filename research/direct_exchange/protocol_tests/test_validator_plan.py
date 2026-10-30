@@ -73,6 +73,14 @@ class ValidatorPlanTests(unittest.TestCase):
         self.assertEqual(result["zero_padding_bytes"], 8)
         with self.assertRaises(AssertionError):
             verify_program_image(program, lambda key: programdata, b"\x7fELFchanged")
+        sentinel = metadata[:12]+bytes([1])+bytes(32)
+        programdata["data"][0] = base64.b64encode(sentinel+elf).decode()
+        self.assertEqual(verify_program_image(program, lambda key: programdata, elf)["authority_encoding"],
+                         "agave-default-pubkey-sentinel")
+        bad_authority = sentinel[:13]+bytes(address)
+        programdata["data"][0] = base64.b64encode(bad_authority+elf).decode()
+        with self.assertRaises(AssertionError):
+            verify_program_image(program, lambda key: programdata, elf)
 
 
 if __name__ == "__main__":
