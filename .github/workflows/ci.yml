@@ -14,6 +14,8 @@ env:
 
 jobs:
   build:
+    # This isolated study branch has its own CI and a research-only diff gate.
+    if: github.ref_name != 'research/direct-exchange-study' && github.head_ref != 'research/direct-exchange-study'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
