@@ -20,6 +20,13 @@ paralelizmit të scheduler-it mbetet e hapur.
 3. **SBF real në Linux LiteSVM:** ekzekuton classic SPL Token ELF të pin-uar,
    kontrollon balances, supply, rollback, replay, mungesë fondesh dhe firma.
    Kjo provë është SERIALE: nuk mat scheduler parallelism, TPS apo latency.
+4. **Validator real lokal në Linux:** validator_probe.py dërgon ngarkesa me
+   të njëjtat3 firma dhe584 bytes: accounts të pavarura, payer të përbashkët,
+   ose source të përbashkët me payer-a të ndarë. Ka30 përsëritje nga8 tx për
+   skenar (720 matje), plus48 warmup dhe kontroll të rollback. Rendi ndërmjet
+   skenarëve përzihet me seed të deklaruar. Regjistrohen signature, timestamps,
+   slot, status, CU, fee dhe balances. Kjo mat landing/confirmation në ngarkesë
+   të ulët; nuk është peak TPS, provë worker-overlap ose garanci për8x.
 
 Fixture-t mint/token account ngarkohen me set_account. Nuk kemi implementuar
 kontratë të re për policy, order intents, cancellation ose receipts onchain.
@@ -38,6 +45,8 @@ python -B run_study.py
 python -B protocol_probe.py
 python -B runtime_probe.py
 python -B ci_summary.py
+# Me Agave4.3.2 të verifikuar në PATH, Linux dhe porte18899/18900 të lira:
+python -B validator_probe.py
 ```
 
 runtime_probe.py kërkon një solders Linux wheel me LiteSVM; import failure

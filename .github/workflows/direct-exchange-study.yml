@@ -18,7 +18,7 @@ jobs:
   study:
     if: github.head_ref == 'research/direct-exchange-study' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       PYTHONUTF8: '1'
       PYTHONDONTWRITEBYTECODE: '1'
@@ -66,12 +66,30 @@ jobs:
         run: |
           set -euo pipefail
           python -B protocol_probe.py | tee results/protocol-run.log
+          python -B -m unittest discover -s protocol_tests -v 2>&1 | tee results/validator-plan-tests.log
       - name: Real classic SPL SBF settlement in LiteSVM
         run: |
           set -euo pipefail
           python -B runtime_probe.py 2>&1 | tee results/runtime-run.log
       - name: Emit evidence summary
         run: python -B ci_summary.py
+      - name: Install pinned local validator (checksum verified)
+        env:
+          AGAVE_VERSION: '4.3.2'
+          AGAVE_SHA256: '5c9599d7fa397375df69d58e8d4f550ee45463dd6d1ecad9e5a1f053ce8e0933'
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+            "https://github.com/anza-xyz/agave/releases/download/v${AGAVE_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
+            -o "$RUNNER_TEMP/study-agave.tar.bz2"
+          echo "${AGAVE_SHA256}  $RUNNER_TEMP/study-agave.tar.bz2" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/study-agave"
+          tar -xjf "$RUNNER_TEMP/study-agave.tar.bz2" -C "$RUNNER_TEMP/study-agave"
+          echo "$RUNNER_TEMP/study-agave/solana-release/bin" >> "$GITHUB_PATH"
+      - name: Actual local validator equal-workload comparison
+        run: |
+          set -euo pipefail
+          python -B validator_probe.py 2>&1 | tee results/validator-run.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
