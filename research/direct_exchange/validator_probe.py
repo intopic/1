@@ -126,6 +126,38 @@ def account_views(addresses):
     return result
 
 
+def verify_program_image(program, lookup, expected_elf):
+    """Verify raw ELF or the immutable v3 Program -> ProgramData layout.
+
+    solana-loader-v3-interface: Program metadata36 bytes, ProgramData metadata45.
+    A Program account is a pointer, not the program's ELF bytes.
+    """
+    assert program["executable"]
+    raw = base64.b64decode(program["data"][0])
+    owner = program["owner"]
+    info = {"loader": owner, "program_account_bytes": len(raw)}
+    if owner == "BPFLoaderUpgradeab1e11111111111111111111111":
+        assert len(raw) == 36 and struct.unpack_from("<I", raw)[0] == 2
+        address = str(Pubkey.from_bytes(raw[4:36]))
+        image = lookup(address)
+        assert image["owner"] == owner and not image["executable"]
+        data = base64.b64decode(image["data"][0])
+        assert len(data) >= 45 and struct.unpack_from("<I", data)[0] == 3
+        assert data[12] == 0, "test program must have no upgrade authority"
+        payload = data[45:]
+        info.update(programdata_address=address, programdata_bytes=len(data))
+    else:
+        assert owner in ("BPFLoader1111111111111111111111111111111111",
+                         "BPFLoader2111111111111111111111111111111111"), f"unexpected loader {owner}, size={len(raw)}"
+        payload = raw
+    assert payload[:len(expected_elf)] == expected_elf, "program ELF differs from pinned fixture"
+    assert not any(payload[len(expected_elf):]), "unexpected nonzero program trailing data"
+    info.update(elf_sha256=hashlib.sha256(payload[:len(expected_elf)]).hexdigest(),
+                full_payload_sha256=hashlib.sha256(payload).hexdigest(),
+                zero_padding_bytes=len(payload)-len(expected_elf))
+    return info
+
+
 def token_balances(token_state):
     views = account_views(list(token_state))
     result = {}
@@ -237,7 +269,11 @@ def main():
                 else:
                     raise AssertionError("validator health timeout")
                 program = account_views([str(TOKEN)])[str(TOKEN)]
-                assert hashlib.sha256(base64.b64decode(program["data"][0])).hexdigest() == ELF_SHA
+                (OUT / "program_account.json").write_text(json.dumps(program, indent=2))
+                manifest["program_image"] = verify_program_image(program,
+                    lambda address: account_views([address])[address], elf.read_bytes())
+                assert manifest["program_image"]["elf_sha256"] == ELF_SHA
+                (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
                 before_mints = account_views([str(m) for m in mints])
                 assert token_balances(expected) == {k: v["amount"] for k, v in expected.items()}
                 used_hashes, structural = set(), {}

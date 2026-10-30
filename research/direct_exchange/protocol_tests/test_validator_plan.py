@@ -10,7 +10,7 @@ from solders.hash import Hash
 
 from model import exact_maximum, graph
 from protocol_probe import footprint
-from validator_probe import TOKEN, build, fixture
+from validator_probe import TOKEN, build, fixture, verify_program_image
 
 
 class ValidatorPlanTests(unittest.TestCase):
@@ -58,6 +58,21 @@ class ValidatorPlanTests(unittest.TestCase):
         bad = build(self.mints, self.negative, Hash.default(), sell_b=1001)
         bad.verify()
         self.assertEqual(len(bad.signatures), 3)
+
+    def test_programdata_pointer_is_not_treated_as_elf(self):
+        from solders.pubkey import Pubkey
+        owner = "BPFLoaderUpgradeab1e11111111111111111111111"
+        address = Pubkey.new_unique()
+        elf = b"\x7fELFtest-fixture"
+        program = {"owner": owner, "executable": True,
+                   "data": [base64.b64encode(struct.pack("<I", 2)+bytes(address)).decode(), "base64"]}
+        metadata = struct.pack("<I", 3)+bytes(41)
+        programdata = {"owner": owner, "executable": False,
+                       "data": [base64.b64encode(metadata+elf+bytes(8)).decode(), "base64"]}
+        result = verify_program_image(program, lambda key: programdata, elf)
+        self.assertEqual(result["zero_padding_bytes"], 8)
+        with self.assertRaises(AssertionError):
+            verify_program_image(program, lambda key: programdata, b"\x7fELFchanged")
 
 
 if __name__ == "__main__":
