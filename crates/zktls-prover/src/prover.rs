@@ -234,7 +234,21 @@ pub struct SnarkjsProver {
     pub zkey: PathBuf,
     pub snarkjs_bin: String,
     pub rapidsnark: Option<String>,
+    /// Drejtoria bazë; çdo provë përdor një nëndrejtori unike që fshihet në fund
+    /// (input.json dhe dëshmitari përmbajnë të dhënat personale të përdoruesit).
     pub work_dir: PathBuf,
+    /// VETËM PËR DEBUG/CI: shkruaj direkt në `work_dir` dhe mos i fshi skedarët.
+    pub keep_files: bool,
+}
+
+/// Fshin drejtorinë e përkohshme kur del nga fusha (edhe në gabim).
+struct TempDir(PathBuf, bool);
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        if !self.1 {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 }
 
 /// Kohët e matura të një prove Circom (ms).
@@ -271,11 +285,27 @@ impl SnarkjsProver {
         &self,
         w: &ZkWebProofWitness,
     ) -> Result<(SolanaProof, Vec<[u8; 32]>, ProveTimings), ProverError> {
-        std::fs::create_dir_all(&self.work_dir)?;
-        let input = self.work_dir.join("input.json");
-        let wtns = self.work_dir.join("witness.wtns");
-        let proof_p = self.work_dir.join("proof.json");
-        let public_p = self.work_dir.join("public.json");
+        // drejtori unike për provë: provat paralele nuk ndajnë skedarë
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let dir = if self.keep_files {
+            self.work_dir.clone()
+        } else {
+            self.work_dir.join(format!(
+                "p{}-{}-{:016x}",
+                std::process::id(),
+                SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                rand::random::<u64>()
+            ))
+        };
+        std::fs::create_dir_all(&dir)?;
+        let _guard = TempDir(dir.clone(), self.keep_files);
+        if self.keep_files {
+            eprintln!("skedarët e provës mbahen në {}", dir.display());
+        }
+        let input = dir.join("input.json");
+        let wtns = dir.join("witness.wtns");
+        let proof_p = dir.join("proof.json");
+        let public_p = dir.join("public.json");
         std::fs::write(&input, serde_json::to_vec_pretty(&w.to_circom_input())?)?;
         let mut t = ProveTimings::default();
         match &self.rapidsnark {

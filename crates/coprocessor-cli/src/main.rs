@@ -161,6 +161,10 @@ enum Cmd {
         zkey: PathBuf,
         #[arg(long, default_value = "snarkjs")]
         snarkjs: String,
+        /// VETËM PËR DEBUG/CI: mbaj input.json/proof.json/public.json të snarkjs në këtë drejtori
+        /// (përndryshe fshihen pas provës, sepse përmbajnë të dhëna personale)
+        #[arg(long)]
+        keep_files: Option<PathBuf>,
         /// Binari `prover` i rapidsnark (për `--backend rapidsnark`)
         #[arg(long, default_value = "prover")]
         rapidsnark: String,
@@ -309,6 +313,7 @@ fn main() -> Result<()> {
             zkey,
             snarkjs,
             rapidsnark,
+            keep_files,
             witness_out,
             out,
         } => {
@@ -329,7 +334,10 @@ fn main() -> Result<()> {
                         zkey,
                         snarkjs_bin: snarkjs,
                         rapidsnark: rapid.then(|| rapidsnark.clone()),
-                        work_dir: PathBuf::from("target/snarkjs"),
+                        work_dir: keep_files
+                            .clone()
+                            .unwrap_or_else(|| std::env::temp_dir().join("zktls-prove")),
+                        keep_files: keep_files.is_some(),
                     };
                     let (proof, inputs, t) = sp.prove_timed(&w)?;
                     eprintln!(
