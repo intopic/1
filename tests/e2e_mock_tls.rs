@@ -7,10 +7,12 @@
 //! rishkruan `tests/fixtures/dev_proof_fixture.json` (përdoret nga testet e programit Anchor).
 
 use rand::SeedableRng;
-use zktls_prover::mock::{load_private_key_pem, sample_bank_response, MockNotary};
+use zktls_prover::mock::{
+    load_private_key_pem, sample_bank_response, sample_identity_response, MockNotary,
+};
 use zktls_prover::prover::{verify_ark, DevGroth16Prover};
 use zktls_prover::solana::{self, verify_reference, SolanaVerifyingKey};
-use zktls_prover::witness::ZkWebProofWitness;
+use zktls_prover::witness::{app_id_from_label, birth_cutoff, ValueRange, ZkWebProofWitness};
 use zktls_prover::{public_layout as L, NotarizedSession, ProverError};
 
 const KEY_PEM: &str = include_str!("fixtures/mock_notary_key.pem");
@@ -20,6 +22,8 @@ const WALLET: [u8; 32] = [
     0xf0, 0x0d, 0x6c, 0x45, 0x83, 0x2b, 0x19, 0xe7, 0x60, 0x33, 0x8a, 0xbc, 0x04, 0x5f, 0x9d, 0x21,
 ];
 const TS: u64 = 1_793_800_000;
+const IBAN: &str = "AL35202111090000000001234567";
+const OTHER_WALLET: [u8; 32] = [0x42; 32];
 
 fn notary() -> MockNotary {
     MockNotary {
@@ -28,18 +32,20 @@ fn notary() -> MockNotary {
     }
 }
 
-fn session(balance: u64) -> NotarizedSession {
+fn session_for(http: &str, key: &str, account: &str, wallet: [u8; 32]) -> NotarizedSession {
     let s = notary()
-        .notarize(
-            "api.mockbank.test",
-            &sample_bank_response(balance),
-            "balance",
-            WALLET,
-            TS,
-        )
+        .notarize("api.mockbank.test", http, key, account, wallet, TS)
         .unwrap();
     // kalon përmes JSON si në CLI
     NotarizedSession::from_json(&serde_json::to_string(&s).unwrap()).unwrap()
+}
+
+fn session(balance: u64) -> NotarizedSession {
+    session_for(&sample_bank_response(balance), "balance", IBAN, WALLET)
+}
+
+fn app() -> ark_bn254::Fr {
+    app_id_from_label("test-airdrop-2026")
 }
 
 #[test]
@@ -55,8 +61,13 @@ fn full_pipeline_dev_backend() {
 
     // dëshmitari Circom
     let mut rng = rand::rngs::StdRng::seed_from_u64(2026);
-    let w =
-        ZkWebProofWitness::from_session(&vs, 10_000, Some(ark_bn254::Fr::from(424242u64))).unwrap();
+    let w = ZkWebProofWitness::from_session(
+        &vs,
+        ValueRange::at_least(10_000),
+        app(),
+        Some(ark_bn254::Fr::from(424242u64)),
+    )
+    .unwrap();
     let input = w.to_circom_input();
     assert_eq!(input["attestation_msg"].as_array().unwrap().len(), 128);
     assert_eq!(input["rsa_signature"].as_array().unwrap().len(), 17);
@@ -112,7 +123,7 @@ fn rejects_tampering_and_unmet_threshold() {
     let vs = session(9_000).verify(10_000).unwrap();
     assert!(!vs.claim.is_greater_or_equal);
     assert!(matches!(
-        ZkWebProofWitness::from_session(&vs, 10_000, None),
+        ZkWebProofWitness::from_session(&vs, ValueRange::at_least(10_000), app(), None),
         Err(ProverError::ThresholdNotMet)
     ));
 
@@ -154,4 +165,83 @@ fn certificate_and_modulus_paths_agree() {
     use rsa::traits::PublicKeyParts;
     assert_eq!(from_cert.modulus_be_bytes(), k.n().to_bytes_be());
     assert_eq!(from_cert.exponent(), 65537);
+}
+
+#[test]
+fn age_over_18_proof() {
+    let mut rng = rand::rngs::StdRng::seed_from_u64(18);
+    let prover = DevGroth16Prover::setup(&mut rng).unwrap();
+    let svk = SolanaVerifyingKey::from_ark(prover.vk());
+    let cutoff = birth_cutoff(20261104, 18);
+    assert_eq!(cutoff, 20081104);
+
+    // i lindur më 2001-05-17 -> mbi 18 vjeç
+    let s = session_for(
+        &sample_identity_response("2001-05-17"),
+        "date_of_birth",
+        "J01234567A",
+        WALLET,
+    );
+    let vs = s.verify(0).unwrap();
+    assert_eq!(vs.message.value, 20010517);
+    // data e lindjes nuk shfaqet në transkriptin e maskuar që hash-ohet
+    let w =
+        ZkWebProofWitness::from_session(&vs, ValueRange::born_on_or_before(cutoff), app(), None)
+            .unwrap();
+    let (proof, inputs) = prover.prove(&w, &mut rng).unwrap();
+    assert!(verify_reference(&svk, &proof, &inputs).unwrap());
+
+    // i lindur më 2010-01-01 -> nën 18, nuk mund të provohet
+    let s = session_for(
+        &sample_identity_response("2010-01-01"),
+        "date_of_birth",
+        "J0999",
+        WALLET,
+    );
+    let vs = s.verify(0).unwrap();
+    assert!(matches!(
+        ZkWebProofWitness::from_session(&vs, ValueRange::born_on_or_before(cutoff), app(), None),
+        Err(ProverError::ThresholdNotMet)
+    ));
+    // edhe nëse dikush anashkalon kontrollin në Rust, qarku nuk ka zgjidhje
+    let mut w =
+        ZkWebProofWitness::from_session(&vs, ValueRange::at_most(u64::MAX), app(), None).unwrap();
+    w.max_value = cutoff;
+    assert!(prover.prove(&w, &mut rng).is_err());
+}
+
+#[test]
+fn nullifier_is_per_account_and_app() {
+    let w = |account: &str, wallet: [u8; 32], app_label: &str| {
+        let vs = session_for(&sample_bank_response(15_200), "balance", account, wallet)
+            .verify(0)
+            .unwrap();
+        ZkWebProofWitness::from_session(
+            &vs,
+            ValueRange::at_least(1),
+            app_id_from_label(app_label),
+            None,
+        )
+        .unwrap()
+        .nullifier()
+    };
+    // e njëjta llogari, portofol tjetër -> i njëjti nullifier (Sybil zbulohet)
+    assert_eq!(w(IBAN, WALLET, "a"), w(IBAN, OTHER_WALLET, "a"));
+    // llogari tjetër -> nullifier tjetër
+    assert_ne!(w(IBAN, WALLET, "a"), w("AL00OTHER", WALLET, "a"));
+    // aplikacion tjetër -> nullifier tjetër (nuk lidhen përdoruesit mes aplikacioneve)
+    assert_ne!(w(IBAN, WALLET, "a"), w(IBAN, WALLET, "b"));
+
+    // prova e mban nullifier-in si hyrje publike të kontrolluar
+    let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+    let prover = DevGroth16Prover::setup(&mut rng).unwrap();
+    let svk = SolanaVerifyingKey::from_ark(prover.vk());
+    let vs = session(15_200).verify(0).unwrap();
+    let wit =
+        ZkWebProofWitness::from_session(&vs, ValueRange::at_least(10_000), app(), None).unwrap();
+    let (proof, mut inputs) = prover.prove(&wit, &mut rng).unwrap();
+    assert_eq!(inputs[L::NULLIFIER], solana::fr_to_be(&wit.nullifier()));
+    assert!(verify_reference(&svk, &proof, &inputs).unwrap());
+    inputs[L::NULLIFIER] = solana::fr_to_be(&w("AL00OTHER", WALLET, "test-airdrop-2026"));
+    assert!(!verify_reference(&svk, &proof, &inputs).unwrap());
 }

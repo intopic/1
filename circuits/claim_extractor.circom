@@ -15,8 +15,8 @@ template BytesToNumBE(len) {
 
 // Nxjerr fushat nga mesazhi kanonik i atestimit (128 bajte).
 // Formati: crates/zktls-prover/src/attestation.rs
-//   0..8 magic "ZKTLSv01" | 8..16 value | 16..24 timestamp | 24..32 claim_key_id
-//   32..64 wallet | 64..96 payload_digest | 96..128 nonce
+//   0..8 magic "ZKTLSv02" | 8..16 value | 16..24 timestamp | 24..32 claim_key_id
+//   32..64 wallet | 64..96 payload_digest | 96..128 account_tag (bajti 96 = 0)
 template ClaimExtractor() {
     signal input msg[128];
     signal output bits[1024];      // MSB-first për Sha256(1024)
@@ -25,6 +25,7 @@ template ClaimExtractor() {
     signal output claim_key_id;
     signal output wallet_hi;       // bajtet 32..48 si numër 128-bit
     signal output wallet_lo;       // bajtet 48..64
+    signal output account_tag;     // bajtet 97..128 (248 bit) – burimi i nullifier-it
 
     // kontrolli i intervalit të bajteve + zbërthimi në bit
     component b2b[128];
@@ -36,7 +37,7 @@ template ClaimExtractor() {
         }
     }
 
-    var magic[8] = [90, 75, 84, 76, 83, 118, 48, 49]; // "ZKTLSv01"
+    var magic[8] = [90, 75, 84, 76, 83, 118, 48, 50]; // "ZKTLSv02"
     for (var i = 0; i < 8; i++) {
         msg[i] === magic[i];
     }
@@ -55,9 +56,16 @@ template ClaimExtractor() {
         hi.in[i] <== msg[32 + i];
         lo.in[i] <== msg[48 + i];
     }
+    msg[96] === 0;
+    component tag = BytesToNumBE(31);
+    for (var i = 0; i < 31; i++) {
+        tag.in[i] <== msg[97 + i];
+    }
+
     value <== v.out;
     timestamp <== t.out;
     claim_key_id <== c.out;
     wallet_hi <== hi.out;
     wallet_lo <== lo.out;
+    account_tag <== tag.out;
 }

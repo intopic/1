@@ -16,7 +16,7 @@ pub enum ProverError {
     Normalizer(#[from] triad_core::NormalizerError),
     #[error("atestim i pavlefshëm: {0}")]
     Attestation(String),
-    #[error("kushti nuk plotësohet: vlera < pragut")]
+    #[error("kushti nuk plotësohet: vlera është jashtë diapazonit [min, max]")]
     ThresholdNotMet,
     #[error("Groth16: {0}")]
     Groth16(String),

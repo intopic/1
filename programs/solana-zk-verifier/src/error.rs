@@ -22,6 +22,10 @@ pub enum ZkVerifierError {
     WalletMismatch,
     #[msg("Atestimi ka skaduar ose ka kohë në të ardhmen")]
     StaleAttestation,
+    #[msg("Llogaria burimore është përdorur tashmë nga një portofol tjetër (nullifier)")]
+    NullifierAlreadyUsed,
+    #[msg("Prova është për një app_id tjetër")]
+    AppIdMismatch,
     #[msg("Çelësi verifikues ka shumë pika IC")]
     VerifyingKeyTooLarge,
 }

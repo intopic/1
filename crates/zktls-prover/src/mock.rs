@@ -3,7 +3,6 @@
 //!
 //! VETËM PËR TESTIM – çelësi i noterit lexohet nga një skedar PEM lokal.
 
-use rand::RngCore;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::traits::PublicKeyParts;
@@ -11,7 +10,7 @@ use rsa::{Pkcs1v15Sign, RsaPrivateKey};
 use sha2::{Digest, Sha256};
 use triad_core::normalizer::{claim_key_id, AlgebraicNormalizer};
 
-use crate::attestation::AttestationMessage;
+use crate::attestation::{account_tag, AttestationMessage};
 use crate::tls_parser::{NotarizedSession, NotaryKey, SignedAttestation};
 use crate::ProverError;
 
@@ -22,6 +21,17 @@ pub fn sample_bank_response(balance: u64) -> String {
     );
     format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: session=7f3a9c1e; Secure; HttpOnly\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+/// Përgjigje HTTP shembull nga një "regjistër civil" fiktiv (data e lindjes).
+pub fn sample_identity_response(date_of_birth: &str) -> String {
+    let body = format!(
+        "{{\"personal_id\": \"J01234567A\", \"name\": \"Arta Hoxha\", \"date_of_birth\": \"{date_of_birth}\", \"status\": \"active\"}}"
+    );
+    format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
         body.len()
     )
 }
@@ -44,20 +54,19 @@ impl MockNotary {
         server_name: &str,
         http_response: &str,
         target_key: &str,
+        account_id: &str,
         wallet: [u8; 32],
         timestamp: u64,
     ) -> Result<NotarizedSession, ProverError> {
         let claim =
             AlgebraicNormalizer::normalize_and_mask(http_response.as_bytes(), target_key, 0)?;
-        let mut nonce = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut nonce);
         let msg = AttestationMessage {
             value: claim.target_value,
             timestamp,
             claim_key_id: claim_key_id(target_key),
             wallet,
             payload_digest: claim.payload_digest,
-            nonce,
+            account_tag: account_tag(account_id),
         };
         let bytes = msg.to_bytes();
         let digest = Sha256::digest(bytes);

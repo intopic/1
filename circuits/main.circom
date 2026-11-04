@@ -12,11 +12,15 @@ include "./claim_extractor.circom";
 //  1. noteri/banka me çelësin RSA-2048 (hash-i i të cilit është publik dhe në
 //     listën e bardhë on-chain) ka nënshkruar mesazhin 128-bajtësh;
 //  2. SHA-256 i mesazhit llogaritet brenda qarkut -> vlera është e lidhur me nënshkrimin;
-//  3. value >= min_threshold, pa zbuluar value;
-//  4. mesazhi është lëshuar për portofolin Solana të dhënë (anti-replay).
+//  3. min_value <= value <= max_value, pa zbuluar value
+//     (bilanc >= X, ose data e lindjes <= sot − 18 vjet për moshën);
+//  4. mesazhi është lëshuar për portofolin Solana të dhënë (anti-replay);
+//  5. nullifier = Poseidon(account_tag, app_id): e njëjta llogari burimore jep të
+//     njëjtin nullifier brenda një aplikacioni, pa u identifikuar (anti-Sybil).
 //
 // Sinjalet publike (rendi në public.json): commitment, attested_at, claim_key_id,
-// bank_public_key_hash, min_threshold, user_pubkey_hi, user_pubkey_lo.
+// nullifier, bank_public_key_hash, min_value, max_value, app_id,
+// user_pubkey_hi, user_pubkey_lo.
 // Asnjë e dhënë personale nuk del publike (rregulli 3).
 template ZkWebProof() {
     // HYRJET PRIVATE
@@ -27,7 +31,9 @@ template ZkWebProof() {
 
     // HYRJET PUBLIKE
     signal input bank_public_key_hash;   // PoseidonLarge(121,17)(rsa_modulus)
-    signal input min_threshold;          // p.sh. 10000
+    signal input min_value;              // p.sh. 10000 (bilanc) ose 0
+    signal input max_value;              // p.sh. 2^64-1 ose 20081104 (data limit)
+    signal input app_id;                 // identifikuesi i aplikacionit/kampanjës
     signal input user_pubkey_hi;         // çelësi Solana, 16 bajtët e parë
     signal input user_pubkey_lo;         // 16 bajtët e fundit
 
@@ -35,17 +41,24 @@ template ZkWebProof() {
     signal output commitment;            // Poseidon(value, salt)
     signal output attested_at;           // koha e atestimit (sekonda Unix)
     signal output claim_key_id;          // SHA-256(target_key)[0..8]
+    signal output nullifier;             // Poseidon(account_tag, app_id)
 
     component claim = ClaimExtractor();
     claim.msg <== attestation_msg;
 
-    // 1. Kushti financiar: value >= min_threshold (të dyja < 2^64)
-    component thr_bits = Num2Bits(64);
-    thr_bits.in <== min_threshold;
-    component is_ge = GreaterEqThan(64);
-    is_ge.in[0] <== claim.value;
-    is_ge.in[1] <== min_threshold;
-    is_ge.out === 1;
+    // 1. Kushti: min_value <= value <= max_value (të gjitha < 2^64)
+    component min_bits = Num2Bits(64);
+    min_bits.in <== min_value;
+    component max_bits = Num2Bits(64);
+    max_bits.in <== max_value;
+    component ge_min = GreaterEqThan(64);
+    ge_min.in[0] <== claim.value;
+    ge_min.in[1] <== min_value;
+    ge_min.out === 1;
+    component le_max = LessEqThan(64);
+    le_max.in[0] <== claim.value;
+    le_max.in[1] <== max_value;
+    le_max.out === 1;
 
     // 2. Zotimi kriptografik
     commitment <== Poseidon(2)([claim.value, user_secret_salt]);
@@ -66,8 +79,11 @@ template ZkWebProof() {
     claim.wallet_hi === user_pubkey_hi;
     claim.wallet_lo === user_pubkey_lo;
 
+    // 6. Nullifier anti-Sybil
+    nullifier <== Poseidon(2)([claim.account_tag, app_id]);
+
     attested_at <== claim.timestamp;
     claim_key_id <== claim.claim_key_id;
 }
 
-component main {public [bank_public_key_hash, min_threshold, user_pubkey_hi, user_pubkey_lo]} = ZkWebProof();
+component main {public [bank_public_key_hash, min_value, max_value, app_id, user_pubkey_hi, user_pubkey_lo]} = ZkWebProof();

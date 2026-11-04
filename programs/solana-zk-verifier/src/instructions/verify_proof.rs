@@ -1,6 +1,6 @@
 //! Verifikimi Groth16 me syscall-et vendase `alt_bn128` dhe ruajtja e atestatit.
 //!
-//! Kosto e përafërt në CU (tarifat aktuale të syscall-eve, 7 hyrje publike):
+//! Kosto e përafërt në CU (tarifat aktuale të syscall-eve):
 //! * `alt_bn128_pairing` me 4 çifte: 36 364 + 3 × 12 121 ≈ 72 700 CU
 //! * 7 × `alt_bn128_multiplication` (≈ 3 840) + 7 × `alt_bn128_addition` (≈ 334) ≈ 29 200 CU
 //! * logjika e Anchor + deserializimi ≈ 10 000 CU
@@ -13,7 +13,8 @@ use solana_bn254::prelude::{alt_bn128_addition, alt_bn128_multiplication, alt_bn
 
 use crate::error::ZkVerifierError;
 use crate::state::{
-    layout, AttestationRecord, AttestationVerified, VerifierState, VerifyingKey, NUM_PUBLIC_INPUTS,
+    layout, AttestationRecord, AttestationVerified, NullifierRecord, VerifierState, VerifyingKey,
+    NUM_PUBLIC_INPUTS,
 };
 
 /// Moduli i fushës bazë Fq të BN254 (big-endian).
@@ -28,6 +29,7 @@ pub const BN254_FR_MODULUS: [u8; 32] = [
 ];
 
 #[derive(Accounts)]
+#[instruction(proof_a: [u8; 64], proof_b: [u8; 128], proof_c: [u8; 64], public_inputs: Vec<[u8; 32]>)]
 pub struct VerifyAndAttest<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
@@ -44,10 +46,20 @@ pub struct VerifyAndAttest<'info> {
         bump,
     )]
     pub attestation_record: Box<Account<'info, AttestationRecord>>,
+    /// Një nullifier = një portofol. `init_if_needed` lejon rifreskimin nga i njëjti
+    /// portofol; një portofol tjetër refuzohet në handler.
+    #[account(
+        init_if_needed,
+        payer = user,
+        space = 8 + NullifierRecord::INIT_SPACE,
+        seeds = [b"nullifier", nullifier_seed(&public_inputs).as_ref()],
+        bump,
+    )]
+    pub nullifier_record: Box<Account<'info, NullifierRecord>>,
     pub system_program: Program<'info, System>,
 }
 
-fn lt_be(a: &[u8; 32], m: &[u8; 32]) -> bool {
+pub fn lt_be(a: &[u8; 32], m: &[u8; 32]) -> bool {
     a < m // krahasimi leksikografik i bajteve BE == krahasim numerik
 }
 
@@ -118,6 +130,15 @@ pub fn verify_groth16_bn254(
     Ok(res.len() == 32 && res[..31].iter().all(|&b| b == 0) && res[31] == 1)
 }
 
+/// Seed-i i PDA-së së nullifier-it (zero nëse hyrjet janë të shkurtra; handler-i
+/// e refuzon atë rast me `PublicInputsLength`).
+pub fn nullifier_seed(public_inputs: &[[u8; 32]]) -> [u8; 32] {
+    public_inputs
+        .get(layout::NULLIFIER)
+        .copied()
+        .unwrap_or([0u8; 32])
+}
+
 /// Lexon një hyrje publike si u64 (24 bajtët e lartë duhet të jenë zero).
 fn input_as_u64(x: &[u8; 32]) -> Option<u64> {
     if x[..24].iter().any(|&b| b != 0) {
@@ -163,6 +184,11 @@ pub fn verify_and_attest_handler(
         ZkVerifierError::WalletMismatch
     );
 
+    require!(
+        public_inputs[layout::APP_ID] == state.app_id,
+        ZkVerifierError::AppIdMismatch
+    );
+
     let now = Clock::get()?.unix_timestamp;
     let attested_at = input_as_u64(&public_inputs[layout::ATTESTED_AT])
         .and_then(|t| i64::try_from(t).ok())
@@ -177,7 +203,9 @@ pub fn verify_and_attest_handler(
             ZkVerifierError::StaleAttestation
         );
     }
-    let min_threshold = input_as_u64(&public_inputs[layout::MIN_THRESHOLD])
+    let min_value = input_as_u64(&public_inputs[layout::MIN_VALUE])
+        .ok_or(ZkVerifierError::PublicInputOutOfField)?;
+    let max_value = input_as_u64(&public_inputs[layout::MAX_VALUE])
         .ok_or(ZkVerifierError::PublicInputOutOfField)?;
     let claim_key_id = input_as_u64(&public_inputs[layout::CLAIM_KEY_ID])
         .ok_or(ZkVerifierError::PublicInputOutOfField)?;
@@ -191,10 +219,23 @@ pub fn verify_and_attest_handler(
     )?;
     require!(is_valid, ZkVerifierError::InvalidProof);
 
+    // Anti-Sybil: nullifier-i lidhet me portofolin e parë që e përdor
+    let nullifier = public_inputs[layout::NULLIFIER];
+    let nrec = &mut ctx.accounts.nullifier_record;
+    if nrec.owner == Pubkey::default() {
+        nrec.owner = user;
+        nrec.first_used_at = now;
+        nrec.bump = ctx.bumps.nullifier_record;
+    } else {
+        require_keys_eq!(nrec.owner, user, ZkVerifierError::NullifierAlreadyUsed);
+    }
+
     let record = &mut ctx.accounts.attestation_record;
     record.user = user;
     record.threshold_passed = true;
-    record.min_threshold = min_threshold;
+    record.min_value = min_value;
+    record.max_value = max_value;
+    record.nullifier = nullifier;
     record.commitment = public_inputs[layout::COMMITMENT];
     record.bank_key_hash = bank_key_hash;
     record.claim_key_id = claim_key_id;
@@ -204,11 +245,17 @@ pub fn verify_and_attest_handler(
 
     emit!(AttestationVerified {
         user,
-        min_threshold,
+        min_value,
+        max_value,
+        nullifier,
         commitment: record.commitment,
         bank_key_hash,
         attested_at,
     });
-    msg!("Prova zkTLS u verifikua me sukses (prag {})", min_threshold);
+    msg!(
+        "Prova zkTLS u verifikua: {} <= vlera <= {}",
+        min_value,
+        max_value
+    );
     Ok(())
 }

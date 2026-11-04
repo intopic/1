@@ -67,7 +67,7 @@ jobs:
           $B export-vk --snarkjs-vk circuits/build/verification_key.json --out artifacts/vk.json
           $B mock-session --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem \
             --balance 15200 --wallet "$WALLET" --out artifacts/session.tls.json
-          /usr/bin/time -v $B prove --backend snarkjs --input artifacts/session.tls.json --threshold 10000 \
+          /usr/bin/time -v $B prove --backend snarkjs --input artifacts/session.tls.json --min 10000 \
             --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey \
             --witness-out artifacts/input.json --out artifacts/proof.json 2> artifacts/prove_time.txt \
             || { cat artifacts/prove_time.txt; exit 1; }
@@ -82,7 +82,7 @@ jobs:
         run: |
           B=target/release/coprocessor
           # pragu mbi bilancin -> duhet të dështojë
-          if $B prove --backend snarkjs --input artifacts/session.tls.json --threshold 20000 \
+          if $B prove --backend snarkjs --input artifacts/session.tls.json --min 20000 \
                --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey --out /tmp/x.json; then
             echo "prova duhej të dështonte"; exit 1
           fi
@@ -92,6 +92,26 @@ jobs:
             echo "qarku pranoi mesazh të ndryshuar"; exit 1
           fi
           echo "OK: refuzimet funksionojnë"
+
+      - name: Provë moshe ≥ 18 me qarkun e plotë
+        run: |
+          B=target/release/coprocessor
+          $B mock-session --kind age --dob 2001-05-17 --account-id J01234567A \
+            --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem \
+            --wallet "$WALLET" --out artifacts/age.tls.json
+          $B prove --backend snarkjs --input artifacts/age.tls.json --min-age 18 --app ci-age \
+            --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey --out artifacts/age_proof.json
+          $B verify --proof artifacts/age_proof.json --vk artifacts/vk.json
+          jq '{min_value, max_value, nullifier}' artifacts/age_proof.json
+          # nën 18 -> duhet të dështojë
+          $B mock-session --kind age --dob 2012-03-01 --account-id J0999 \
+            --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem \
+            --wallet "$WALLET" --out artifacts/minor.tls.json
+          if $B prove --backend snarkjs --input artifacts/minor.tls.json --min-age 18 \
+               --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey --out /tmp/m.json; then
+            echo "i mitur kaloi"; exit 1
+          fi
+          echo "OK: mosha"
 
       - name: Programi Solana pranon provën Circom
         run: |

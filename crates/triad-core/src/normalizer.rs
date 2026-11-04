@@ -28,6 +28,10 @@ pub const SENSITIVE_JSON_KEYS: &[&str] = &[
     "phone",
     "address",
     "personal_id",
+    "date_of_birth",
+    "birth_date",
+    "birthdate",
+    "dob",
 ];
 
 /// Header-at HTTP që maskohen.
@@ -357,6 +361,28 @@ fn next_json_key(s: &[u8], from: usize) -> Option<((usize, usize), usize)> {
     None
 }
 
+/// `"YYYY-MM-DD"` (pa thonjëzën hapëse) -> `YYYYMMDD`. Kontrollon muajin dhe ditën.
+fn parse_iso_date(s: &[u8]) -> Option<u64> {
+    if s.len() < 11 || s[4] != b'-' || s[7] != b'-' || s[10] != b'"' {
+        return None;
+    }
+    let num = |r: core::ops::Range<usize>| -> Option<u64> {
+        let mut v = 0u64;
+        for &c in &s[r] {
+            if !c.is_ascii_digit() {
+                return None;
+            }
+            v = v * 10 + (c - b'0') as u64;
+        }
+        Some(v)
+    };
+    let (y, m, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some(y * 10_000 + m * 100 + d)
+}
+
 /// Gjen vlerën numerike të çelësit; refuzon dublikatat.
 fn find_unique_json_u64(body: &[u8], key: &str) -> Result<u64, NormalizerError> {
     let mut found: Option<u64> = None;
@@ -373,6 +399,12 @@ fn find_unique_json_u64(body: &[u8], key: &str) -> Result<u64, NormalizerError> 
         let quoted = p < body.len() && body[p] == b'"';
         if quoted {
             p += 1;
+            // Data ISO "YYYY-MM-DD" -> YYYYMMDD (renditja numerike = renditja kronologjike)
+            if let Some(d) = parse_iso_date(&body[p..]) {
+                found = Some(d);
+                i = p + 11;
+                continue;
+            }
         }
         let start = p;
         let mut v: u64 = 0;
@@ -489,6 +521,26 @@ mod tests {
             AlgebraicNormalizer::normalize_and_mask(b"{}", "bal\"ance", 0),
             Err(NormalizerError::InvalidKey)
         );
+    }
+
+    #[test]
+    fn iso_dates() {
+        let body = b"{\"name\": \"A\", \"date_of_birth\": \"2001-05-17\"}";
+        let c = AlgebraicNormalizer::normalize_and_mask(body, "date_of_birth", 0).unwrap();
+        assert_eq!(c.target_value, 20_010_517);
+        assert_eq!(
+            AlgebraicNormalizer::normalize_and_mask(b"{\"dob\": \"2001-13-17\"}", "dob", 0),
+            Err(NormalizerError::InvalidNumber)
+        );
+        let dup = b"{\"dob\": \"2001-01-01\", \"dob\": \"1990-01-01\"}";
+        assert_eq!(
+            AlgebraicNormalizer::normalize_and_mask(dup, "dob", 0),
+            Err(NormalizerError::DuplicateKey)
+        );
+        // data maskohet në digest
+        let mut buf = body.to_vec();
+        AlgebraicNormalizer::mask_sensitive_in_place(&mut buf).unwrap();
+        assert!(!core::str::from_utf8(&buf).unwrap().contains("2001"));
     }
 
     #[test]

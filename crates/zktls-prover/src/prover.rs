@@ -18,10 +18,11 @@ use crate::solana::{self, ProofJson, SolanaProof, SolanaVerifyingKey};
 use crate::witness::ZkWebProofWitness;
 use crate::{poseidon, public_layout as L, ProverError};
 
-/// Qarku i zhvillimit (arkworks vendas) me të njëjtat 7 hyrje publike si
+/// Qarku i zhvillimit (arkworks vendas) me të njëjtat 10 hyrje publike si
 /// `circuits/main.circom`. Provon:
-/// * `value ∈ [0, 2^64)`, `threshold ∈ [0, 2^64)`, `value − threshold ∈ [0, 2^64)`
+/// * `min ≤ value ≤ max` (të gjitha 64-bit)
 /// * `commitment = Poseidon(value, salt)`
+/// * `nullifier = Poseidon(account_tag, app_id)`
 ///
 /// NUK provon nënshkrimin RSA as SHA-256 – këto verifikohen natively nga
 /// [`crate::tls_parser`] para provimit. Përdoret për teste, CI dhe demo në
@@ -29,6 +30,7 @@ use crate::{poseidon, public_layout as L, ProverError};
 #[derive(Clone, Default)]
 pub struct DevClaimCircuit {
     pub value: Option<u64>,
+    pub account_tag: Option<Fr>,
     pub salt: Option<Fr>,
     pub public: Option<[Fr; L::COUNT]>,
 }
@@ -71,20 +73,36 @@ impl ConstraintSynthesizer<Fr> for DevClaimCircuit {
             .collect::<Result<Vec<_>, _>>()?;
 
         let (_, value) = alloc_u64_bits(&cs, self.value)?;
-        let threshold_val = self.public.and_then(|p| fr_to_u64(&p[L::MIN_THRESHOLD]));
-        let (_, threshold) = alloc_u64_bits(&cs, threshold_val)?;
-        threshold.enforce_equal(&pubs[L::MIN_THRESHOLD])?;
-        let diff_val = match (self.value, threshold_val) {
-            (Some(v), Some(t)) => Some(v.checked_sub(t).ok_or(SynthesisError::Unsatisfiable)?),
+        let get = |i: usize| self.public.and_then(|p| fr_to_u64(&p[i]));
+        let (min_val, max_val) = (get(L::MIN_VALUE), get(L::MAX_VALUE));
+        let (_, min) = alloc_u64_bits(&cs, min_val)?;
+        let (_, max) = alloc_u64_bits(&cs, max_val)?;
+        min.enforce_equal(&pubs[L::MIN_VALUE])?;
+        max.enforce_equal(&pubs[L::MAX_VALUE])?;
+        // value − min ∈ [0, 2^64) dhe max − value ∈ [0, 2^64)
+        let lo_val = match (self.value, min_val) {
+            (Some(v), Some(m)) => Some(v.checked_sub(m).ok_or(SynthesisError::Unsatisfiable)?),
             _ => None,
         };
-        let (_, diff) = alloc_u64_bits(&cs, diff_val)?;
-        diff.enforce_equal(&(&value - &threshold))?;
+        let hi_val = match (self.value, max_val) {
+            (Some(v), Some(m)) => Some(m.checked_sub(v).ok_or(SynthesisError::Unsatisfiable)?),
+            _ => None,
+        };
+        let (_, lo) = alloc_u64_bits(&cs, lo_val)?;
+        lo.enforce_equal(&(&value - &min))?;
+        let (_, hi) = alloc_u64_bits(&cs, hi_val)?;
+        hi.enforce_equal(&(&max - &value))?;
 
         let salt = FpVar::new_witness(cs.clone(), || {
             self.salt.ok_or(SynthesisError::AssignmentMissing)
         })?;
         poseidon::hash_gadget(&[value, salt])?.enforce_equal(&pubs[L::COMMITMENT])?;
+
+        let tag = FpVar::new_witness(cs.clone(), || {
+            self.account_tag.ok_or(SynthesisError::AssignmentMissing)
+        })?;
+        poseidon::hash_gadget(&[tag, pubs[L::APP_ID].clone()])?
+            .enforce_equal(&pubs[L::NULLIFIER])?;
 
         // Lidh hyrjet e tjera publike në sistem (parandalon "malleability" të tyre).
         for i in [
@@ -106,7 +124,10 @@ pub struct ProofBundle {
     pub backend: String,
     /// Çelësi publik Solana (base58) i lidhur me provën.
     pub wallet: String,
-    pub min_threshold: u64,
+    pub min_value: u64,
+    pub max_value: u64,
+    /// Nullifier-i (hex BE) – i njëjtë për të njëjtën llogari brenda një app_id.
+    pub nullifier: String,
     pub attested_at: u64,
     #[serde(flatten)]
     pub proof: ProofJson,
@@ -122,7 +143,9 @@ impl ProofBundle {
         Self {
             backend: backend.into(),
             wallet: bs58::encode(w.wallet).into_string(),
-            min_threshold: w.min_threshold,
+            min_value: w.min_value,
+            max_value: w.max_value,
+            nullifier: hex::encode(solana::fr_to_be(&w.nullifier())),
             attested_at: w.timestamp,
             proof: proof.to_json(inputs),
         }
@@ -169,12 +192,13 @@ impl DevGroth16Prover {
         w: &ZkWebProofWitness,
         rng: &mut R,
     ) -> Result<(SolanaProof, Vec<[u8; 32]>), ProverError> {
-        if w.value < w.min_threshold {
+        if w.value < w.min_value || w.value > w.max_value {
             return Err(ProverError::ThresholdNotMet);
         }
         let public = w.public_inputs();
         let circuit = DevClaimCircuit {
             value: Some(w.value),
+            account_tag: Some(w.account_tag_fr()),
             salt: Some(w.user_secret_salt),
             public: Some(public),
         };

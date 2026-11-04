@@ -35,6 +35,7 @@ pub struct AdminUpdate<'info> {
 pub fn initialize_handler(
     ctx: Context<Initialize>,
     verifying_key: VerifyingKey,
+    app_id: [u8; 32],
     max_attestation_age_secs: i64,
 ) -> Result<()> {
     require!(
@@ -45,6 +46,11 @@ pub fn initialize_handler(
     state.verifying_key = verifying_key;
     state.authority = ctx.accounts.authority.key();
     state.bank_key_whitelist = Vec::new();
+    require!(
+        crate::instructions::lt_be(&app_id, &crate::instructions::BN254_FR_MODULUS),
+        ZkVerifierError::PublicInputOutOfField
+    );
+    state.app_id = app_id;
     state.max_attestation_age_secs = max_attestation_age_secs.max(0);
     state.bump = ctx.bumps.verifier_state;
     Ok(())

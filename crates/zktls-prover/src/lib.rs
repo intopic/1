@@ -17,7 +17,7 @@
 //! * [`prover::SnarkjsProver`] – prodhim: qarku i plotë Circom (RSA-2048 + SHA-256
 //!   + kushti) përmes `snarkjs groth16 fullprove`. Kërkon artefaktet e kompiluara.
 //! * [`prover::DevGroth16Prover`] – zhvillim: qark arkworks vendas që provon
-//!   kushtin `value ≥ threshold` dhe zotimin Poseidon, me të njëjtat 7 hyrje publike.
+//!   kushtin `min ≤ value ≤ max`, zotimin dhe nullifier-in Poseidon, me të njëjtat 10 hyrje publike.
 //!   RSA verifikohet natively (jashtë provës) – **jo i sigurt për prodhim**.
 
 pub mod attestation;
@@ -35,12 +35,17 @@ pub use tls_parser::{NotarizedSession, VerifiedSession};
 
 /// Rendi i hyrjeve publike (i njëjtë për qarkun Circom, qarkun dev dhe programin Solana).
 pub mod public_layout {
+    // Daljet e qarkut (renditen të parat në public.json)
     pub const COMMITMENT: usize = 0;
     pub const ATTESTED_AT: usize = 1;
     pub const CLAIM_KEY_ID: usize = 2;
-    pub const BANK_KEY_HASH: usize = 3;
-    pub const MIN_THRESHOLD: usize = 4;
-    pub const USER_PUBKEY_HI: usize = 5;
-    pub const USER_PUBKEY_LO: usize = 6;
-    pub const COUNT: usize = 7;
+    pub const NULLIFIER: usize = 3;
+    // Hyrjet publike (sipas rendit të deklarimit në main.circom)
+    pub const BANK_KEY_HASH: usize = 4;
+    pub const MIN_VALUE: usize = 5;
+    pub const MAX_VALUE: usize = 6;
+    pub const APP_ID: usize = 7;
+    pub const USER_PUBKEY_HI: usize = 8;
+    pub const USER_PUBKEY_LO: usize = 9;
+    pub const COUNT: usize = 10;
 }

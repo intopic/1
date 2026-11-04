@@ -28,9 +28,10 @@ pub mod solana_zk_verifier {
     pub fn initialize(
         ctx: Context<Initialize>,
         verifying_key: VerifyingKey,
+        app_id: [u8; 32],
         max_attestation_age_secs: i64,
     ) -> Result<()> {
-        instructions::initialize_handler(ctx, verifying_key, max_attestation_age_secs)
+        instructions::initialize_handler(ctx, verifying_key, app_id, max_attestation_age_secs)
     }
 
     /// Ndërron VK-në (p.sh. nga qarku dev te qarku Circom i prodhimit).
@@ -135,7 +136,7 @@ mod tests {
         assert_eq!(inputs[layout::USER_PUBKEY_HI], hi);
         assert_eq!(inputs[layout::USER_PUBKEY_LO], lo);
         let mut bad = inputs.clone();
-        bad[layout::MIN_THRESHOLD][31] ^= 1;
+        bad[layout::MIN_VALUE][31] ^= 1;
         assert!(!verify_groth16_bn254(&a, &b, &c, &bad, &vk).unwrap_or(false));
     }
 
@@ -187,10 +188,11 @@ mod tests {
     #[test]
     fn account_sizes_fit() {
         // VerifierState duhet të nxërë në një llogari të krijuar me CPI (≤ 10 KiB).
-        assert!(8 + VerifierState::INIT_SPACE < 10_240);
+        const { assert!(8 + VerifierState::INIT_SPACE < 10_240) };
         assert_eq!(
             8 + AttestationRecord::INIT_SPACE,
-            8 + 32 + 1 + 8 + 32 + 32 + 8 + 8 + 8 + 1
+            8 + 32 + 1 + 8 + 8 + 32 + 32 + 32 + 8 + 8 + 8 + 1
         );
+        assert_eq!(8 + NullifierRecord::INIT_SPACE, 8 + 32 + 8 + 1);
     }
 }

@@ -11,6 +11,7 @@ use num_bigint::BigUint;
 use serde_json::{json, Value};
 
 use crate::poseidon;
+
 use crate::solana::fr_to_be;
 use crate::tls_parser::VerifiedSession;
 use crate::{public_layout as L, ProverError};
@@ -18,13 +19,62 @@ use crate::{public_layout as L, ProverError};
 pub const RSA_CHUNK_BITS: usize = 121;
 pub const RSA_CHUNKS: usize = 17;
 
+/// Diapazoni i pretenduar `min ≤ value ≤ max`.
+///
+/// * bilanc ≥ 10 000: `ValueRange::at_least(10_000)`
+/// * mosha ≥ 18: `ValueRange::born_on_or_before(20081104)` (data si YYYYMMDD)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ValueRange {
+    pub min: u64,
+    pub max: u64,
+}
+
+impl ValueRange {
+    pub fn at_least(min: u64) -> Self {
+        Self { min, max: u64::MAX }
+    }
+    pub fn at_most(max: u64) -> Self {
+        Self { min: 0, max }
+    }
+    pub fn born_on_or_before(yyyymmdd: u64) -> Self {
+        Self::at_most(yyyymmdd)
+    }
+}
+
+/// Data limit e lindjes për moshë minimale: `today − years` si YYYYMMDD.
+/// (29 shkurti trajtohet si 28 shkurt kur viti limit nuk është i brishtë.)
+pub fn birth_cutoff(today_yyyymmdd: u64, years: u64) -> u64 {
+    let (y, m, d) = (
+        today_yyyymmdd / 10_000,
+        (today_yyyymmdd / 100) % 100,
+        today_yyyymmdd % 100,
+    );
+    let cy = y - years;
+    let leap = (cy.is_multiple_of(4) && !cy.is_multiple_of(100)) || cy.is_multiple_of(400);
+    let d = if m == 2 && d == 29 && !leap { 28 } else { d };
+    cy * 10_000 + m * 100 + d
+}
+
+/// `app_id` nga një emër tekst (p.sh. "airdrop-jup-2026"): SHA-256 me bajtin e parë 0.
+pub fn app_id_from_label(label: &str) -> Fr {
+    use sha2::{Digest, Sha256};
+    let mut h: [u8; 32] = Sha256::digest(format!("zktls/app/{label}").as_bytes()).into();
+    h[0] = 0;
+    Fr::from_be_bytes_mod_order(&h)
+}
+
 #[derive(Debug, Clone)]
 pub struct ZkWebProofWitness {
     pub attestation_msg: [u8; 128],
     pub user_secret_salt: Fr,
     pub rsa_signature_be: Vec<u8>,
     pub rsa_modulus_be: Vec<u8>,
-    pub min_threshold: u64,
+    pub min_value: u64,
+    pub max_value: u64,
+    /// Identifikuesi i aplikacionit/kampanjës (element Fr) – i njëjti nullifier
+    /// përsëritet vetëm brenda të njëjtit `app_id`.
+    pub app_id: Fr,
+    pub account_tag: [u8; 32],
     pub value: u64,
     pub timestamp: u64,
     pub claim_key_id: u64,
@@ -42,10 +92,11 @@ pub fn wallet_halves(w: &[u8; 32]) -> (Fr, Fr) {
 impl ZkWebProofWitness {
     pub fn from_session(
         vs: &VerifiedSession,
-        min_threshold: u64,
+        range: ValueRange,
+        app_id: Fr,
         salt: Option<Fr>,
     ) -> Result<Self, ProverError> {
-        if vs.message.value < min_threshold {
+        if vs.message.value < range.min || vs.message.value > range.max {
             return Err(ProverError::ThresholdNotMet);
         }
         let salt = salt.unwrap_or_else(|| Fr::rand(&mut rand::thread_rng()));
@@ -54,7 +105,10 @@ impl ZkWebProofWitness {
             user_secret_salt: salt,
             rsa_signature_be: vs.signature.clone(),
             rsa_modulus_be: vs.notary_key.modulus_be_bytes(),
-            min_threshold,
+            min_value: range.min,
+            max_value: range.max,
+            app_id,
+            account_tag: vs.message.account_tag,
             value: vs.message.value,
             timestamp: vs.message.timestamp,
             claim_key_id: vs.message.claim_key_id,
@@ -64,6 +118,15 @@ impl ZkWebProofWitness {
 
     pub fn commitment(&self) -> Fr {
         poseidon::hash(&[Fr::from(self.value), self.user_secret_salt])
+    }
+
+    pub fn account_tag_fr(&self) -> Fr {
+        Fr::from_be_bytes_mod_order(&self.account_tag)
+    }
+
+    /// `Poseidon(account_tag, app_id)` – unik për (llogari, aplikacion).
+    pub fn nullifier(&self) -> Fr {
+        poseidon::hash(&[self.account_tag_fr(), self.app_id])
     }
 
     pub fn bank_key_hash(&self) -> Fr {
@@ -77,8 +140,11 @@ impl ZkWebProofWitness {
         p[L::COMMITMENT] = self.commitment();
         p[L::ATTESTED_AT] = Fr::from(self.timestamp);
         p[L::CLAIM_KEY_ID] = Fr::from(self.claim_key_id);
+        p[L::NULLIFIER] = self.nullifier();
         p[L::BANK_KEY_HASH] = self.bank_key_hash();
-        p[L::MIN_THRESHOLD] = Fr::from(self.min_threshold);
+        p[L::MIN_VALUE] = Fr::from(self.min_value);
+        p[L::MAX_VALUE] = Fr::from(self.max_value);
+        p[L::APP_ID] = self.app_id;
         p[L::USER_PUBKEY_HI] = hi;
         p[L::USER_PUBKEY_LO] = lo;
         p
@@ -104,7 +170,9 @@ impl ZkWebProofWitness {
             "rsa_signature": chunks(&self.rsa_signature_be),
             "rsa_modulus": chunks(&self.rsa_modulus_be),
             "bank_public_key_hash": dec(&self.bank_key_hash()),
-            "min_threshold": self.min_threshold.to_string(),
+            "min_value": self.min_value.to_string(),
+            "max_value": self.max_value.to_string(),
+            "app_id": dec(&self.app_id),
             "user_pubkey_hi": dec(&hi),
             "user_pubkey_lo": dec(&lo),
         })
@@ -119,5 +187,17 @@ impl ZkWebProofWitness {
                 .map(|x| Value::String(dec(x)))
                 .collect(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn cutoff() {
+        assert_eq!(birth_cutoff(20261104, 18), 20081104);
+        assert_eq!(birth_cutoff(20240229, 18), 20060228);
+        assert_eq!(birth_cutoff(20240229, 20), 20040229);
+        assert_ne!(app_id_from_label("a"), app_id_from_label("b"));
     }
 }

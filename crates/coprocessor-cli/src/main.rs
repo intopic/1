@@ -4,7 +4,8 @@
 //! coprocessor mock-session --key tests/fixtures/mock_notary_key.pem --balance 15200 \
 //!     --wallet <PUBKEY> --out session.tls.json
 //! coprocessor setup --out-dir artifacts
-//! coprocessor prove --input session.tls.json --threshold 10000 --out proof.json
+//! coprocessor prove --input session.tls.json --min 10000 --app airdrop-2026 --out proof.json
+//! coprocessor mock-session --kind age --dob 2001-05-17 ... && coprocessor prove --min-age 18 ...
 //! coprocessor verify --proof proof.json --vk artifacts/vk.json
 //! coprocessor bank-key-hash --input session.tls.json
 //! coprocessor export-vk --snarkjs-vk circuits/build/verification_key.json --out artifacts/vk.json
@@ -19,10 +20,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
-use zktls_prover::mock::{load_private_key_pem, sample_bank_response, MockNotary};
+use zktls_prover::mock::{
+    load_private_key_pem, sample_bank_response, sample_identity_response, MockNotary,
+};
 use zktls_prover::prover::{fr_to_decimal, DevGroth16Prover, ProofBundle, SnarkjsProver};
 use zktls_prover::solana::{verify_reference, ProofJson, SolanaVerifyingKey, VerifyingKeyJson};
-use zktls_prover::witness::ZkWebProofWitness;
+use zktls_prover::witness::{app_id_from_label, birth_cutoff, ValueRange, ZkWebProofWitness};
 use zktls_prover::NotarizedSession;
 
 #[derive(Parser)]
@@ -40,6 +43,73 @@ enum Backend {
     Snarkjs,
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum MockKind {
+    Balance,
+    Age,
+}
+
+/// Çfarë pretendohet: `--min/--max` për vlera, ose `--min-age` për moshë.
+#[derive(clap::Args, Clone, Deserialize)]
+struct ClaimArgs {
+    /// Vlera minimale (p.sh. bilanci ≥ 10000). Alias: --threshold
+    #[arg(long, alias = "threshold")]
+    #[serde(default, alias = "threshold")]
+    min: Option<u64>,
+    /// Vlera maksimale (përfshirëse)
+    #[arg(long)]
+    #[serde(default)]
+    max: Option<u64>,
+    /// Mosha minimale në vite (përdor fushën `date_of_birth`, data e sotme UTC)
+    #[arg(long)]
+    #[serde(default)]
+    min_age: Option<u64>,
+    /// Emri i aplikacionit/kampanjës për nullifier-in (p.sh. "airdrop-2026")
+    #[arg(long, default_value = "default")]
+    #[serde(default = "default_app")]
+    app: String,
+}
+
+fn default_app() -> String {
+    "default".into()
+}
+
+impl ClaimArgs {
+    fn range(&self) -> Result<ValueRange> {
+        if let Some(years) = self.min_age {
+            if self.min.is_some() || self.max.is_some() {
+                bail!("--min-age nuk kombinohet me --min/--max");
+            }
+            return Ok(ValueRange::born_on_or_before(birth_cutoff(
+                today_yyyymmdd(),
+                years,
+            )));
+        }
+        let r = ValueRange {
+            min: self.min.unwrap_or(0),
+            max: self.max.unwrap_or(u64::MAX),
+        };
+        if r.min > r.max {
+            bail!("--min > --max");
+        }
+        Ok(r)
+    }
+}
+
+/// Data e sotme UTC si YYYYMMDD (algoritmi civil i H. Hinnant).
+fn today_yyyymmdd() -> u64 {
+    let days = (now() / 86_400) as i64 + 719_468;
+    let era = days.div_euclid(146_097);
+    let doe = days - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    (y * 10_000 + m * 100 + d) as u64
+}
+
 #[derive(Subcommand)]
 enum Cmd {
     /// Krijon një sesion të noterizuar testues (noter i simuluar)
@@ -48,8 +118,17 @@ enum Cmd {
         key: PathBuf,
         #[arg(long)]
         cert: Option<PathBuf>,
+        /// Lloji i të dhënave: bilanc bankar ose datë lindjeje
+        #[arg(long, value_enum, default_value_t = MockKind::Balance)]
+        kind: MockKind,
         #[arg(long, default_value_t = 15_200)]
         balance: u64,
+        /// Data e lindjes për `--kind age` (YYYY-MM-DD)
+        #[arg(long, default_value = "2001-05-17")]
+        dob: String,
+        /// Identifikuesi i llogarisë burimore (IBAN / user-id) – burimi i nullifier-it
+        #[arg(long, default_value = "AL35202111090000000001234567")]
+        account_id: String,
         /// Çelësi publik Solana i përdoruesit (base58)
         #[arg(long)]
         wallet: String,
@@ -65,8 +144,8 @@ enum Cmd {
     Prove {
         #[arg(long)]
         input: PathBuf,
-        #[arg(long)]
-        threshold: u64,
+        #[command(flatten)]
+        claim: ClaimArgs,
         #[arg(long, value_enum, default_value_t = Backend::Dev)]
         backend: Backend,
         #[arg(long, default_value = "artifacts/dev_pk.bin")]
@@ -102,7 +181,7 @@ enum Cmd {
         #[arg(long, default_value = "artifacts/vk.json")]
         out: PathBuf,
     },
-    /// Daemon HTTP minimal: GET /health, POST /prove {session, threshold}
+    /// Daemon HTTP minimal: GET /health, POST /prove {session, min, max, min_age, app}
     Serve {
         #[arg(long, default_value = "127.0.0.1:8787")]
         addr: String,
@@ -131,13 +210,23 @@ fn read_session(p: &Path) -> Result<NotarizedSession> {
     Ok(NotarizedSession::from_json(&s)?)
 }
 
+fn witness_for(session: &NotarizedSession, claim: &ClaimArgs) -> Result<ZkWebProofWitness> {
+    let range = claim.range()?;
+    let vs = session.verify(range.min)?;
+    Ok(ZkWebProofWitness::from_session(
+        &vs,
+        range,
+        app_id_from_label(&claim.app),
+        None,
+    )?)
+}
+
 fn prove_dev(
     prover: &DevGroth16Prover,
     session: &NotarizedSession,
-    threshold: u64,
+    claim: &ClaimArgs,
 ) -> Result<(ProofBundle, ZkWebProofWitness)> {
-    let vs = session.verify(threshold)?;
-    let w = ZkWebProofWitness::from_session(&vs, threshold, None)?;
+    let w = witness_for(session, claim)?;
     let (proof, inputs) = prover.prove(&w, &mut rand::rngs::OsRng)?;
     Ok((ProofBundle::new("dev-arkworks", &w, &proof, &inputs), w))
 }
@@ -148,7 +237,10 @@ fn main() -> Result<()> {
         Cmd::MockSession {
             key,
             cert,
+            kind,
             balance,
+            dob,
+            account_id,
             wallet,
             out,
         } => {
@@ -156,10 +248,23 @@ fn main() -> Result<()> {
                 key: load_private_key_pem(&std::fs::read_to_string(&key)?)?,
                 certificate_pem: cert.map(std::fs::read_to_string).transpose()?,
             };
+            let (server, http, key_name) = match kind {
+                MockKind::Balance => (
+                    "api.mockbank.test",
+                    sample_bank_response(balance),
+                    "balance",
+                ),
+                MockKind::Age => (
+                    "api.mockregistry.test",
+                    sample_identity_response(&dob),
+                    "date_of_birth",
+                ),
+            };
             let s = notary.notarize(
-                "api.mockbank.test",
-                &sample_bank_response(balance),
-                "balance",
+                server,
+                &http,
+                key_name,
+                &account_id,
                 parse_wallet(&wallet)?,
                 now(),
             )?;
@@ -182,7 +287,7 @@ fn main() -> Result<()> {
         }
         Cmd::Prove {
             input,
-            threshold,
+            claim,
             backend,
             pk,
             wasm,
@@ -198,11 +303,10 @@ fn main() -> Result<()> {
                     let prover = DevGroth16Prover::load(&pk).with_context(|| {
                         format!("mungon {} – ekzekutoni `coprocessor setup`", pk.display())
                     })?;
-                    prove_dev(&prover, &session, threshold)?
+                    prove_dev(&prover, &session, &claim)?
                 }
                 Backend::Snarkjs => {
-                    let vs = session.verify(threshold)?;
-                    let w = ZkWebProofWitness::from_session(&vs, threshold, None)?;
+                    let w = witness_for(&session, &claim)?;
                     let sp = SnarkjsProver {
                         wasm,
                         zkey,
@@ -265,7 +369,8 @@ fn main() -> Result<()> {
 #[derive(Deserialize)]
 struct ProveRequest {
     session: NotarizedSession,
-    threshold: u64,
+    #[serde(flatten)]
+    claim: ClaimArgs,
 }
 
 /// Server HTTP/1.1 minimal, një kërkesë njëherësh. Pa TLS dhe pa autentikim –
@@ -316,7 +421,7 @@ fn handle(prover: &DevGroth16Prover, stream: &mut TcpStream) -> Result<()> {
             let mut body = vec![0u8; len];
             reader.read_exact(&mut body)?;
             let req: ProveRequest = serde_json::from_slice(&body)?;
-            let (bundle, _) = prove_dev(prover, &req.session, req.threshold)?;
+            let (bundle, _) = prove_dev(prover, &req.session, &req.claim)?;
             respond(stream, 200, &serde_json::to_string(&bundle)?)
         }
         _ => respond(stream, 404, r#"{"error":"not found"}"#),
