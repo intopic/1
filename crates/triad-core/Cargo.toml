@@ -1,0 +1,25 @@
+[package]
+name = "triad-core"
+description = "Motori kriptografik: Montgomery CIOS (portabël + AVX-512 IFMA), Euklidi binar, normalizues Al-Jabr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["std"]
+# `std` aktivizon zbulimin e CPU-së në kohë ekzekutimi (AVX-512 IFMA).
+std = []
+
+[dependencies]
+subtle = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+num-bigint = { workspace = true }
+rand = { workspace = true }
+
+[[bench]]
+name = "montgomery_bench"
+path = "../../tests/benchmarks/montgomery_bench.rs"
+harness = false

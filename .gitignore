@@ -1,0 +1,12 @@
+/target
+**/target
+node_modules/
+circuits/build/
+*.ptau
+*.zkey
+*.r1cs
+*.wasm
+*.sym
+.anchor/
+test-ledger/
+artifacts/

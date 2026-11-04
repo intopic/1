@@ -1,0 +1,39 @@
+[package]
+name = "solana-zk-verifier"
+version = "0.1.0"
+description = "Verifikues Groth16/BN254 on-chain për atestimet zkTLS (Anchor)"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "solana_zk_verifier"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+# Syscall-et alt_bn128 (në target-et jo-Solana: implementim vendas me arkworks 0.4)
+solana-bn254 = "2.2"
+
+[dev-dependencies]
+serde_json = "1"
+hex = "0.4"
+bs58 = "0.5"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("custom-heap", "custom-panic", "anchor-debug"))'] }
+
+# Programi është workspace më vete (varësitë e Solana-s dhe arkworks 0.5 nuk përzihen).
+[workspace]
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1

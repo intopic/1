@@ -1,0 +1,23 @@
+[package]
+name = "coprocessor-cli"
+description = "CLI/daemon: prove, verify, serve për solana-zktls-coprocessor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "coprocessor"
+path = "src/main.rs"
+
+[dependencies]
+triad-core = { workspace = true }
+zktls-prover = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+bs58 = { workspace = true }
+rand = { workspace = true }
+ark-bn254 = { workspace = true }

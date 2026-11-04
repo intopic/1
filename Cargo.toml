@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/triad-core",
+    "crates/zktls-prover",
+    "crates/coprocessor-cli",
+]
+# Programi Anchor ka grafin e vet të varësive (toolchain-i SBF i Solana-s),
+# ndaj ndërtohet veçmas: shih `make program-test` dhe `Anchor.toml`.
+exclude = ["programs/solana-zk-verifier"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/intopic/1"
+rust-version = "1.89"
+
+[workspace.dependencies]
+triad-core = { path = "crates/triad-core" }
+zktls-prover = { path = "crates/zktls-prover" }
+subtle = { version = "2.6", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ark-bn254 = "0.5"
+ark-ff = "0.5"
+ark-ec = "0.5"
+ark-std = "0.5"
+ark-relations = "0.5"
+ark-r1cs-std = "0.5"
+ark-groth16 = "0.5"
+ark-snark = "0.5"
+ark-serialize = "0.5"
+light-poseidon = "0.3"
+rand = "0.8"
+rsa = { version = "0.9", features = ["sha2"] }
+x509-parser = "0.16"
+num-bigint = "0.4"
+bs58 = "0.5"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Testet kriptografike (Groth16, RSA) janë shumë të ngadalta pa optimizim.
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev]
+opt-level = 1

@@ -1,0 +1,36 @@
+[package]
+name = "zktls-prover"
+description = "Provuesi zkTLS: parsim i sesionit të noterizuar, dëshmitari Circom, Groth16 BN254 dhe kodimi për Solana"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+triad-core = { workspace = true, features = ["std"] }
+sha2 = { workspace = true, features = ["std"] }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+ark-bn254 = { workspace = true }
+ark-ff = { workspace = true }
+ark-ec = { workspace = true }
+ark-std = { workspace = true }
+ark-relations = { workspace = true }
+ark-r1cs-std = { workspace = true }
+ark-groth16 = { workspace = true }
+ark-snark = { workspace = true }
+ark-serialize = { workspace = true }
+light-poseidon = { workspace = true }
+num-bigint = { workspace = true }
+rand = { workspace = true }
+rsa = { workspace = true }
+x509-parser = { workspace = true }
+bs58 = { workspace = true }
+
+[dev-dependencies]
+
+[[test]]
+name = "e2e_mock_tls"
+path = "../../tests/e2e_mock_tls.rs"

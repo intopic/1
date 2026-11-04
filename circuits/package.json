@@ -1,0 +1,17 @@
+{
+  "name": "zktls-circuits",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Qarqet Circom të solana-zktls-coprocessor",
+  "scripts": {
+    "compile": "bash scripts/compile.sh",
+    "setup": "bash scripts/setup_keys.sh"
+  },
+  "dependencies": {
+    "@zk-email/circuits": "6.3.4",
+    "circomlib": "2.0.5"
+  },
+  "devDependencies": {
+    "snarkjs": "0.7.6"
+  }
+}
