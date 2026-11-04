@@ -55,8 +55,16 @@ pub mod solana_zk_verifier {
         proof_b: [u8; 128],
         proof_c: [u8; 64],
         public_inputs: Vec<[u8; 32]>,
+        nullifier: [u8; 32],
     ) -> Result<()> {
-        instructions::verify_and_attest_handler(ctx, proof_a, proof_b, proof_c, public_inputs)
+        instructions::verify_and_attest_handler(
+            ctx,
+            proof_a,
+            proof_b,
+            proof_c,
+            public_inputs,
+            nullifier,
+        )
     }
 }
 

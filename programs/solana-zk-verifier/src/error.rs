@@ -24,6 +24,8 @@ pub enum ZkVerifierError {
     StaleAttestation,
     #[msg("Llogaria burimore është përdorur tashmë nga një portofol tjetër (nullifier)")]
     NullifierAlreadyUsed,
+    #[msg("Argumenti nullifier nuk përputhet me hyrjen publike")]
+    NullifierMismatch,
     #[msg("Prova është për një app_id tjetër")]
     AppIdMismatch,
     #[msg("Çelësi verifikues ka shumë pika IC")]

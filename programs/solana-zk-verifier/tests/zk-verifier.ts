@@ -57,7 +57,7 @@ describe("solana-zk-verifier", () => {
   });
 
   const APP_ID = 7;
-  // PDA-ja e nullifier-it nuk mund të nxirret nga IDL (seed nga një element i Vec-ut)
+  // PDA-ja e nullifier-it (seeds: ["nullifier", nullifier])
   const nullifierPda = (p: any) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("nullifier"), Buffer.from(p.public_inputs[NULLIFIER], "hex")],
@@ -91,7 +91,7 @@ describe("solana-zk-verifier", () => {
     let failed = false;
     try {
       await program.methods
-        .verifyAndAttest(hex(proof.proof_a), hex(proof.proof_b), hex(proof.proof_c), inputs)
+        .verifyAndAttest(hex(proof.proof_a), hex(proof.proof_b), hex(proof.proof_c), inputs, hex(proof.nullifier))
         .accountsPartial({ user, nullifierRecord: nullifierPda(proof) })
         .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
         .rpc();
@@ -103,7 +103,13 @@ describe("solana-zk-verifier", () => {
 
   it("verifikon provën dhe ruan atestatin", async () => {
     const sig = await program.methods
-      .verifyAndAttest(hex(proof.proof_a), hex(proof.proof_b), hex(proof.proof_c), proof.public_inputs.map(hex))
+      .verifyAndAttest(
+        hex(proof.proof_a),
+        hex(proof.proof_b),
+        hex(proof.proof_c),
+        proof.public_inputs.map(hex),
+        hex(proof.nullifier)
+      )
       .accountsPartial({ user, nullifierRecord: nullifierPda(proof) })
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
       .rpc({ commitment: "confirmed" });
@@ -132,7 +138,8 @@ describe("solana-zk-verifier", () => {
           hex(sybilProof.proof_a),
           hex(sybilProof.proof_b),
           hex(sybilProof.proof_c),
-          sybilProof.public_inputs.map(hex)
+          sybilProof.public_inputs.map(hex),
+          hex(sybilProof.nullifier)
         )
         .accountsPartial({ user: sybil.publicKey, nullifierRecord: nullifierPda(sybilProof) })
         .signers([sybil])
@@ -158,7 +165,7 @@ describe("solana-zk-verifier", () => {
     let err = "";
     try {
       await program.methods
-        .verifyAndAttest(hex(p.proof_a), hex(p.proof_b), hex(p.proof_c), p.public_inputs.map(hex))
+        .verifyAndAttest(hex(p.proof_a), hex(p.proof_b), hex(p.proof_c), p.public_inputs.map(hex), hex(p.nullifier))
         .accountsPartial({ user: other.publicKey, nullifierRecord: nullifierPda(p) })
         .signers([other])
         .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])

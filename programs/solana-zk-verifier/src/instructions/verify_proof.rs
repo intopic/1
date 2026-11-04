@@ -29,7 +29,7 @@ pub const BN254_FR_MODULUS: [u8; 32] = [
 ];
 
 #[derive(Accounts)]
-#[instruction(proof_a: [u8; 64], proof_b: [u8; 128], proof_c: [u8; 64], public_inputs: Vec<[u8; 32]>)]
+#[instruction(proof_a: [u8; 64], proof_b: [u8; 128], proof_c: [u8; 64], public_inputs: Vec<[u8; 32]>, nullifier: [u8; 32])]
 pub struct VerifyAndAttest<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
@@ -52,7 +52,7 @@ pub struct VerifyAndAttest<'info> {
         init_if_needed,
         payer = user,
         space = 8 + NullifierRecord::INIT_SPACE,
-        seeds = [b"nullifier", nullifier_seed(&public_inputs).as_ref()],
+        seeds = [b"nullifier", nullifier.as_ref()],
         bump,
     )]
     pub nullifier_record: Box<Account<'info, NullifierRecord>>,
@@ -130,15 +130,6 @@ pub fn verify_groth16_bn254(
     Ok(res.len() == 32 && res[..31].iter().all(|&b| b == 0) && res[31] == 1)
 }
 
-/// Seed-i i PDA-së së nullifier-it (zero nëse hyrjet janë të shkurtra; handler-i
-/// e refuzon atë rast me `PublicInputsLength`).
-pub fn nullifier_seed(public_inputs: &[[u8; 32]]) -> [u8; 32] {
-    public_inputs
-        .get(layout::NULLIFIER)
-        .copied()
-        .unwrap_or([0u8; 32])
-}
-
 /// Lexon një hyrje publike si u64 (24 bajtët e lartë duhet të jenë zero).
 fn input_as_u64(x: &[u8; 32]) -> Option<u64> {
     if x[..24].iter().any(|&b| b != 0) {
@@ -162,6 +153,7 @@ pub fn verify_and_attest_handler(
     proof_b: [u8; 128],
     proof_c: [u8; 64],
     public_inputs: Vec<[u8; 32]>,
+    nullifier: [u8; 32],
 ) -> Result<()> {
     require!(
         public_inputs.len() == NUM_PUBLIC_INPUTS,
@@ -220,7 +212,11 @@ pub fn verify_and_attest_handler(
     require!(is_valid, ZkVerifierError::InvalidProof);
 
     // Anti-Sybil: nullifier-i lidhet me portofolin e parë që e përdor
-    let nullifier = public_inputs[layout::NULLIFIER];
+    // `nullifier` jepet edhe si argument që PDA-ja të nxirret nga IDL; duhet të jetë i njëjti
+    require!(
+        public_inputs[layout::NULLIFIER] == nullifier,
+        ZkVerifierError::NullifierMismatch
+    );
     let nrec = &mut ctx.accounts.nullifier_record;
     if nrec.owner == Pubkey::default() {
         nrec.owner = user;
