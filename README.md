@@ -151,9 +151,9 @@ Programi Anchor: `initialize(vk, max_age)`, `set_verifying_key(vk)`, `add_bank_k
 | `triad-core` Euklidi (Stein, inversi CT), normalizer, RSA PKCS#1 | ✅ | ✅ |
 | `zktls-prover` parser X.509/sesion, dëshmitari Circom, Poseidon (circomlib) | ✅ | ✅ (vektor referencë circomlib) |
 | Prapavija **dev** (arkworks Groth16, 7 hyrje) | ✅ | ✅ e2e + verifikim me ekuacionin on-chain |
-| Prapavija **snarkjs** (qarku i plotë) | ⚠️ kod i shkruar | ❌ kërkon artefaktet e kompiluara |
-| Qarqet Circom | ⚠️ të shkruara mbi `@zk-email/circuits` + `circomlib` | ❌ nuk janë kompiluar ende (circom mungonte në mjedisin e ndërtimit) |
-| Programi Anchor | ✅ | ✅ teste native (verifikimi me `solana-bn254`); ❌ `build-sbf` / localnet / testet TS ende pa u ekzekutuar |
+| Prapavija **snarkjs** (qarku i plotë) | ✅ | ✅ në CI (`zk-e2e.yml`): provë në ~17 s, ~1.7 GB RAM |
+| Qarqet Circom (277 321 kufizime) | ✅ mbi `@zk-email/circuits` + `circomlib` | ✅ në CI: kompilim, ceremoni (PPoT 2^19), provë, `snarkjs verify`, refuzim i mesazhit të ndryshuar |
+| Programi Anchor | ✅ | ✅ `build-sbf` + localnet + 3 teste TypeScript në CI; prova e qarkut të plotë verifikohet me kodin e programit |
 | M5 UI (Next.js + Phantom) | ❌ jo ende | – |
 
 **Prapavija dev nuk është e sigurt për prodhim**: ajo provon vetëm `value ≥ threshold` dhe zotimin;
@@ -178,8 +178,8 @@ nënshkrimi RSA verifikohet natively jashtë provës, pra kushdo me çelësin e 
 3. **Qarku i specifikimit u ndreqë**: `diff <-- …` nuk ishte i kufizuar, moduli RSA nuk ishte i lidhur
    me `bank_public_key_hash` dhe hash-i i nënshkruar nuk ishte i lidhur me bilancin. Tani të treja janë
    të kufizuara, dhe u shtua lidhja me portofolin.
-4. **CU**: ~82k mbulon vetëm pairing-un; me 7 hyrje publike vlerësimi është ~110k CU
-   (shih `verify_proof.rs`). Shifra reale duhet matur në localnet.
+4. **CU**: ~82k mbulon vetëm pairing-un; me 7 hyrje publike, `verify_and_attest` konsumon
+   **118 261 CU** (e matur në localnet në CI).
 5. **Madhësia e provës**: 128 B është forma e kompresuar; syscall-i kërkon formën e pakompresuar
    (256 B: A 64 + B 128 + C 64). Programi e mohon vetë `A`.
 6. **AVX-512 përdoret brenda `exp`**, jo në `mul`, sepse domeni Montgomery radix-2^52 (`R' = 2^2080`)
@@ -204,8 +204,8 @@ nënshkrimi RSA verifikohet natively jashtë provës, pra kushdo me çelësin e 
 | Faza | Gjendja |
 |---|---|
 | M1 Core Engine | ✅ |
-| M2 ZK Circuits | ⚠️ qarqet + skriptet gati; kompilimi, ceremonia dhe prova e parë Circom mbeten |
-| M3 Solana Contract | ⚠️ programi + teste native; mbeten build-sbf, deploy në localnet/devnet, testet TS |
+| M2 ZK Circuits | ✅ (ceremonia e fazës 2 është me një kontribut; për mainnet duhet ceremoni me shumë palë) |
+| M3 Solana Contract | ⚠️ localnet ✅; mbetet deploy në devnet (kërkon portofol me SOL) |
 | M4 End-to-End CLI | ✅ (backend dev); dërgimi në Solana bëhet nga testi TS |
 | M5 UI & Demo | ❌ |
 
