@@ -3,7 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "test:program": "anchor test"
+    "test:program": "anchor test",
+    "typecheck": "tsc --noEmit --types mocha,chai,node --esModuleInterop --resolveJsonModule --target es2020 --module commonjs --strict false programs/solana-zk-verifier/tests/zk-verifier.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",

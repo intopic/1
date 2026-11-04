@@ -22,7 +22,9 @@ describe("solana-zk-verifier", () => {
   anchor.setProvider(provider);
   // IDL-ja e gjeneruar nga `anchor build` mban adresën e saktë pas `anchor keys sync`.
   const idl = JSON.parse(readFileSync(`${ROOT}/target/idl/solana_zk_verifier.json`, "utf8"));
-  const program = new anchor.Program(idl, provider) as anchor.Program<any>;
+  // `any`: IDL-ja lexohet në runtime, ndaj tipet e gjeneruara të Anchor nuk vlejnë këtu
+  // (Program<any> shkakton TS2589 dhe nuk njeh `program.account.*`).
+  const program: any = new anchor.Program(idl, provider);
   const user = provider.wallet.publicKey;
   console.log("      program id (IDL):", program.programId.toBase58());
   const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("verifier_state")], program.programId);
