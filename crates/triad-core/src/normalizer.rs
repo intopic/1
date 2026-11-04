@@ -58,6 +58,9 @@ pub enum NormalizerError {
     InvalidKey,
     /// Më shumë se [`MAX_MASKED_FIELDS`] fusha të ndjeshme.
     TooManySensitiveFields,
+    /// Një çelës JSON përmban sekuenca escape (`\u0061`): refuzohet, sepse
+    /// parser-ë të ndryshëm do ta lexonin ndryshe nga ky normalizues.
+    EscapedJsonKey,
 }
 
 impl core::fmt::Display for NormalizerError {
@@ -196,6 +199,7 @@ impl AlgebraicNormalizer {
         }
         // Trupi JSON
         let body = &raw[body_off..];
+        reject_escaped_keys(body)?;
         let mut i = 0;
         while let Some((key, after_colon)) = next_json_key(body, i) {
             i = after_colon;
@@ -210,7 +214,16 @@ impl AlgebraicNormalizer {
             if vs >= body.len() {
                 break;
             }
-            if body[vs] == b'"' {
+            if matches!(body[vs], b'{' | b'[') {
+                // vlerë e strukturuar (p.sh. {"value": "..."}): maskohet e gjitha përmbajtja
+                let end = container_end(body, vs).ok_or(NormalizerError::InvalidNumber)?;
+                out.push(MaskRange {
+                    start: body_off + vs + 1,
+                    end: body_off + end,
+                    fill: b'*',
+                })?;
+                i = end + 1;
+            } else if body[vs] == b'"' {
                 let end = string_end(body, vs + 1).ok_or(NormalizerError::InvalidNumber)?;
                 out.push(MaskRange {
                     start: body_off + vs + 1,
@@ -342,6 +355,40 @@ fn string_end(s: &[u8], mut i: usize) -> Option<usize> {
     None
 }
 
+/// Indeksi i kllapës mbyllëse të objektit/vargut që fillon te `i` (anashkalon stringjet).
+fn container_end(s: &[u8], i: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut j = i;
+    while j < s.len() {
+        match s[j] {
+            b'"' => j = string_end(s, j + 1)?,
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(j);
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    None
+}
+
+/// Refuzon çdo çelës JSON me `\` (escape): `"bal\u0061nce"` është `balance`
+/// për parser-ët standardë, por jo për krahasimin bajt-për-bajt këtu.
+fn reject_escaped_keys(body: &[u8]) -> Result<(), NormalizerError> {
+    let mut i = 0;
+    while let Some((k, after)) = next_json_key(body, i) {
+        if body[k.0..k.1].contains(&b'\\') {
+            return Err(NormalizerError::EscapedJsonKey);
+        }
+        i = after;
+    }
+    Ok(())
+}
+
 /// Skanon tokenët e stringjeve JSON nga `from` dhe kthen çelësin e radhës
 /// (string i ndjekur nga `:`) si interval + pozicioni pas `:`.
 fn next_json_key(s: &[u8], from: usize) -> Option<((usize, usize), usize)> {
@@ -361,7 +408,8 @@ fn next_json_key(s: &[u8], from: usize) -> Option<((usize, usize), usize)> {
     None
 }
 
-/// `"YYYY-MM-DD"` (pa thonjëzën hapëse) -> `YYYYMMDD`. Kontrollon muajin dhe ditën.
+/// `"YYYY-MM-DD"` (pa thonjëzën hapëse) -> `YYYYMMDD`. Kontrollon kalendarin
+/// (ditët e muajit dhe vitet e brishtë).
 fn parse_iso_date(s: &[u8]) -> Option<u64> {
     if s.len() < 11 || s[4] != b'-' || s[7] != b'-' || s[10] != b'"' {
         return None;
@@ -377,7 +425,15 @@ fn parse_iso_date(s: &[u8]) -> Option<u64> {
         Some(v)
     };
     let (y, m, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
+    let days = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if y == 0 || !(1..=days).contains(&d) {
         return None;
     }
     Some(y * 10_000 + m * 100 + d)
@@ -385,6 +441,7 @@ fn parse_iso_date(s: &[u8]) -> Option<u64> {
 
 /// Gjen vlerën numerike të çelësit; refuzon dublikatat.
 fn find_unique_json_u64(body: &[u8], key: &str) -> Result<u64, NormalizerError> {
+    reject_escaped_keys(body)?;
     let mut found: Option<u64> = None;
     let mut i = 0;
     while let Some((k, after_colon)) = next_json_key(body, i) {
@@ -541,6 +598,50 @@ mod tests {
         let mut buf = body.to_vec();
         AlgebraicNormalizer::mask_sensitive_in_place(&mut buf).unwrap();
         assert!(!core::str::from_utf8(&buf).unwrap().contains("2001"));
+    }
+
+    #[test]
+    fn calendar_dates() {
+        for bad in ["2001-02-29", "2001-04-31", "1900-02-29", "0000-01-01"] {
+            let body = alloc::format!("{{\"dob\": \"{bad}\"}}");
+            assert_eq!(
+                AlgebraicNormalizer::normalize_and_mask(body.as_bytes(), "dob", 0),
+                Err(NormalizerError::InvalidNumber),
+                "{bad}"
+            );
+        }
+        let ok = AlgebraicNormalizer::normalize_and_mask(b"{\"dob\": \"2000-02-29\"}", "dob", 0)
+            .unwrap();
+        assert_eq!(ok.target_value, 20_000_229);
+    }
+
+    #[test]
+    fn escaped_keys_rejected() {
+        // `bal\u0061nce` == `balance` për parser-ët standardë
+        let body = br#"{"balance":15200,"bal\u0061nce":1}"#;
+        assert_eq!(
+            AlgebraicNormalizer::normalize_and_mask(body, "balance", 0),
+            Err(NormalizerError::EscapedJsonKey)
+        );
+        let mut buf = br#"{"na\u006de":"Arta Hoxha","balance":1}"#.to_vec();
+        assert_eq!(
+            AlgebraicNormalizer::mask_sensitive_in_place(&mut buf),
+            Err(NormalizerError::EscapedJsonKey)
+        );
+    }
+
+    #[test]
+    fn nested_sensitive_values_masked() {
+        let mut buf =
+            br#"{"name":{"value":"Arta Hoxha","x":[1,"}"]},"iban":["AL47 2121"],"balance":5}"#
+                .to_vec();
+        assert_eq!(
+            AlgebraicNormalizer::mask_sensitive_in_place(&mut buf).unwrap(),
+            2
+        );
+        let s = core::str::from_utf8(&buf).unwrap();
+        assert!(!s.contains("Arta") && !s.contains("AL47"), "{s}");
+        assert!(s.ends_with(r#""balance":5}"#));
     }
 
     #[test]

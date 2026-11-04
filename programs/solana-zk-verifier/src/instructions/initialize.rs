@@ -3,12 +3,20 @@
 use anchor_lang::prelude::*;
 
 use crate::error::ZkVerifierError;
-use crate::state::{VerifierState, VerifyingKey, MAX_BANK_KEYS, MAX_IC};
+use crate::program::SolanaZkVerifier;
+use crate::state::{VerifierState, VerifyingKey, MAX_BANK_KEYS, MAX_CLAIM_KEYS, MAX_IC};
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
+    /// Vetëm autoriteti i përditësimit (upgrade authority) mund ta inicializojë:
+    /// përndryshe kushdo që e thërret i pari pas deploy-it merr kontrollin e VK-së
+    /// dhe të whitelist-ës.
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ ZkVerifierError::Unauthorized)]
+    pub program: Program<'info, SolanaZkVerifier>,
+    #[account(constraint = program_data.upgrade_authority_address == Some(authority.key()) @ ZkVerifierError::Unauthorized)]
+    pub program_data: Account<'info, ProgramData>,
     #[account(
         init,
         payer = authority,
@@ -36,8 +44,13 @@ pub fn initialize_handler(
     ctx: Context<Initialize>,
     verifying_key: VerifyingKey,
     app_id: [u8; 32],
+    allowed_claim_keys: Vec<u64>,
     max_attestation_age_secs: i64,
 ) -> Result<()> {
+    require!(
+        !allowed_claim_keys.is_empty() && allowed_claim_keys.len() <= MAX_CLAIM_KEYS,
+        ZkVerifierError::ClaimKeyNotAllowed
+    );
     require!(
         !verifying_key.ic.is_empty() && verifying_key.ic.len() <= MAX_IC,
         ZkVerifierError::VerifyingKeyTooLarge
@@ -51,6 +64,7 @@ pub fn initialize_handler(
         ZkVerifierError::PublicInputOutOfField
     );
     state.app_id = app_id;
+    state.allowed_claim_keys = allowed_claim_keys;
     state.max_attestation_age_secs = max_attestation_age_secs.max(0);
     state.bump = ctx.bumps.verifier_state;
     Ok(())

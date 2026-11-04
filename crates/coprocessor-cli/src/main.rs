@@ -26,7 +26,9 @@ use zktls_prover::mock::{
 };
 use zktls_prover::prover::{fr_to_decimal, DevGroth16Prover, ProofBundle, SnarkjsProver};
 use zktls_prover::solana::{verify_reference, ProofJson, SolanaVerifyingKey, VerifyingKeyJson};
-use zktls_prover::witness::{app_id_from_label, birth_cutoff, ValueRange, ZkWebProofWitness};
+use zktls_prover::witness::{
+    app_id_from_label, birth_cutoff, ValueRange, ZkWebProofWitness, BIRTH_DATE_KEYS, MAX_AGE_YEARS,
+};
 use zktls_prover::NotarizedSession;
 
 #[derive(Parser)]
@@ -82,10 +84,9 @@ impl ClaimArgs {
             if self.min.is_some() || self.max.is_some() {
                 bail!("--min-age nuk kombinohet me --min/--max");
             }
-            return Ok(ValueRange::born_on_or_before(birth_cutoff(
-                today_yyyymmdd(),
-                years,
-            )));
+            let cutoff = birth_cutoff(today_yyyymmdd(), years)
+                .ok_or_else(|| anyhow!("min_age duhet të jetë 0..={MAX_AGE_YEARS}"))?;
+            return Ok(ValueRange::born_on_or_before(cutoff));
         }
         let r = ValueRange {
             min: self.min.unwrap_or(0),
@@ -225,6 +226,15 @@ fn read_session(p: &Path) -> Result<NotarizedSession> {
 
 fn witness_for(session: &NotarizedSession, claim: &ClaimArgs) -> Result<ZkWebProofWitness> {
     let range = claim.range()?;
+    // Një provë moshe ka kuptim vetëm mbi një datë lindjeje: përndryshe p.sh.
+    // `balance: 15200` do të kalonte si "i lindur para 2008".
+    if claim.min_age.is_some() && !BIRTH_DATE_KEYS.contains(&session.target_key.as_str()) {
+        bail!(
+            "--min-age kërkon një sesion me datë lindjeje ({}), jo `{}`",
+            BIRTH_DATE_KEYS.join("/"),
+            session.target_key
+        );
+    }
     let vs = session.verify(range.min)?;
     Ok(ZkWebProofWitness::from_session(
         &vs,
@@ -379,7 +389,7 @@ fn main() -> Result<()> {
             if notary.is_some() {
                 eprintln!("KUJDES: noteri i simuluar është aktiv në /mock-session (vetëm demo)");
             }
-            serve(&addr, &pk, notary.as_ref())?
+            serve(&addr, &pk, notary)?
         }
     }
     Ok(())
@@ -447,22 +457,49 @@ struct ProveRequest {
 
 /// Server HTTP/1.1 minimal, një kërkesë njëherësh. Pa TLS dhe pa autentikim –
 /// vendoseni pas një reverse proxy.
-fn serve(addr: &str, pk: &Path, notary: Option<&MockNotary>) -> Result<()> {
-    let prover = DevGroth16Prover::load(pk).with_context(|| format!("mungon {}", pk.display()))?;
+/// Lidhje të njëkohshme maksimale; të tjerat marrin 503.
+const MAX_CONNECTIONS: usize = 32;
+/// Afati i leximit/shkrimit: një klient i ngadaltë nuk e bllokon serverin.
+const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn serve(addr: &str, pk: &Path, notary: Option<MockNotary>) -> Result<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let prover =
+        Arc::new(DevGroth16Prover::load(pk).with_context(|| format!("mungon {}", pk.display()))?);
+    let notary = Arc::new(notary);
+    let active = Arc::new(AtomicUsize::new(0));
     let listener = TcpListener::bind(addr)?;
     println!("coprocessor po dëgjon në http://{addr}");
     for stream in listener.incoming() {
-        let mut stream = match stream {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        if let Err(e) = handle(&prover, notary, &mut stream) {
-            let _ = respond(
-                &mut stream,
-                400,
-                &serde_json::json!({ "error": e.to_string() }).to_string(),
-            );
+        let Ok(mut stream) = stream else { continue };
+        let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
+        if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+            active.fetch_sub(1, Ordering::SeqCst);
+            let _ = respond(&mut stream, 503, r#"{"error":"server i zënë"}"#);
+            continue;
         }
+        let (prover, notary, active) = (prover.clone(), notary.clone(), active.clone());
+        // një thread për lidhje: një kërkesë e ngadaltë ose e gabuar nuk ndal të tjerat
+        std::thread::spawn(move || {
+            // zbret numëruesin edhe nëse trajtimi bën panik
+            struct Slot(Arc<AtomicUsize>);
+            impl Drop for Slot {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, Ordering::SeqCst);
+                }
+            }
+            let _slot = Slot(active);
+            if let Err(e) = handle(&prover, notary.as_ref().as_ref(), &mut stream) {
+                let _ = respond(
+                    &mut stream,
+                    400,
+                    &serde_json::json!({ "error": e.to_string() }).to_string(),
+                );
+            }
+        });
     }
     Ok(())
 }
@@ -522,6 +559,7 @@ fn respond(stream: &mut TcpStream, code: u16, body: &str) -> Result<()> {
     let reason = match code {
         200 => "OK",
         204 => "No Content",
+        503 => "Service Unavailable",
         404 => "Not Found",
         _ => "Bad Request",
     };

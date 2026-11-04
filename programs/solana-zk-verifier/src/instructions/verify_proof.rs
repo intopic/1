@@ -201,6 +201,10 @@ pub fn verify_and_attest_handler(
         .ok_or(ZkVerifierError::PublicInputOutOfField)?;
     let claim_key_id = input_as_u64(&public_inputs[layout::CLAIM_KEY_ID])
         .ok_or(ZkVerifierError::PublicInputOutOfField)?;
+    require!(
+        state.allowed_claim_keys.contains(&claim_key_id),
+        ZkVerifierError::ClaimKeyNotAllowed
+    );
 
     let is_valid = verify_groth16_bn254(
         &proof_a,

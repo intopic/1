@@ -29,9 +29,16 @@ pub mod solana_zk_verifier {
         ctx: Context<Initialize>,
         verifying_key: VerifyingKey,
         app_id: [u8; 32],
+        allowed_claim_keys: Vec<u64>,
         max_attestation_age_secs: i64,
     ) -> Result<()> {
-        instructions::initialize_handler(ctx, verifying_key, app_id, max_attestation_age_secs)
+        instructions::initialize_handler(
+            ctx,
+            verifying_key,
+            app_id,
+            allowed_claim_keys,
+            max_attestation_age_secs,
+        )
     }
 
     /// Ndërron VK-në (p.sh. nga qarku dev te qarku Circom i prodhimit).

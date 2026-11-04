@@ -70,6 +70,9 @@ e kësaj depoje.
   i palidhshëm mes aplikacioneve. Programi e lidh me portofolin e parë (PDA `["nullifier", nullifier]`),
   ndaj një llogari bankare nuk mund të "farmojë" airdrop/votë me shumë portofola.
 * `app_id` – vendoset në `initialize`; prova për një aplikacion tjetër refuzohet.
+* `claim_key_id` – `initialize` merr listën e llojeve të lejuara (p.sh. vetëm `date_of_birth`), ndaj
+  një provë "bilanc ≤ 20081104" nuk mund të kalojë si provë moshe. `initialize` mund ta thërrasë
+  vetëm upgrade authority i programit.
 * `bank_public_key_hash = PoseidonLarge(121,17)(N)` – kontrollohet kundër whitelist-ës on-chain.
 * `user_pubkey_hi/lo` – programi kërkon që të përputhen me nënshkruesin e transaksionit (anti-replay).
 

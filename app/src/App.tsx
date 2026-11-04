@@ -163,9 +163,11 @@ export function App() {
         <div className="verified">
           <strong>✓ Ky portofol është i verifikuar</strong>
           <span>
-            {att.maxValue === U64_MAX
-              ? `vlera ≥ ${fmtNum(att.minValue)}`
-              : `i lindur më ose para ${fmtDate(att.maxValue)}`}
+            {att.isBirthDate
+              ? `i lindur më ose para ${fmtDate(att.maxValue)}`
+              : att.maxValue === U64_MAX
+                ? `${att.claim} ≥ ${fmtNum(att.minValue)}`
+                : `${fmtNum(att.minValue)} ≤ ${att.claim} ≤ ${fmtNum(att.maxValue)}`}
             {" · "}nullifier <code>{short(att.nullifier)}</code>
           </span>
         </div>

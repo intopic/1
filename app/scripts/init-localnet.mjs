@@ -10,6 +10,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,9 @@ const cli = (...args) =>
     .toString()
     .trim();
 const hex = (s) => Array.from(Buffer.from(s, "hex"));
+// claim_key_id = SHA-256(çelësi JSON)[0..8] (u64 BE). Demoja pranon bilanc dhe datëlindje.
+const claimKeyId = (k) => new anchor.BN(createHash("sha256").update(k).digest().subarray(0, 8));
+const CLAIMS = (process.env.CLAIMS ?? "balance,date_of_birth").split(",");
 
 if (!existsSync(IDL)) throw new Error(`mungon ${IDL}: ekzekutoni \`anchor build\` nga rrënja`);
 mkdirSync(join(ROOT, "app/public"), { recursive: true });
@@ -68,11 +72,18 @@ const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("verifier_state
 const existing = await program.account.verifierState.fetchNullable(statePda);
 if (!existing) {
   await program.methods
-    .initialize(vkHead, hex(appId), new anchor.BN(0))
-    .accounts({ authority: authority.publicKey })
+    .initialize(vkHead, hex(appId), CLAIMS.map(claimKeyId), new anchor.BN(0))
+    // vetëm upgrade authority i programit mund të inicializojë
+    .accountsPartial({
+      authority: authority.publicKey,
+      programData: PublicKey.findProgramAddressSync(
+        [program.programId.toBuffer()],
+        new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111")
+      )[0],
+    })
     .rpc();
   await extendIc();
-  console.log("u inicializua me app_id", APP_LABEL, appId);
+  console.log("u inicializua me app_id", APP_LABEL, appId, "· pretendimet:", CLAIMS.join(", "));
 } else {
   if (Buffer.from(existing.appId).toString("hex") !== appId)
     throw new Error(`programi është inicializuar me një app_id tjetër; rinisni validator-in ose përdorni APP_LABEL të njëjtë`);

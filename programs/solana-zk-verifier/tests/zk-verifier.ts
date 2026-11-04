@@ -6,6 +6,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { execSync } from "child_process";
+import { createHash } from "crypto";
 import { readFileSync, mkdirSync } from "fs";
 import { expect } from "chai";
 // ESM: `anchor.BN` nuk eksportohet si emër nga paketa CJS, ndaj importohet direkt.
@@ -16,6 +17,9 @@ const ROOT = process.cwd();
 const TMP = `${ROOT}/target/ts-test`;
 const CLI = `cargo run -q --release -p coprocessor-cli --`;
 const hex = (s: string) => Array.from(Buffer.from(s, "hex"));
+// claim_key_id = SHA-256(çelësi JSON)[0..8] si u64 BE
+const claimKeyId = (k: string) => new BN(createHash("sha256").update(k).digest().subarray(0, 8));
+const BPF_UPGRADEABLE = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
 
 describe("solana-zk-verifier", () => {
   const provider = anchor.AnchorProvider.env();
@@ -67,6 +71,32 @@ describe("solana-zk-verifier", () => {
     )[0];
   const NULLIFIER = 3;
 
+  const programData = () => PublicKey.findProgramAddressSync([program.programId.toBuffer()], BPF_UPGRADEABLE)[0];
+  const vkHead = () => ({
+    alphaG1: hex(vk.alpha_g1),
+    betaG2: hex(vk.beta_g2),
+    gammaG2: hex(vk.gamma_g2),
+    deltaG2: hex(vk.delta_g2),
+    ic: vk.ic.slice(0, 5).map(hex),
+  });
+
+  it("refuzon inicializimin nga dikush që s'është upgrade authority", async () => {
+    const intruder = Keypair.generate();
+    const sig = await provider.connection.requestAirdrop(intruder.publicKey, LAMPORTS_PER_SOL);
+    await provider.connection.confirmTransaction(sig, "confirmed");
+    let err = "";
+    try {
+      await program.methods
+        .initialize(vkHead(), hex(proof.public_inputs[APP_ID]), [claimKeyId("balance")], new BN(0))
+        .accountsPartial({ authority: intruder.publicKey, programData: programData() })
+        .signers([intruder])
+        .rpc();
+    } catch (e: any) {
+      err = String(e);
+    }
+    expect(err).to.contain("Unauthorized");
+  });
+
   it("inicializon VK dhe whitelist-ën", async () => {
     await program.methods
       .initialize(
@@ -79,15 +109,18 @@ describe("solana-zk-verifier", () => {
           ic: vk.ic.slice(0, 5).map(hex),
         },
         hex(proof.public_inputs[APP_ID]),
+        // ky aplikacion pranon vetëm prova bilanci
+        [claimKeyId("balance")],
         new BN(0)
       )
-      .accounts({ authority: user })
+      .accountsPartial({ authority: user, programData: programData() })
       .rpc();
     await program.methods.extendVkIc(vk.ic.slice(5).map(hex)).accounts({ authority: user }).rpc();
     await program.methods.addBankKey(hex(bankKeyHash)).accounts({ authority: user }).rpc();
     const st: any = await program.account.verifierState.fetch(statePda);
     expect(st.bankKeyWhitelist.length).to.eq(1);
     expect(st.verifyingKey.ic.length).to.eq(11);
+    expect(st.authority.toBase58()).to.eq(user.toBase58());
   });
 
   it("refuzon hyrje publike të ndryshuara", async () => {
@@ -179,5 +212,30 @@ describe("solana-zk-verifier", () => {
       err = String(e);
     }
     expect(err).to.contain("AppIdMismatch");
+  });
+
+  it("refuzon një provë moshe në një aplikacion që pranon vetëm bilanc", async () => {
+    const other = Keypair.generate();
+    const run = (args: string) => execSync(`${CLI} ${args}`, { cwd: ROOT, stdio: "pipe" }).toString().trim();
+    run(
+      `mock-session --kind age --dob 2001-05-17 --account-id J0AGE --key tests/fixtures/mock_notary_key.pem ` +
+        `--cert tests/fixtures/mock_notary_cert.pem --wallet ${other.publicKey.toBase58()} --out ${TMP}/age.tls.json`
+    );
+    run(`prove --input ${TMP}/age.tls.json --min-age 18 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/age.json`);
+    const p = JSON.parse(readFileSync(`${TMP}/age.json`, "utf8"));
+    const sig = await provider.connection.requestAirdrop(other.publicKey, LAMPORTS_PER_SOL);
+    await provider.connection.confirmTransaction(sig, "confirmed");
+    let err = "";
+    try {
+      await program.methods
+        .verifyAndAttest(hex(p.proof_a), hex(p.proof_b), hex(p.proof_c), p.public_inputs.map(hex), hex(p.nullifier))
+        .accountsPartial({ user: other.publicKey, nullifierRecord: nullifierPda(p) })
+        .signers([other])
+        .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
+        .rpc();
+    } catch (e: any) {
+      err = String(e);
+    }
+    expect(err).to.contain("ClaimKeyNotAllowed");
   });
 });

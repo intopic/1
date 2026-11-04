@@ -26,6 +26,10 @@ pub enum ZkVerifierError {
     NullifierAlreadyUsed,
     #[msg("Argumenti nullifier nuk përputhet me hyrjen publike")]
     NullifierMismatch,
+    #[msg("Ky lloj pretendimi (claim_key_id) nuk lejohet nga ky aplikacion")]
+    ClaimKeyNotAllowed,
+    #[msg("Vetëm autoriteti i përditësimit të programit mund ta inicializojë")]
+    Unauthorized,
     #[msg("Prova është për një app_id tjetër")]
     AppIdMismatch,
     #[msg("Çelësi verifikues ka shumë pika IC")]

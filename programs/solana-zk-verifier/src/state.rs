@@ -4,6 +4,8 @@ use anchor_lang::prelude::*;
 pub const NUM_PUBLIC_INPUTS: usize = 10;
 pub const MAX_IC: usize = NUM_PUBLIC_INPUTS + 1;
 pub const MAX_BANK_KEYS: usize = 16;
+/// Llojet e pretendimeve (`claim_key_id`) që pranon një instalim.
+pub const MAX_CLAIM_KEYS: usize = 4;
 
 pub mod layout {
     // daljet e qarkut
@@ -43,6 +45,11 @@ pub struct VerifierState {
     /// Identifikuesi i aplikacionit (element Fr, BE). Provat duhet ta kenë këtë
     /// `app_id`, ndaj nullifier-ët janë unikë brenda këtij instalimi.
     pub app_id: [u8; 32],
+    /// `claim_key_id` të lejuara (`SHA-256(çelësi JSON)[0..8]`, p.sh. vetëm
+    /// `date_of_birth` për një aplikacion moshe). Pa këtë, një provë "bilanc ≤
+    /// 20081104" do të kalonte si "i lindur para 2008".
+    #[max_len(MAX_CLAIM_KEYS)]
+    pub allowed_claim_keys: Vec<u64>,
     /// 0 = pa kufi moshe për atestimin.
     pub max_attestation_age_secs: i64,
     pub bump: u8,

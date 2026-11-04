@@ -41,18 +41,28 @@ impl ValueRange {
     }
 }
 
+/// Mosha maksimale që pranohet në `--min-age`.
+pub const MAX_AGE_YEARS: u64 = 150;
+
+/// Çelësat JSON që mbajnë datën e lindjes: vetëm këto lejohen për prova moshe.
+pub const BIRTH_DATE_KEYS: [&str; 4] = ["date_of_birth", "birth_date", "birthdate", "dob"];
+
 /// Data limit e lindjes për moshë minimale: `today − years` si YYYYMMDD.
 /// (29 shkurti trajtohet si 28 shkurt kur viti limit nuk është i brishtë.)
-pub fn birth_cutoff(today_yyyymmdd: u64, years: u64) -> u64 {
+/// `None` për data/mosha të pavlefshme (p.sh. `years > 150`), pa panik.
+pub fn birth_cutoff(today_yyyymmdd: u64, years: u64) -> Option<u64> {
     let (y, m, d) = (
         today_yyyymmdd / 10_000,
         (today_yyyymmdd / 100) % 100,
         today_yyyymmdd % 100,
     );
-    let cy = y - years;
+    if years > MAX_AGE_YEARS || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let cy = y.checked_sub(years).filter(|&c| c > 0)?;
     let leap = (cy.is_multiple_of(4) && !cy.is_multiple_of(100)) || cy.is_multiple_of(400);
     let d = if m == 2 && d == 29 && !leap { 28 } else { d };
-    cy * 10_000 + m * 100 + d
+    Some(cy * 10_000 + m * 100 + d)
 }
 
 /// `app_id` nga një emër tekst (p.sh. "airdrop-jup-2026"): SHA-256 me bajtin e parë 0.
@@ -195,9 +205,13 @@ mod tests {
     use super::*;
     #[test]
     fn cutoff() {
-        assert_eq!(birth_cutoff(20261104, 18), 20081104);
-        assert_eq!(birth_cutoff(20240229, 18), 20060228);
-        assert_eq!(birth_cutoff(20240229, 20), 20040229);
+        assert_eq!(birth_cutoff(20261104, 18), Some(20081104));
+        assert_eq!(birth_cutoff(20240229, 18), Some(20060228));
+        assert_eq!(birth_cutoff(20240229, 20), Some(20040229));
+        // pa tejmbushje/panik
+        assert_eq!(birth_cutoff(20261104, 2027), None);
+        assert_eq!(birth_cutoff(20261104, u64::MAX), None);
+        assert_eq!(birth_cutoff(0, 18), None);
         assert_ne!(app_id_from_label("a"), app_id_from_label("b"));
     }
 }

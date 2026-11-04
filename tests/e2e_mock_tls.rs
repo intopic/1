@@ -172,7 +172,7 @@ fn age_over_18_proof() {
     let mut rng = rand::rngs::StdRng::seed_from_u64(18);
     let prover = DevGroth16Prover::setup(&mut rng).unwrap();
     let svk = SolanaVerifyingKey::from_ark(prover.vk());
-    let cutoff = birth_cutoff(20261104, 18);
+    let cutoff = birth_cutoff(20261104, 18).unwrap();
     assert_eq!(cutoff, 20081104);
 
     // i lindur më 2001-05-17 -> mbi 18 vjeç

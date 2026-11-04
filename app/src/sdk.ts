@@ -29,8 +29,22 @@ export const attestationPda = (programId: PublicKey, wallet: PublicKey) =>
 export const nullifierPda = (programId: PublicKey, nullifierHex: string) =>
   PublicKey.findProgramAddressSync([Buffer.from("nullifier"), Buffer.from(nullifierHex, "hex")], programId)[0];
 
+/** `claim_key_id` = SHA-256(çelësi JSON)[0..8] si u64 BE. */
+export const CLAIM_KEYS: Record<string, bigint> = {
+  balance: 6292056758205541950n,
+  date_of_birth: 10499278090922323829n,
+  birth_date: 249661563938424948n,
+  birthdate: 14520292931301669765n,
+  dob: 4057514819593230876n,
+};
+const BIRTH_KEYS = new Set(["date_of_birth", "birth_date", "birthdate", "dob"]);
+
 export interface Attestation {
   user: PublicKey;
+  /** Çelësi JSON i provuar (p.sh. "balance", "date_of_birth"), ose id-ja hex nëse nuk njihet. */
+  claim: string;
+  /** true kur pretendimi është mbi një datë lindjeje (`maxValue` = data kufi YYYYMMDD). */
+  isBirthDate: boolean;
   minValue: bigint;
   maxValue: bigint;
   nullifier: string;
@@ -43,8 +57,12 @@ export async function fetchAttestation(program: anchor.Program<any>, wallet: Pub
     attestationPda(program.programId, wallet)
   );
   if (!rec) return null;
+  const id = BigInt(rec.claimKeyId.toString());
+  const claim = Object.keys(CLAIM_KEYS).find((k) => CLAIM_KEYS[k] === id) ?? id.toString(16);
   return {
     user: rec.user,
+    claim,
+    isBirthDate: BIRTH_KEYS.has(claim),
     minValue: BigInt(rec.minValue.toString()),
     maxValue: BigInt(rec.maxValue.toString()),
     nullifier: Buffer.from(rec.nullifier).toString("hex"),
@@ -53,8 +71,10 @@ export async function fetchAttestation(program: anchor.Program<any>, wallet: Pub
 }
 
 /**
- * Kontrolli që një DEX/DAO i bën para se të lejojë një veprim: a ka ky portofol
- * një atestim zkTLS? (Për kushte të sakta, krahasoni `minValue`/`maxValue`.)
+ * Kontrolli i shpejtë: a ka ky portofol një atestim zkTLS në këtë program?
+ * Programi pranon vetëm llojet e pretendimeve të caktuara në `initialize`; për
+ * kushte të sakta përdorni `fetchAttestation` dhe kontrolloni `claim`,
+ * `minValue`/`maxValue` (p.sh. mosha: `isBirthDate && maxValue <= cutoff`).
  */
 export async function isVerified(connection: Connection, programId: PublicKey, wallet: PublicKey): Promise<boolean> {
   const info = await connection.getAccountInfo(attestationPda(programId, wallet));
@@ -84,6 +104,8 @@ export function explainError(e: unknown): string {
     [/kushti nuk plotësohet|ThresholdNotMet/, "Të dhënat nuk e plotësojnë kushtin (bilanci ose mosha)."],
     [/StaleAttestation/, "Atestimi ka skaduar. Lidhu sërish me burimin."],
     [/AppIdMismatch/, "Prova është për një aplikacion tjetër."],
+    [/ClaimKeyNotAllowed/, "Ky aplikacion nuk pranon këtë lloj prove."],
+    [/kërkon një sesion me datë lindjeje/, "Prova e moshës kërkon një datë lindjeje, jo bilanc."],
     [/BankKeyNotWhitelisted/, "Noteri/banka nuk është e autorizuar në këtë program."],
     [/WalletMismatch/, "Prova është për një portofol tjetër."],
     [/User rejected|rejected the request/i, "Transaksioni u anulua në portofol."],
