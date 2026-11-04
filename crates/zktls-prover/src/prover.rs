@@ -234,6 +234,9 @@ pub struct SnarkjsProver {
     pub zkey: PathBuf,
     pub snarkjs_bin: String,
     pub rapidsnark: Option<String>,
+    /// Gjeneruesi C++ i dëshmitarit (`circom --c`): `<bin> input.json witness.wtns`.
+    /// Pa të: `snarkjs wtns calculate`.
+    pub witness_bin: Option<String>,
     /// Drejtoria bazë; çdo provë përdor një nëndrejtori unike që fshihet në fund
     /// (input.json dhe dëshmitari përmbajnë të dhënat personale të përdoruesit).
     pub work_dir: PathBuf,
@@ -327,16 +330,19 @@ impl SnarkjsProver {
             }
             Some(rs) => {
                 let t0 = std::time::Instant::now();
-                run_cmd(
-                    &self.snarkjs_bin,
-                    &[
-                        "wtns".as_ref(),
-                        "calculate".as_ref(),
-                        self.wasm.as_os_str(),
-                        input.as_os_str(),
-                        wtns.as_os_str(),
-                    ],
-                )?;
+                match &self.witness_bin {
+                    Some(bin) => run_cmd(bin, &[input.as_os_str(), wtns.as_os_str()])?,
+                    None => run_cmd(
+                        &self.snarkjs_bin,
+                        &[
+                            "wtns".as_ref(),
+                            "calculate".as_ref(),
+                            self.wasm.as_os_str(),
+                            input.as_os_str(),
+                            wtns.as_os_str(),
+                        ],
+                    )?,
+                }
                 t.witness_ms = t0.elapsed().as_millis() as u64;
                 let t1 = std::time::Instant::now();
                 run_cmd(

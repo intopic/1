@@ -39,8 +39,13 @@ jobs:
       - name: Instalo snarkjs
         run: npm install -g "snarkjs@$SNARKJS_VERSION"
 
+      - name: Varësitë e dëshmitarit C++
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nasm libgmp-dev nlohmann-json3-dev
+
       - name: Kompilo qarkun
         working-directory: circuits
+        env:
+          CPP_WITNESS: "1"
         run: |
           npm install
           circom --version
@@ -109,25 +114,46 @@ jobs:
         run: |
           B=target/release/coprocessor
           nproc
-          for backend in snarkjs rapidsnark; do
-            /usr/bin/time -v $B prove --backend $backend --rapidsnark ~/rapidsnark/prover \
+          run() {  # emri backend [argumente shtesë]
+            name=$1; backend=$2; shift 2
+            /usr/bin/time -v $B prove --backend $backend --rapidsnark ~/rapidsnark/prover "$@" \
               --input artifacts/session.tls.json --min 10000 \
               --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey \
-              --out artifacts/proof_$backend.json 2> artifacts/time_$backend.txt \
-              || { cat artifacts/time_$backend.txt; exit 1; }
-            $B verify --proof artifacts/proof_$backend.json --vk artifacts/vk.json
-            echo "== $backend"; grep -E "kohët|Elapsed|Maximum resident|Percent of CPU" artifacts/time_$backend.txt
-          done
+              --out artifacts/proof_$name.json 2> artifacts/time_$name.txt \
+              || { cat artifacts/time_$name.txt; exit 1; }
+            $B verify --proof artifacts/proof_$name.json --vk artifacts/vk.json
+            echo "== $name"; grep -E "kohët|Elapsed|Maximum resident|Percent of CPU" artifacts/time_$name.txt
+          }
+          run snarkjs snarkjs
+          run rapidsnark rapidsnark
+          run rapidsnark+cpp rapidsnark --witness-bin circuits/build/main_cpp/main
           {
             echo "### Koha e provës, qarku i plotë (277k kufizime)"
             echo '| backend | dëshmitari + prova | gjithsej | RAM max | CPU |'
             echo '|---|---|---|---|---|'
-            for backend in snarkjs rapidsnark; do
+            for backend in snarkjs rapidsnark rapidsnark+cpp; do
               f=artifacts/time_$backend.txt
               echo "| $backend | $(grep kohët $f | sed 's/kohët: //') | $(grep Elapsed $f | awk '{print $NF}') | $(grep Maximum $f | awk '{printf "%.0f MB", $NF/1024}') | $(grep Percent $f | awk '{print $NF}') |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$GITHUB_STEP_SUMMARY"
+
+      - name: Daemon-i me rapidsnark nën ngarkesë (izolimi i klientëve)
+        run: |
+          B=target/release/coprocessor
+          $B serve --addr 127.0.0.1:8787 --backend rapidsnark --rapidsnark ~/rapidsnark/prover \
+            --witness-bin circuits/build/main_cpp/main \
+            --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey \
+            --mock-notary-key tests/fixtures/mock_notary_key.pem \
+            --mock-notary-cert tests/fixtures/mock_notary_cert.pem > serve.log 2>&1 &
+          PID=$!
+          for i in $(seq 30); do curl -sf localhost:8787/health && break; sleep 1; done
+          cat serve.log
+          {
+            echo "### Daemon-i (rapidsnark + dëshmitar C++), $(nproc) bërthama, 16 klientë"
+            PID=$PID MD=1 VK=artifacts/vk.json BIN=$B python3 scripts/load_test.py http://127.0.0.1:8787 16 1,4,16
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          kill $PID
 
       - name: Testet negative
         run: |

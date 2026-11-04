@@ -24,7 +24,9 @@ use serde::Deserialize;
 use zktls_prover::mock::{
     load_private_key_pem, sample_bank_response, sample_identity_response, MockNotary,
 };
-use zktls_prover::prover::{fr_to_decimal, DevGroth16Prover, ProofBundle, SnarkjsProver};
+use zktls_prover::prover::{
+    fr_to_decimal, DevGroth16Prover, ProofBundle, ProveTimings, SnarkjsProver,
+};
 use zktls_prover::solana::{verify_reference, ProofJson, SolanaVerifyingKey, VerifyingKeyJson};
 use zktls_prover::witness::{
     app_id_from_label, birth_cutoff, ValueRange, ZkWebProofWitness, BIRTH_DATE_KEYS, MAX_AGE_YEARS,
@@ -46,6 +48,111 @@ enum Backend {
     Snarkjs,
     /// Qarku i plotë Circom: dëshmitari me snarkjs, prova me rapidsnark (C++)
     Rapidsnark,
+}
+
+/// Motori i provës (i përbashkët për `prove` dhe `serve`).
+#[derive(clap::Args, Clone)]
+struct EngineArgs {
+    #[arg(long, value_enum, default_value_t = Backend::Dev)]
+    backend: Backend,
+    /// Çelësi i provimit të qarkut dev
+    #[arg(long, default_value = "artifacts/dev_pk.bin")]
+    pk: PathBuf,
+    #[arg(long, default_value = "circuits/build/main_js/main.wasm")]
+    wasm: PathBuf,
+    #[arg(long, default_value = "circuits/build/main_final.zkey")]
+    zkey: PathBuf,
+    #[arg(long, default_value = "snarkjs")]
+    snarkjs: String,
+    /// Binari `prover` i rapidsnark (për `--backend rapidsnark`)
+    #[arg(long, default_value = "prover")]
+    rapidsnark: String,
+    /// Gjeneruesi C++ i dëshmitarit (`circom --c`, p.sh. circuits/build/main_cpp/main);
+    /// pa të, dëshmitari llogaritet me `snarkjs wtns calculate`
+    #[arg(long)]
+    witness_bin: Option<String>,
+}
+
+enum Engine {
+    Dev(Box<DevGroth16Prover>),
+    Circom { prover: SnarkjsProver, rapid: bool },
+}
+
+impl Engine {
+    fn load(a: &EngineArgs, keep_files: Option<PathBuf>) -> Result<Self> {
+        Ok(match a.backend {
+            Backend::Dev => Engine::Dev(Box::new(DevGroth16Prover::load(&a.pk).with_context(
+                || format!("mungon {} – ekzekutoni `coprocessor setup`", a.pk.display()),
+            )?)),
+            Backend::Snarkjs | Backend::Rapidsnark => {
+                for f in [&a.zkey]
+                    .into_iter()
+                    .chain(a.witness_bin.is_none().then_some(&a.wasm))
+                {
+                    if !f.exists() {
+                        bail!(
+                            "mungon {} – kompiloni qarkun dhe ekzekutoni setup_keys.sh",
+                            f.display()
+                        );
+                    }
+                }
+                let rapid = matches!(a.backend, Backend::Rapidsnark);
+                Engine::Circom {
+                    prover: SnarkjsProver {
+                        wasm: a.wasm.clone(),
+                        zkey: a.zkey.clone(),
+                        snarkjs_bin: a.snarkjs.clone(),
+                        rapidsnark: rapid.then(|| a.rapidsnark.clone()),
+                        witness_bin: a.witness_bin.clone(),
+                        work_dir: keep_files
+                            .clone()
+                            .unwrap_or_else(|| std::env::temp_dir().join("zktls-prove")),
+                        keep_files: keep_files.is_some(),
+                    },
+                    rapid,
+                }
+            }
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Engine::Dev(_) => "dev-arkworks",
+            Engine::Circom { rapid: true, .. } => "circom-rapidsnark",
+            Engine::Circom { rapid: false, .. } => "circom-snarkjs",
+        }
+    }
+
+    /// Provat e njëkohshme që nuk mbingarkojnë CPU-në: një provë Circom zë ~3
+    /// bërthama (matur në CI), një provë dev ~2.
+    fn default_parallel(&self) -> usize {
+        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+        match self {
+            Engine::Dev(_) => (cores / 2).max(1),
+            Engine::Circom { .. } => (cores / 3).max(1),
+        }
+    }
+
+    fn prove(
+        &self,
+        session: &NotarizedSession,
+        claim: &ClaimArgs,
+    ) -> Result<(ProofBundle, ZkWebProofWitness, ProveTimings)> {
+        let w = witness_for(session, claim)?;
+        let (proof, inputs, t) = match self {
+            Engine::Dev(p) => {
+                let t0 = std::time::Instant::now();
+                let (proof, inputs) = p.prove(&w, &mut rand::rngs::OsRng)?;
+                let t = ProveTimings {
+                    witness_ms: 0,
+                    prove_ms: t0.elapsed().as_millis() as u64,
+                };
+                (proof, inputs, t)
+            }
+            Engine::Circom { prover, .. } => prover.prove_timed(&w)?,
+        };
+        Ok((ProofBundle::new(self.name(), &w, &proof, &inputs), w, t))
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum, Deserialize)]
@@ -151,23 +258,12 @@ enum Cmd {
         input: PathBuf,
         #[command(flatten)]
         claim: ClaimArgs,
-        #[arg(long, value_enum, default_value_t = Backend::Dev)]
-        backend: Backend,
-        #[arg(long, default_value = "artifacts/dev_pk.bin")]
-        pk: PathBuf,
-        #[arg(long, default_value = "circuits/build/main_js/main.wasm")]
-        wasm: PathBuf,
-        #[arg(long, default_value = "circuits/build/main_final.zkey")]
-        zkey: PathBuf,
-        #[arg(long, default_value = "snarkjs")]
-        snarkjs: String,
+        #[command(flatten)]
+        engine: EngineArgs,
         /// VETËM PËR DEBUG/CI: mbaj input.json/proof.json/public.json të snarkjs në këtë drejtori
         /// (përndryshe fshihen pas provës, sepse përmbajnë të dhëna personale)
         #[arg(long)]
         keep_files: Option<PathBuf>,
-        /// Binari `prover` i rapidsnark (për `--backend rapidsnark`)
-        #[arg(long, default_value = "prover")]
-        rapidsnark: String,
         /// Ruaj edhe input.json për Circom
         #[arg(long)]
         witness_out: Option<PathBuf>,
@@ -203,8 +299,11 @@ enum Cmd {
     Serve {
         #[arg(long, default_value = "127.0.0.1:8787")]
         addr: String,
-        #[arg(long, default_value = "artifacts/dev_pk.bin")]
-        pk: PathBuf,
+        #[command(flatten)]
+        engine: EngineArgs,
+        /// Provat e njëkohshme (0 = automatikisht sipas bërthamave dhe backend-it)
+        #[arg(long, default_value_t = 0)]
+        parallel: usize,
         /// VETËM PËR DEMO: aktivizon noterin e simuluar në /mock-session
         #[arg(long)]
         mock_notary_key: Option<PathBuf>,
@@ -253,16 +352,6 @@ fn witness_for(session: &NotarizedSession, claim: &ClaimArgs) -> Result<ZkWebPro
     )?)
 }
 
-fn prove_dev(
-    prover: &DevGroth16Prover,
-    session: &NotarizedSession,
-    claim: &ClaimArgs,
-) -> Result<(ProofBundle, ZkWebProofWitness)> {
-    let w = witness_for(session, claim)?;
-    let (proof, inputs) = prover.prove(&w, &mut rand::rngs::OsRng)?;
-    Ok((ProofBundle::new("dev-arkworks", &w, &proof, &inputs), w))
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
@@ -307,51 +396,18 @@ fn main() -> Result<()> {
         Cmd::Prove {
             input,
             claim,
-            backend,
-            pk,
-            wasm,
-            zkey,
-            snarkjs,
-            rapidsnark,
+            engine,
             keep_files,
             witness_out,
             out,
         } => {
             let session = read_session(&input)?;
             let t0 = std::time::Instant::now();
-            let (bundle, w) = match backend {
-                Backend::Dev => {
-                    let prover = DevGroth16Prover::load(&pk).with_context(|| {
-                        format!("mungon {} – ekzekutoni `coprocessor setup`", pk.display())
-                    })?;
-                    prove_dev(&prover, &session, &claim)?
-                }
-                Backend::Snarkjs | Backend::Rapidsnark => {
-                    let w = witness_for(&session, &claim)?;
-                    let rapid = matches!(backend, Backend::Rapidsnark);
-                    let sp = SnarkjsProver {
-                        wasm,
-                        zkey,
-                        snarkjs_bin: snarkjs,
-                        rapidsnark: rapid.then(|| rapidsnark.clone()),
-                        work_dir: keep_files
-                            .clone()
-                            .unwrap_or_else(|| std::env::temp_dir().join("zktls-prove")),
-                        keep_files: keep_files.is_some(),
-                    };
-                    let (proof, inputs, t) = sp.prove_timed(&w)?;
-                    eprintln!(
-                        "kohët: dëshmitari {} ms, prova {} ms",
-                        t.witness_ms, t.prove_ms
-                    );
-                    let name = if rapid {
-                        "circom-rapidsnark"
-                    } else {
-                        "circom-snarkjs"
-                    };
-                    (ProofBundle::new(name, &w, &proof, &inputs), w)
-                }
-            };
+            let (bundle, w, t) = Engine::load(&engine, keep_files)?.prove(&session, &claim)?;
+            eprintln!(
+                "kohët: dëshmitari {} ms, prova {} ms",
+                t.witness_ms, t.prove_ms
+            );
             if let Some(p) = witness_out {
                 std::fs::write(&p, serde_json::to_string_pretty(&w.to_circom_input())?)?;
             }
@@ -404,7 +460,8 @@ fn main() -> Result<()> {
         }
         Cmd::Serve {
             addr,
-            pk,
+            engine,
+            parallel,
             mock_notary_key,
             mock_notary_cert,
         } => {
@@ -414,7 +471,13 @@ fn main() -> Result<()> {
             if notary.is_some() {
                 eprintln!("KUJDES: noteri i simuluar është aktiv në /mock-session (vetëm demo)");
             }
-            serve(&addr, &pk, notary)?
+            let engine = Engine::load(&engine, None)?;
+            let parallel = if parallel == 0 {
+                engine.default_parallel()
+            } else {
+                parallel
+            };
+            serve(&addr, engine, parallel, notary)?
         }
     }
     Ok(())
@@ -495,15 +558,11 @@ struct ProveGate {
 }
 
 impl ProveGate {
-    fn global() -> &'static ProveGate {
-        static G: std::sync::OnceLock<ProveGate> = std::sync::OnceLock::new();
-        G.get_or_init(|| {
-            let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
-            ProveGate {
-                free: std::sync::Mutex::new((cores / 2).max(1)),
-                cv: std::sync::Condvar::new(),
-            }
-        })
+    fn new(slots: usize) -> Self {
+        ProveGate {
+            free: std::sync::Mutex::new(slots.max(1)),
+            cv: std::sync::Condvar::new(),
+        }
     }
     fn run<T>(&self, f: impl FnOnce() -> T) -> T {
         let mut free = self
@@ -526,12 +585,13 @@ impl ProveGate {
 /// Afati i leximit/shkrimit: një klient i ngadaltë nuk e bllokon serverin.
 const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-fn serve(addr: &str, pk: &Path, notary: Option<MockNotary>) -> Result<()> {
+fn serve(addr: &str, engine: Engine, parallel: usize, notary: Option<MockNotary>) -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    let prover =
-        Arc::new(DevGroth16Prover::load(pk).with_context(|| format!("mungon {}", pk.display()))?);
+    let gate = Arc::new(ProveGate::new(parallel));
+    println!("backend {}, {parallel} prova njëkohësisht", engine.name());
+    let prover = Arc::new(engine);
     let notary = Arc::new(notary);
     let active = Arc::new(AtomicUsize::new(0));
     let listener = TcpListener::bind(addr)?;
@@ -545,7 +605,8 @@ fn serve(addr: &str, pk: &Path, notary: Option<MockNotary>) -> Result<()> {
             let _ = respond(&mut stream, 503, r#"{"error":"server i zënë"}"#);
             continue;
         }
-        let (prover, notary, active) = (prover.clone(), notary.clone(), active.clone());
+        let (prover, notary, active, gate) =
+            (prover.clone(), notary.clone(), active.clone(), gate.clone());
         // një thread për lidhje: një kërkesë e ngadaltë ose e gabuar nuk ndal të tjerat
         std::thread::spawn(move || {
             // zbret numëruesin edhe nëse trajtimi bën panik
@@ -556,7 +617,7 @@ fn serve(addr: &str, pk: &Path, notary: Option<MockNotary>) -> Result<()> {
                 }
             }
             let _slot = Slot(active);
-            if let Err(e) = handle(&prover, notary.as_ref().as_ref(), &mut stream) {
+            if let Err(e) = handle(&prover, &gate, notary.as_ref().as_ref(), &mut stream) {
                 let _ = respond(
                     &mut stream,
                     400,
@@ -569,7 +630,8 @@ fn serve(addr: &str, pk: &Path, notary: Option<MockNotary>) -> Result<()> {
 }
 
 fn handle(
-    prover: &DevGroth16Prover,
+    prover: &Engine,
+    gate: &ProveGate,
     notary: Option<&MockNotary>,
     stream: &mut TcpStream,
 ) -> Result<()> {
@@ -599,7 +661,12 @@ fn handle(
         ("GET", "/health") => respond(
             stream,
             200,
-            &serde_json::json!({ "status": "ok", "mock_notary": notary.is_some() }).to_string(),
+            &serde_json::json!({
+                "status": "ok",
+                "backend": prover.name(),
+                "mock_notary": notary.is_some()
+            })
+            .to_string(),
         ),
         ("POST", "/mock-session") => {
             let n = notary.ok_or_else(|| anyhow!("noteri i simuluar nuk është aktiv"))?;
@@ -612,8 +679,7 @@ fn handle(
         }
         ("POST", "/prove") => {
             let req: ProveRequest = serde_json::from_slice(&body)?;
-            let (bundle, _) =
-                ProveGate::global().run(|| prove_dev(prover, &req.session, &req.claim))?;
+            let (bundle, _, _) = gate.run(|| prover.prove(&req.session, &req.claim))?;
             respond(stream, 200, &serde_json::to_string(&bundle)?)
         }
         _ => respond(stream, 404, r#"{"error":"not found"}"#),
