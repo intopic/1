@@ -17,3 +17,6 @@ test = "npx ts-mocha -p ./tsconfig.json -t 1000000 programs/solana-zk-verifier/t
 
 [test]
 startup_wait = 60000
+# deploy si program i përditësueshëm me portofolin e provider-it si upgrade authority
+# (`initialize` e kërkon këtë)
+upgradeable = true
