@@ -147,10 +147,15 @@ jobs:
           solana-keygen new --no-bip39-passphrase --silent --force -o ~/.config/solana/id.json
 
       - name: Build + testet TypeScript në localnet
+        env:
+          # programi është workspace më vete; artefaktet duhet të dalin në target/deploy të rrënjës
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
         run: |
           npm install
           anchor keys sync
-          anchor test
+          anchor build
+          ls -la target/deploy target/idl || true
+          anchor test --skip-build
       - name: Log-u i validatorit
         if: failure()
         run: tail -n 80 .anchor/test-ledger/test-ledger-log.txt || true
