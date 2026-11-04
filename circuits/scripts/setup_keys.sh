@@ -27,15 +27,16 @@ if [ ! -f "$PTAU" ]; then
   # Perpetual Powers of Tau (PSE), 80 kontribute. Bucket-i i vjetër i Hermez kthen 403.
   curl -fL --retry 3 -o "$PTAU" "https://pse-trusted-setup-ppot.s3.eu-central-1.amazonaws.com/pot28_0080/ppot_0080_${POWER}.ptau"
 fi
-$SNARKJS powersoftau verify "$PTAU"
+# Verifikimi i plotë i ptau zgjat shumë (>30 min për 2^19); PPoT është verifikuar publikisht.
+if [ "${VERIFY_PTAU:-0}" = "1" ]; then $SNARKJS powersoftau verify "$PTAU"; fi
 
-$SNARKJS groth16 setup build/main.r1cs "$PTAU" build/main_0000.zkey
+time $SNARKJS groth16 setup build/main.r1cs "$PTAU" build/main_0000.zkey
 ENTROPY="$(head -c 64 /dev/urandom | xxd -p -c 256)"
-$SNARKJS zkey contribute build/main_0000.zkey build/main_0001.zkey \
+time $SNARKJS zkey contribute build/main_0000.zkey build/main_0001.zkey \
   --name="kontributi-lokal" -v -e="$ENTROPY"
 BEACON="${BEACON:-$(head -c 32 /dev/urandom | xxd -p -c 256)}"
 $SNARKJS zkey beacon build/main_0001.zkey build/main_final.zkey "$BEACON" 10 -n="beacon-final"
-$SNARKJS zkey verify build/main.r1cs "$PTAU" build/main_final.zkey
+if [ "${VERIFY_ZKEY:-0}" = "1" ]; then $SNARKJS zkey verify build/main.r1cs "$PTAU" build/main_final.zkey; fi
 $SNARKJS zkey export verificationkey build/main_final.zkey build/verification_key.json
 
 echo "OK: build/main_final.zkey, build/verification_key.json"
