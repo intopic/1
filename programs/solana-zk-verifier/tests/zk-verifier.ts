@@ -8,6 +8,8 @@ import { ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
 import { execSync } from "child_process";
 import { readFileSync, mkdirSync } from "fs";
 import { expect } from "chai";
+// ESM: `anchor.BN` nuk eksportohet si emër nga paketa CJS, ndaj importohet direkt.
+import BN from "bn.js";
 
 // `anchor test` ekzekutohet nga rrënja e depos (ESM: __dirname nuk ekziston)
 const ROOT = process.cwd();
@@ -20,6 +22,7 @@ describe("solana-zk-verifier", () => {
   anchor.setProvider(provider);
   const program = anchor.workspace.SolanaZkVerifier as anchor.Program<any>;
   const user = provider.wallet.publicKey;
+  console.log("      program id (IDL):", program.programId.toBase58());
   const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("verifier_state")], program.programId);
   const [recordPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("attestation"), user.toBuffer()],
@@ -52,7 +55,7 @@ describe("solana-zk-verifier", () => {
           deltaG2: hex(vk.delta_g2),
           ic: vk.ic.map(hex),
         },
-        new anchor.BN(0)
+        new BN(0)
       )
       .accounts({ authority: user })
       .rpc();
