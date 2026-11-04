@@ -458,7 +458,46 @@ struct ProveRequest {
 /// Server HTTP/1.1 minimal, një kërkesë njëherësh. Pa TLS dhe pa autentikim –
 /// vendoseni pas një reverse proxy.
 /// Lidhje të njëkohshme maksimale; të tjerat marrin 503.
-const MAX_CONNECTIONS: usize = 32;
+const MAX_CONNECTIONS: usize = 128;
+
+/// Kufizon provat e njëkohshme (çdo provë përdor vetë disa bërthama): kërkesat
+/// e tjera presin në radhë në vend që të mbingarkojnë CPU-në dhe ta ngadalësojnë
+/// secilën. Çdo kërkesë ka gjendjen e vet (sesion, dëshmitar, provë): nuk ka
+/// gjendje të përbashkët mes klientëve përveç çelësit të provimit (vetëm lexim).
+struct ProveGate {
+    free: std::sync::Mutex<usize>,
+    cv: std::sync::Condvar,
+}
+
+impl ProveGate {
+    fn global() -> &'static ProveGate {
+        static G: std::sync::OnceLock<ProveGate> = std::sync::OnceLock::new();
+        G.get_or_init(|| {
+            let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+            ProveGate {
+                free: std::sync::Mutex::new((cores / 2).max(1)),
+                cv: std::sync::Condvar::new(),
+            }
+        })
+    }
+    fn run<T>(&self, f: impl FnOnce() -> T) -> T {
+        let mut free = self
+            .cv
+            .wait_while(self.free.lock().unwrap(), |n| *n == 0)
+            .unwrap();
+        *free -= 1;
+        drop(free);
+        struct Release<'a>(&'a ProveGate);
+        impl Drop for Release<'_> {
+            fn drop(&mut self) {
+                *self.0.free.lock().unwrap() += 1;
+                self.0.cv.notify_one();
+            }
+        }
+        let _r = Release(self);
+        f()
+    }
+}
 /// Afati i leximit/shkrimit: një klient i ngadaltë nuk e bllokon serverin.
 const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -548,7 +587,8 @@ fn handle(
         }
         ("POST", "/prove") => {
             let req: ProveRequest = serde_json::from_slice(&body)?;
-            let (bundle, _) = prove_dev(prover, &req.session, &req.claim)?;
+            let (bundle, _) =
+                ProveGate::global().run(|| prove_dev(prover, &req.session, &req.claim))?;
             respond(stream, 200, &serde_json::to_string(&bundle)?)
         }
         _ => respond(stream, 404, r#"{"error":"not found"}"#),
