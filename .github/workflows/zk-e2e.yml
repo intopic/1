@@ -48,9 +48,9 @@ jobs:
       - name: Cache ptau
         uses: actions/cache@v4
         with:
-          path: circuits/build/powersOfTau28_hez_final_*.ptau
-          key: ptau-hez-${{ hashFiles('circuits/*.circom') }}
-          restore-keys: ptau-hez-
+          path: circuits/build/ppot_0080_*.ptau
+          key: ppot-${{ hashFiles('circuits/*.circom') }}
+          restore-keys: ppot-
 
       - name: Ceremonia Groth16 (ptau + zkey)
         working-directory: circuits

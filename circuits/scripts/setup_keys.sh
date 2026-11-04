@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ceremonia e besimit Groth16: Powers of Tau (Hermez, faza 1) + faza 2 specifike për qarkun.
+# Ceremonia e besimit Groth16: Perpetual Powers of Tau (PSE, faza 1) + faza 2 specifike për qarkun.
 #
 # KUJDES: faza 2 këtu ka vetëm një kontribut lokal + beacon. Për mainnet,
 # organizoni një ceremoni me shumë pjesëmarrës (snarkjs zkey contribute nga palë
@@ -20,11 +20,12 @@ if [ -z "${PTAU_POWER:-}" ]; then
 else
   POWER="$PTAU_POWER"
 fi
-PTAU="build/powersOfTau28_hez_final_${POWER}.ptau"
+PTAU="build/ppot_0080_${POWER}.ptau"
 
 if [ ! -f "$PTAU" ]; then
   echo "Shkarkimi i $PTAU ..."
-  curl -fL -o "$PTAU" "https://storage.googleapis.com/zkevm/ptau/powersOfTau28_hez_final_${POWER}.ptau"
+  # Perpetual Powers of Tau (PSE), 80 kontribute. Bucket-i i vjetër i Hermez kthen 403.
+  curl -fL --retry 3 -o "$PTAU" "https://pse-trusted-setup-ppot.s3.eu-central-1.amazonaws.com/pot28_0080/ppot_0080_${POWER}.ptau"
 fi
 $SNARKJS powersoftau verify "$PTAU"
 
