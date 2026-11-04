@@ -51,7 +51,7 @@ demo:
 	$(CLI) mock-session --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem \
 		--balance 15200 --wallet $(WALLET) --out $(DEMO)/session.tls.json
 	$(CLI) setup --out-dir $(DEMO)
-	$(CLI) prove --input $(DEMO)/session.tls.json --threshold 10000 --pk $(DEMO)/dev_pk.bin \
+	$(CLI) prove --input $(DEMO)/session.tls.json --min 10000 --pk $(DEMO)/dev_pk.bin \
 		--witness-out $(DEMO)/input.json --out $(DEMO)/proof.json
 	$(CLI) verify --proof $(DEMO)/proof.json --vk $(DEMO)/vk.json
 	@echo "bank_key_hash: $$($(CLI) bank-key-hash --input $(DEMO)/session.tls.json)"

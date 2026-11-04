@@ -131,6 +131,31 @@ coprocessor bank-key-hash --input session.tls.json    # për add_bank_key
 coprocessor serve --addr 127.0.0.1:8787               # GET /health, POST /prove
 ```
 
+## Demo web (lidh portofolin → provo → verifiko on-chain)
+
+Faqja `app/` ka 4 hapa: lidh portofolin (Phantom/Solflare/Backpack), zgjidh "bilanc ≥ 10 000 €"
+ose "mosha ≥ 18", lidhu me burimin (noter i **simuluar**), gjenero provën dhe dërgoje në Solana.
+
+```bash
+solana-test-validator                                  # terminal 1
+anchor build && anchor deploy                          # nga rrënja
+cargo build --release -p coprocessor-cli
+cd app && npm install && npm run init-localnet         # initialize + VK + whitelist + IDL
+../target/release/coprocessor serve --pk ../artifacts/demo/dev_pk.bin \
+    --mock-notary-key ../tests/fixtures/mock_notary_key.pem \
+    --mock-notary-cert ../tests/fixtures/mock_notary_cert.pem   # terminal 2
+npm run dev                                            # http://localhost:5173
+```
+
+Phantom duhet vendosur në "Localnet" (ose ndryshoni `VITE_RPC_URL`). Për integruesit (DEX, wallet,
+DAO), `app/src/sdk.ts` ka `isVerified(connection, programId, wallet)`, `fetchAttestation` dhe
+`verifyAndAttest`.
+
+**Noteri.** Banka nuk nënshkruan të dhëna, ndaj një server noteri (në prodhim `notary-server` i
+TLSNotary, i ekzekutuar nga ju) merr pjesë në lidhjen TLS me MPC dhe dëshmon që përgjigjja erdhi nga
+domeni i bankës, pa parë fjalëkalimin apo bilancin. Banka nuk duhet të bëjë asgjë. Në këtë depo
+noteri është i simuluar (`/mock-session`).
+
 ## API kryesore (Rust)
 
 ```rust
@@ -167,7 +192,7 @@ Programi Anchor: `initialize(vk, max_age)`, `set_verifying_key(vk)`, `add_bank_k
 | Prapavija **snarkjs** (qarku i plotë) | ✅ | ✅ në CI (`zk-e2e.yml`): provë në ~17 s, ~1.7 GB RAM |
 | Qarqet Circom (277 321 kufizime) | ✅ mbi `@zk-email/circuits` + `circomlib` | ✅ në CI: kompilim, ceremoni (PPoT 2^19), provë, `snarkjs verify`, refuzim i mesazhit të ndryshuar |
 | Programi Anchor | ✅ | ✅ `build-sbf` + localnet + 5 teste TypeScript në CI (përfshirë anti-Sybil dhe `app_id`); prova e qarkut të plotë verifikohet me kodin e programit |
-| M5 UI (Next.js + Phantom) | ❌ jo ende | – |
+| Demo web `app/` (Vite + React + wallet-adapter) | ✅ me noter të simuluar | ✅ build + rrjedha HTTP e daemon-it në CI; rrjedha në browser e testuar me një portofol testues |
 
 **Prapavija dev nuk është e sigurt për prodhim**: ajo provon vetëm diapazonin, zotimin dhe nullifier-in;
 nënshkrimi RSA verifikohet natively jashtë provës, pra kushdo me çelësin e provimit mund të deklarojë

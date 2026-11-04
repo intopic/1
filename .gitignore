@@ -10,3 +10,6 @@ circuits/build/
 .anchor/
 test-ledger/
 artifacts/
+app/dist/
+app/.env.local
+app/public/idl.json

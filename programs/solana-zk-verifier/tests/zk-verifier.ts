@@ -73,16 +73,19 @@ describe("solana-zk-verifier", () => {
           betaG2: hex(vk.beta_g2),
           gammaG2: hex(vk.gamma_g2),
           deltaG2: hex(vk.delta_g2),
-          ic: vk.ic.map(hex),
+          // VK-ja e plotë (11 pika IC) nuk nxë në një transaksion: pjesa tjetër me extendVkIc
+          ic: vk.ic.slice(0, 5).map(hex),
         },
         hex(proof.public_inputs[APP_ID]),
         new BN(0)
       )
       .accounts({ authority: user })
       .rpc();
+    await program.methods.extendVkIc(vk.ic.slice(5).map(hex)).accounts({ authority: user }).rpc();
     await program.methods.addBankKey(hex(bankKeyHash)).accounts({ authority: user }).rpc();
     const st: any = await program.account.verifierState.fetch(statePda);
     expect(st.bankKeyWhitelist.length).to.eq(1);
+    expect(st.verifyingKey.ic.length).to.eq(11);
   });
 
   it("refuzon hyrje publike të ndryshuara", async () => {

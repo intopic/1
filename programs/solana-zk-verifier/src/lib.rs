@@ -39,6 +39,11 @@ pub mod solana_zk_verifier {
         instructions::set_verifying_key_handler(ctx, verifying_key)
     }
 
+    /// Shton pikat e mbetura IC të VK-së (VK-ja e plotë nuk nxë në një transaksion).
+    pub fn extend_vk_ic(ctx: Context<AdminUpdate>, points: Vec<[u8; 64]>) -> Result<()> {
+        instructions::extend_vk_ic_handler(ctx, points)
+    }
+
     /// Shton hash-in Poseidon të një çelësi RSA banke/noteri në listën e bardhë.
     pub fn add_bank_key(ctx: Context<AdminUpdate>, bank_key_hash: [u8; 32]) -> Result<()> {
         instructions::add_bank_key_handler(ctx, bank_key_hash)

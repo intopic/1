@@ -26,3 +26,43 @@ jobs:
       - run: cargo build -p triad-core --no-default-features
       - name: Testet native të programit Anchor
         run: cargo test --manifest-path programs/solana-zk-verifier/Cargo.toml
+
+  # Demo web (app/) + daemon-i që e shërben: build i faqes dhe rrjedha HTTP
+  # /mock-session → /prove që përdor faqja.
+  web-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+      - run: npm run build
+        working-directory: app
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Daemon-i i demos (noter i simuluar)
+        run: |
+          cargo build -q --release -p coprocessor-cli
+          B=target/release/coprocessor
+          $B setup --out-dir artifacts/demo
+          $B serve --addr 127.0.0.1:8787 --pk artifacts/demo/dev_pk.bin \
+            --mock-notary-key tests/fixtures/mock_notary_key.pem \
+            --mock-notary-cert tests/fixtures/mock_notary_cert.pem &
+          for i in $(seq 30); do curl -sf localhost:8787/health && break; sleep 1; done
+          W=4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw
+          curl -sf -X POST localhost:8787/mock-session \
+            -d "{\"kind\":\"age\",\"dob\":\"2001-05-17\",\"account_id\":\"J1\",\"wallet\":\"$W\"}" > s.json
+          jq -n --slurpfile s s.json '{session: $s[0], min_age: 18, app: "demo"}' \
+            | curl -sf -X POST localhost:8787/prove -d @- > p.json
+          jq -e '.public_inputs | length == 10' p.json
+          $B verify --proof p.json --vk artifacts/demo/vk.json
+          # i mitur -> 400
+          curl -sf -X POST localhost:8787/mock-session \
+            -d "{\"kind\":\"age\",\"dob\":\"2012-01-01\",\"account_id\":\"J2\",\"wallet\":\"$W\"}" > m.json
+          code=$(jq -n --slurpfile s m.json '{session: $s[0], min_age: 18, app: "demo"}' \
+            | curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8787/prove -d @-)
+          test "$code" = 400

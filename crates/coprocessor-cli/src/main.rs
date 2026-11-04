@@ -9,7 +9,8 @@
 //! coprocessor verify --proof proof.json --vk artifacts/vk.json
 //! coprocessor bank-key-hash --input session.tls.json
 //! coprocessor export-vk --snarkjs-vk circuits/build/verification_key.json --out artifacts/vk.json
-//! coprocessor serve --addr 127.0.0.1:8787
+//! coprocessor app-id --app airdrop-2026
+//! coprocessor serve --addr 127.0.0.1:8787 --mock-notary-key tests/fixtures/mock_notary_key.pem
 //! ```
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -43,7 +44,8 @@ enum Backend {
     Snarkjs,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
 enum MockKind {
     Balance,
     Age,
@@ -181,12 +183,23 @@ enum Cmd {
         #[arg(long, default_value = "artifacts/vk.json")]
         out: PathBuf,
     },
-    /// Daemon HTTP minimal: GET /health, POST /prove {session, min, max, min_age, app}
+    /// `app_id` (hex BE, 32 bajte) për një emër aplikacioni – argument i `initialize`
+    AppId {
+        #[arg(long, default_value = "default")]
+        app: String,
+    },
+    /// Daemon HTTP minimal (me CORS): GET /health, POST /prove {session, min, max, min_age, app},
+    /// dhe, nëse jepet `--mock-notary-key`, POST /mock-session {kind, balance, dob, account_id, wallet}
     Serve {
         #[arg(long, default_value = "127.0.0.1:8787")]
         addr: String,
         #[arg(long, default_value = "artifacts/dev_pk.bin")]
         pk: PathBuf,
+        /// VETËM PËR DEMO: aktivizon noterin e simuluar në /mock-session
+        #[arg(long)]
+        mock_notary_key: Option<PathBuf>,
+        #[arg(long)]
+        mock_notary_cert: Option<PathBuf>,
     },
 }
 
@@ -244,29 +257,16 @@ fn main() -> Result<()> {
             wallet,
             out,
         } => {
-            let notary = MockNotary {
-                key: load_private_key_pem(&std::fs::read_to_string(&key)?)?,
-                certificate_pem: cert.map(std::fs::read_to_string).transpose()?,
-            };
-            let (server, http, key_name) = match kind {
-                MockKind::Balance => (
-                    "api.mockbank.test",
-                    sample_bank_response(balance),
-                    "balance",
-                ),
-                MockKind::Age => (
-                    "api.mockregistry.test",
-                    sample_identity_response(&dob),
-                    "date_of_birth",
-                ),
-            };
-            let s = notary.notarize(
-                server,
-                &http,
-                key_name,
-                &account_id,
-                parse_wallet(&wallet)?,
-                now(),
+            let notary = load_notary(&key, cert.as_deref())?;
+            let s = mock_session(
+                &notary,
+                &MockRequest {
+                    kind,
+                    balance,
+                    dob,
+                    account_id,
+                    wallet,
+                },
             )?;
             std::fs::write(&out, serde_json::to_string_pretty(&s)?)?;
             println!("sesioni u shkrua në {}", out.display());
@@ -361,9 +361,81 @@ fn main() -> Result<()> {
             std::fs::write(&out, serde_json::to_string_pretty(&svk.to_json())?)?;
             println!("u shkrua {}", out.display());
         }
-        Cmd::Serve { addr, pk } => serve(&addr, &pk)?,
+        Cmd::AppId { app } => {
+            println!(
+                "{}",
+                hex::encode(zktls_prover::solana::fr_to_be(&app_id_from_label(&app)))
+            );
+        }
+        Cmd::Serve {
+            addr,
+            pk,
+            mock_notary_key,
+            mock_notary_cert,
+        } => {
+            let notary = mock_notary_key
+                .map(|k| load_notary(&k, mock_notary_cert.as_deref()))
+                .transpose()?;
+            if notary.is_some() {
+                eprintln!("KUJDES: noteri i simuluar është aktiv në /mock-session (vetëm demo)");
+            }
+            serve(&addr, &pk, notary.as_ref())?
+        }
     }
     Ok(())
+}
+
+fn load_notary(key: &Path, cert: Option<&Path>) -> Result<MockNotary> {
+    Ok(MockNotary {
+        key: load_private_key_pem(&std::fs::read_to_string(key)?)?,
+        certificate_pem: cert.map(std::fs::read_to_string).transpose()?,
+    })
+}
+
+#[derive(Deserialize)]
+struct MockRequest {
+    kind: MockKind,
+    #[serde(default = "default_balance")]
+    balance: u64,
+    #[serde(default = "default_dob")]
+    dob: String,
+    account_id: String,
+    wallet: String,
+}
+
+fn default_balance() -> u64 {
+    15_200
+}
+
+fn default_dob() -> String {
+    "2001-05-17".into()
+}
+
+/// Sesion i noterizuar nga noteri i simuluar (bankë ose regjistër identiteti testues).
+fn mock_session(notary: &MockNotary, r: &MockRequest) -> Result<NotarizedSession> {
+    let (server, http, key_name) = match r.kind {
+        MockKind::Balance => (
+            "api.mockbank.test",
+            sample_bank_response(r.balance),
+            "balance",
+        ),
+        MockKind::Age => (
+            "api.mockregistry.test",
+            sample_identity_response(&r.dob),
+            "date_of_birth",
+        ),
+    };
+    if r.account_id.trim().is_empty() {
+        bail!("account_id mungon");
+    }
+    Ok(notary.notarize(
+        server,
+        &http,
+        key_name,
+        r.account_id.trim(),
+        parse_wallet(&r.wallet)?,
+        now(),
+    )?)
 }
 
 #[derive(Deserialize)]
@@ -375,7 +447,7 @@ struct ProveRequest {
 
 /// Server HTTP/1.1 minimal, një kërkesë njëherësh. Pa TLS dhe pa autentikim –
 /// vendoseni pas një reverse proxy.
-fn serve(addr: &str, pk: &Path) -> Result<()> {
+fn serve(addr: &str, pk: &Path, notary: Option<&MockNotary>) -> Result<()> {
     let prover = DevGroth16Prover::load(pk).with_context(|| format!("mungon {}", pk.display()))?;
     let listener = TcpListener::bind(addr)?;
     println!("coprocessor po dëgjon në http://{addr}");
@@ -384,7 +456,7 @@ fn serve(addr: &str, pk: &Path) -> Result<()> {
             Ok(s) => s,
             Err(_) => continue,
         };
-        if let Err(e) = handle(&prover, &mut stream) {
+        if let Err(e) = handle(&prover, notary, &mut stream) {
             let _ = respond(
                 &mut stream,
                 400,
@@ -395,7 +467,11 @@ fn serve(addr: &str, pk: &Path) -> Result<()> {
     Ok(())
 }
 
-fn handle(prover: &DevGroth16Prover, stream: &mut TcpStream) -> Result<()> {
+fn handle(
+    prover: &DevGroth16Prover,
+    notary: Option<&MockNotary>,
+    stream: &mut TcpStream,
+) -> Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
     reader.read_line(&mut line)?;
@@ -415,11 +491,25 @@ fn handle(prover: &DevGroth16Prover, stream: &mut TcpStream) -> Result<()> {
     if len > 1 << 20 {
         bail!("trupi i kërkesës > 1 MiB");
     }
+    let mut body = vec![0u8; len];
+    reader.read_exact(&mut body)?;
     match (method, path) {
-        ("GET", "/health") => respond(stream, 200, r#"{"status":"ok"}"#),
+        ("OPTIONS", _) => respond(stream, 204, ""),
+        ("GET", "/health") => respond(
+            stream,
+            200,
+            &serde_json::json!({ "status": "ok", "mock_notary": notary.is_some() }).to_string(),
+        ),
+        ("POST", "/mock-session") => {
+            let n = notary.ok_or_else(|| anyhow!("noteri i simuluar nuk është aktiv"))?;
+            let req: MockRequest = serde_json::from_slice(&body)?;
+            respond(
+                stream,
+                200,
+                &serde_json::to_string(&mock_session(n, &req)?)?,
+            )
+        }
         ("POST", "/prove") => {
-            let mut body = vec![0u8; len];
-            reader.read_exact(&mut body)?;
             let req: ProveRequest = serde_json::from_slice(&body)?;
             let (bundle, _) = prove_dev(prover, &req.session, &req.claim)?;
             respond(stream, 200, &serde_json::to_string(&bundle)?)
@@ -431,12 +521,16 @@ fn handle(prover: &DevGroth16Prover, stream: &mut TcpStream) -> Result<()> {
 fn respond(stream: &mut TcpStream, code: u16, body: &str) -> Result<()> {
     let reason = match code {
         200 => "OK",
+        204 => "No Content",
         404 => "Not Found",
         _ => "Bad Request",
     };
     write!(
         stream,
-        "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n\
+         Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
+         Access-Control-Allow-Headers: content-type\r\n\
+         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )?;
     Ok(())

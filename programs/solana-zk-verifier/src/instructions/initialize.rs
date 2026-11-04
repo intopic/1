@@ -68,6 +68,20 @@ pub fn set_verifying_key_handler(
     Ok(())
 }
 
+/// Shton pika IC në VK. Me 10 hyrje publike VK-ja (≈1.2 KB) nuk nxë në një
+/// transaksion (1232 B), ndaj `initialize`/`set_verifying_key` marrin pjesën e
+/// parë dhe pjesa tjetër shtohet këtu. Derisa VK të jetë e plotë, verifikimi
+/// refuzohet me `PublicInputsLength`.
+pub fn extend_vk_ic_handler(ctx: Context<AdminUpdate>, points: Vec<[u8; 64]>) -> Result<()> {
+    let ic = &mut ctx.accounts.verifier_state.verifying_key.ic;
+    require!(
+        ic.len() + points.len() <= MAX_IC,
+        ZkVerifierError::VerifyingKeyTooLarge
+    );
+    ic.extend(points);
+    Ok(())
+}
+
 pub fn add_bank_key_handler(ctx: Context<AdminUpdate>, bank_key_hash: [u8; 32]) -> Result<()> {
     let list = &mut ctx.accounts.verifier_state.bank_key_whitelist;
     require!(
