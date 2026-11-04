@@ -41,14 +41,17 @@ COPY circuits/ ./
 RUN npm install --no-audit --no-fund && CPP_WITNESS=1 bash scripts/compile.sh \
  && mkdir -p /out && cp build/main_js/main.wasm build/cpp/main_c_cpp/main_c build/cpp/main_c_cpp/main_c.dat /out/
 
-# ---- rapidsnark (binari i gatshëm i release-it) ----
+# ---- rapidsnark (binari i release-it, varianti me asm x86_64) ----
+# KUJDES: varianti `noasm` doli ~3.5 herë më i ngadaltë (5.6 s kundrejt 1.6 s për provë).
 FROM ubuntu:24.04 AS rapidsnark
 ARG RAPIDSNARK_VERSION
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates curl unzip \
  && rm -rf /var/lib/apt/lists/*
 RUN set -eu; mkdir -p /tmp/rs /out; cd /tmp/rs; \
     url="$(curl -fsSL "https://api.github.com/repos/iden3/rapidsnark/releases/tags/${RAPIDSNARK_VERSION}" \
-      | grep -o '"browser_download_url": *"[^"]*linux-x86_64[^"]*"' | head -1 | sed 's/.*"\(http[^"]*\)"/\1/')"; \
+      | grep -o '"browser_download_url": *"[^"]*linux-x86_64[^"]*"' | grep -v noasm | head -1 \
+      | sed 's/.*"\(http[^"]*\)"/\1/')"; \
+    case "$url" in *noasm*|"") echo "nuk u gjet varianti asm"; exit 1;; esac; \
     echo "rapidsnark: $url"; curl -fsSL -o pkg "$url"; \
     (unzip -q pkg || tar xzf pkg); \
     cp "$(find . -type f -name prover | head -1)" /out/prover; chmod +x /out/prover
