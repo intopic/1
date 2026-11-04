@@ -44,7 +44,7 @@ pub struct VerifyAndAttest<'info> {
         init_if_needed,
         payer = user,
         space = 8 + AttestationRecord::INIT_SPACE,
-        seeds = [b"attestation", user.key().as_ref(), &claim_key_id.to_be_bytes()],
+        seeds = [b"attestation", user.key().as_ref(), &claim_key_id.to_le_bytes()],
         bump,
     )]
     pub attestation_record: Box<Account<'info, AttestationRecord>>,

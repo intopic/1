@@ -23,16 +23,19 @@ declare_id!("GatedPoo11111111111111111111111111111111111");
 pub mod gated_pool {
     use super::*;
 
-    /// Krijon pool-in me kushtin e hyrjes: bilanc i vërtetuar ≥ `min_balance`,
-    /// atestim jo më i vjetër se `max_age_secs` (0 = pa kufi).
+    /// Krijon pool-in me kushtet e hyrjes (0 = kushti nuk kërkohet):
+    /// bilanc i vërtetuar ≥ `min_balance`, moshë ≥ `min_age` vjet, atestim jo më i
+    /// vjetër se `max_age_secs`.
     pub fn create_pool(
         ctx: Context<CreatePool>,
         min_balance: u64,
+        min_age: u8,
         max_age_secs: i64,
     ) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         pool.authority = ctx.accounts.authority.key();
         pool.min_balance = min_balance;
+        pool.min_age = min_age;
         pool.max_age_secs = max_age_secs;
         pool.total_deposits = 0;
         pool.bump = ctx.bumps.pool;

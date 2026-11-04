@@ -9,7 +9,8 @@ import { expect } from "chai";
 import BN from "bn.js";
 
 const ROOT = process.cwd();
-const claimKeyId = (k: string) => createHash("sha256").update(k).digest().subarray(0, 8);
+// seed-i: claim_key_id si u64 little-endian (si argumentet u64 të Anchor)
+const claimKeyId = (k: string) => Buffer.from(createHash("sha256").update(k).digest().subarray(0, 8)).reverse();
 
 describe("gated-pool (integrimi i një DEX-i)", () => {
   const provider = anchor.AnchorProvider.env();

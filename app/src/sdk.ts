@@ -23,12 +23,13 @@ export interface ProofBundle {
 
 export const hexBytes = (s: string) => Array.from(Buffer.from(s, "hex"));
 
-const be8 = (v: bigint) => Buffer.from(v.toString(16).padStart(16, "0"), "hex");
+// seed-i: claim_key_id si u64 little-endian (si argumentet u64 të Anchor)
+const le8 = (v: bigint) => Buffer.from(v.toString(16).padStart(16, "0"), "hex").reverse();
 
 /** Një atestim për çdo (portofol, lloj pretendimi): bilanci dhe mosha janë të pavarura. */
 export const attestationPda = (programId: PublicKey, wallet: PublicKey, claim: string = "balance") =>
   PublicKey.findProgramAddressSync(
-    [Buffer.from("attestation"), wallet.toBuffer(), be8(CLAIM_KEYS[claim])],
+    [Buffer.from("attestation"), wallet.toBuffer(), le8(CLAIM_KEYS[claim])],
     programId
   )[0];
 

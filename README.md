@@ -197,7 +197,7 @@ përdor noterin e simuluar (`/mock-session`) ose një `session.tls.json` real ng
 ## Integrimi në një DEX / aplikacion (`zk-gate`)
 
 Programi verifikues ruan për çdo portofol **dhe çdo lloj pretendimi** një
-`AttestationRecord` (PDA `["attestation", wallet, claim_key_id BE]`): bilanci dhe mosha
+`AttestationRecord` (PDA `["attestation", wallet, claim_key_id LE]`): bilanci dhe mosha
 janë atestime të pavarura, njëra nuk mbishkruan tjetrën. Një program tjetër kërkon
 vetëm ato që i duhen dhe thërret një funksion; nuk sheh asnjë të dhënë bankare.
 Shembull i plotë: `programs/gated-pool` (pool vetëm-bilanc, vetëm-moshë ose të dyja).

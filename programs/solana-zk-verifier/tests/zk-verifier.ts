@@ -37,7 +37,7 @@ describe("solana-zk-verifier", () => {
   // një atestim për çdo (portofol, lloj pretendimi)
   const recordFor = (wallet: PublicKey, claim: BN) =>
     PublicKey.findProgramAddressSync(
-      [Buffer.from("attestation"), wallet.toBuffer(), claim.toArrayLike(Buffer, "be", 8)],
+      [Buffer.from("attestation"), wallet.toBuffer(), claim.toArrayLike(Buffer, "le", 8)],
       program.programId
     )[0];
   const recordPda = recordFor(user, claimKeyId("balance"));

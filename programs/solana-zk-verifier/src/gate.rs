@@ -16,7 +16,7 @@
 //!
 //! `Account<AttestationRecord>` garanton që llogaria i përket programit verifikues
 //! (pra prova është verifikuar on-chain); [`require_attested`] që është PDA-ja
-//! `["attestation", portofoli, claim_key_id]` e këtij portofoli dhe këtij lloji
+//! `["attestation", portofoli, claim_key_id (u64 LE)]` e këtij portofoli dhe këtij lloji
 //! pretendimi. Çdo lloj (bilanc, datëlindje, ...) ka atestimin e vet, të pavarur.
 
 use anchor_lang::prelude::*;
@@ -32,7 +32,7 @@ pub const DATE_OF_BIRTH: u64 = 10499278090922323829;
 /// PDA-ja e atestimit të një portofoli për një lloj pretendimi.
 pub fn attestation_address(user: &Pubkey, claim_key_id: u64) -> Pubkey {
     Pubkey::find_program_address(
-        &[b"attestation", user.as_ref(), &claim_key_id.to_be_bytes()],
+        &[b"attestation", user.as_ref(), &claim_key_id.to_le_bytes()],
         &crate::ID,
     )
     .0
@@ -144,7 +144,7 @@ pub fn require_attested(
         &[
             b"attestation",
             user.as_ref(),
-            &req.claim_key_id.to_be_bytes(),
+            &req.claim_key_id.to_le_bytes(),
             &[attestation.bump],
         ],
         &crate::ID,
