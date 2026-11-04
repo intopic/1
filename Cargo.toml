@@ -44,6 +44,8 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 
 [profile.release]
+# Anchor kërkon overflow-checks në profilin release të rrënjës.
+overflow-checks = true
 lto = "thin"
 codegen-units = 1
 
