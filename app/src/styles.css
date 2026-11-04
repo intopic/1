@@ -74,3 +74,5 @@ code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
 a { color: var(--accent); }
 footer { margin-top: 28px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .body { margin-left: 0; } .choices { grid-template-columns: 1fr; } }
+.upload { font-size: 12.5px; }
+.upload input { font-size: 12.5px; padding: 6px; }

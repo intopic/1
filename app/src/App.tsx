@@ -90,7 +90,11 @@ export function App() {
     setSig("");
     setError("");
   };
-  useEffect(reset, [kind, publicKey]);
+  useEffect(reset, [publicKey]);
+  const choose = (k: Kind) => {
+    setKind(k);
+    reset();
+  };
   useEffect(() => setAccountId(kind === "balance" ? "AL35202111090000000001234567" : "J01234567A"), [kind]);
 
   const run = async (label: string, f: () => Promise<void>) => {
@@ -119,11 +123,25 @@ export function App() {
       setSig("");
     });
 
+  // Sesion real nga noteri TLSNotary + ura (`zktls-fetch --bridge ... --out session.tls.json`)
+  const uploadSession = (f: File | undefined) =>
+    f &&
+    run("Po lexohet sesioni…", async () => {
+      const s = JSON.parse(await f.text());
+      if (!s.attestation || !s.http_response) throw new Error("Skedari nuk është session.tls.json");
+      setKind(["date_of_birth", "birth_date", "birthdate", "dob"].includes(s.target_key) ? "age" : "balance");
+      setProof(null);
+      setSig("");
+      setSession(s);
+    });
+
   const prove = () =>
     run("Po gjenerohet prova ZK…", async () => {
       const t0 = performance.now();
       const claim = kind === "balance" ? { min: MIN_BALANCE } : { min_age: MIN_AGE };
       const p = await post<ProofBundle>("/prove", { session, app: APP_LABEL, ...claim });
+      if (p.wallet !== publicKey!.toBase58())
+        throw new Error(`Sesioni është lidhur me portofolin ${short(p.wallet)}; lidhni atë portofol ose krijoni sesion të ri.`);
       setProofMs(Math.round(performance.now() - t0));
       setProof(p);
     });
@@ -156,7 +174,8 @@ export function App() {
       </div>
 
       <div className="banner">
-        Demo me noter të simuluar: banka dhe regjistri janë testues. Aplikacioni: <code>{APP_LABEL}</code>
+        Demo: noter i simuluar, ose sesion real TLSNotary nga <code>zktls-fetch</code>. Aplikacioni:{" "}
+        <code>{APP_LABEL}</code>
       </div>
 
       {att && (
@@ -185,11 +204,11 @@ export function App() {
 
       <Step n={2} title="Zgjidh çfarë provon" done={step > 2} active={step === 2}>
         <div className="choices">
-          <button className={kind === "balance" ? "choice on" : "choice"} onClick={() => setKind("balance")}>
+          <button className={kind === "balance" ? "choice on" : "choice"} onClick={() => choose("balance")}>
             <b>Bilanc bankar</b>
             <span>≥ {fmtNum(MIN_BALANCE)} €</span>
           </button>
-          <button className={kind === "age" ? "choice on" : "choice"} onClick={() => setKind("age")}>
+          <button className={kind === "age" ? "choice on" : "choice"} onClick={() => choose("age")}>
             <b>Mosha</b>
             <span>≥ {MIN_AGE} vjeç</span>
           </button>
@@ -218,6 +237,10 @@ export function App() {
             <button className="primary" disabled={!!busy} onClick={connectSource}>
               {kind === "balance" ? "Lidhu me bankën (simulim)" : "Lidhu me regjistrin (simulim)"}
             </button>
+            <label className="upload">
+              ose ngarko <code>session.tls.json</code> nga noteri real (<code>zktls-fetch</code>)
+              <input type="file" accept="application/json,.json" onChange={(e) => uploadSession(e.target.files?.[0])} />
+            </label>
           </div>
         )}
       </Step>
@@ -225,7 +248,8 @@ export function App() {
       <Step n={3} title="Gjenero provën" done={step > 3} active={step === 3}>
         {session && (
           <p className="muted">
-            Noteri dëshmoi përgjigjen nga <code>{session.server_name}</code>. Të dhënat mbeten te ti.
+            Noteri dëshmoi përgjigjen nga <code>{session.server_name}</code>. Të dhënat mbeten te ti dhe nuk dalin
+            on-chain.
           </p>
         )}
         {step === 3 ? (

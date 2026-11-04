@@ -154,10 +154,43 @@ Phantom duhet vendosur në "Localnet" (ose ndryshoni `VITE_RPC_URL`). Për integ
 DAO), `app/src/sdk.ts` ka `isVerified(connection, programId, wallet)`, `fetchAttestation` dhe
 `verifyAndAttest`.
 
+## Noteri real (TLSNotary) → ura → qarku
+
+`bridge/` (workspace më vete) lidh TLSNotary `v0.1.0-alpha.15` me qarkun:
+
+* `zktls-notary`: noteri. Merr pjesë në TLS-në e përdoruesit me MPC dhe nënshkruan atestimin
+  TLSNotary (secp256k1). Nuk sheh as fjalëkalimin/cookie-n, as të dhënat.
+* `zktls-fetch`: ana e përdoruesit (CLI). Bën kërkesën HTTPS te banka përmes noterit dhe ndërton një
+  prezantim që fsheh `Authorization`/`Cookie`, e dërgon te ura dhe ruan `session.tls.json`.
+* `zktls-bridge`: `POST /attest`. Verifikon noterin (çelës i besuar), certifikatën e bankës,
+  domenin + rrugën (politika), freskinë (≤ 10 min), përgjigjen e plotë, dhe nënshkruan mesazhin
+  128-bajtësh me RSA, i njëjti format që qarku Circom verifikon. Qarku dhe programi nuk ndryshojnë.
+
+```bash
+cd bridge
+NOTARY_KEY=<32 bajte hex> cargo run --release --bin zktls-notary          # printon çelësin publik
+cargo run --release --bin zktls-bridge -- --policy policy.json \
+    --rsa-key notary_rsa.pem --rsa-cert notary_rsa.crt                   # shih bridge-policy.example.json
+cargo run --release --bin zktls-fetch -- --url https://api.banka.al/v1/accounts/me \
+    --header "Authorization: Bearer …" --wallet $(solana address) --bridge 127.0.0.1:8790
+coprocessor prove --input session.tls.json --min 10000 --app demo         # pastaj si më parë
+```
+
+Për provë pa bankë reale: `cargo run --example test_bank` (domeni `test-server.io`) me
+`--connect 127.0.0.1:4443 --test-root-der <root_ca_cert.der>`. Testi `bridge/tests/e2e_tlsnotary.rs`
+e bën të gjithë rrjedhën në proces (MPC-TLS real, ~3 s) dhe refuzon noter të panjohur, domen jashtë
+politikës, rrugë jashtë politikës, sesion të vjetër dhe prezantim të ndryshuar. Faqja demo pranon
+`session.tls.json` me "ngarko".
+
+**Kufizimet aktuale:** ura e sheh përgjigjen e bankës (nuk e ruan; on-chain nuk del asgjë), dhe
+përdoruesi duhet t'u besojë noterit dhe urës (njësoj si te Reclaim/zkPass). Përgjigjet `chunked`
+dhe të kompresuara nuk mbështeten ende. Në browser nevojitet zgjerimi/`tlsn-js` i TLSNotary, ndaj
+sot rrjedha reale bëhet me CLI.
+
 **Noteri.** Banka nuk nënshkruan të dhëna, ndaj një server noteri (në prodhim `notary-server` i
 TLSNotary, i ekzekutuar nga ju) merr pjesë në lidhjen TLS me MPC dhe dëshmon që përgjigjja erdhi nga
-domeni i bankës, pa parë fjalëkalimin apo bilancin. Banka nuk duhet të bëjë asgjë. Në këtë depo
-noteri është i simuluar (`/mock-session`).
+domeni i bankës, pa parë fjalëkalimin apo bilancin. Banka nuk duhet të bëjë asgjë. Demoja web
+përdor noterin e simuluar (`/mock-session`) ose një `session.tls.json` real nga `zktls-fetch`.
 
 ## API kryesore (Rust)
 

@@ -1,0 +1,12 @@
+{
+  "notary_keys": ["<çelësi publik i noterit, nga `zktls-notary`>"],
+  "sources": [
+    {
+      "server": "test-server.io",
+      "path_prefix": "/v1/accounts/",
+      "target_key": "balance",
+      "account_key": "iban"
+    }
+  ],
+  "max_age_secs": 600
+}

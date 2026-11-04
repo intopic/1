@@ -70,3 +70,22 @@ jobs:
           code=$(jq -n --slurpfile s m.json '{session: $s[0], min_age: 18, app: "demo"}' \
             | curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8787/prove -d @-)
           test "$code" = 400
+
+  # Noteri real TLSNotary (MPC-TLS) + ura drejt atestimit RSA: sesion i plotë
+  # me një bankë testuese TLS, prezantim, urë, provë Groth16.
+  tlsnotary-bridge:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bridge
+      - run: cargo fmt -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test -- --nocapture
