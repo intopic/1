@@ -8,9 +8,6 @@ members = ["programs/solana-zk-verifier"]
 [programs.localnet]
 solana_zk_verifier = "ZkTLSCoprocessor111111111111111111111111111"
 
-[programs.devnet]
-solana_zk_verifier = "ZkTLSCoprocessor111111111111111111111111111"
-
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
