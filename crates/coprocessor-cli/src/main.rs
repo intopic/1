@@ -67,7 +67,7 @@ struct EngineArgs {
     /// Binari `prover` i rapidsnark (për `--backend rapidsnark`)
     #[arg(long, default_value = "prover")]
     rapidsnark: String,
-    /// Gjeneruesi C++ i dëshmitarit (`circom --c`, p.sh. circuits/build/main_cpp/main);
+    /// Gjeneruesi C++ i dëshmitarit (`circom --c`, p.sh. circuits/build/cpp/main_c_cpp/main_c);
     /// pa të, dëshmitari llogaritet me `snarkjs wtns calculate`
     #[arg(long)]
     witness_bin: Option<String>,

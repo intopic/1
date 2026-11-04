@@ -126,7 +126,7 @@ jobs:
           }
           run snarkjs snarkjs
           run rapidsnark rapidsnark
-          run rapidsnark+cpp rapidsnark --witness-bin circuits/build/main_cpp/main
+          run rapidsnark+cpp rapidsnark --witness-bin circuits/build/cpp/main_c_cpp/main_c
           {
             echo "### Koha e provës, qarku i plotë (277k kufizime)"
             echo '| backend | dëshmitari + prova | gjithsej | RAM max | CPU |'
@@ -142,7 +142,7 @@ jobs:
         run: |
           B=target/release/coprocessor
           $B serve --addr 127.0.0.1:8787 --backend rapidsnark --rapidsnark ~/rapidsnark/prover \
-            --witness-bin circuits/build/main_cpp/main \
+            --witness-bin circuits/build/cpp/main_c_cpp/main_c \
             --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey \
             --mock-notary-key tests/fixtures/mock_notary_key.pem \
             --mock-notary-cert tests/fixtures/mock_notary_cert.pem > serve.log 2>&1 &

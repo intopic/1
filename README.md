@@ -133,7 +133,7 @@ coprocessor verify --proof proof.json --vk artifacts/vk.json
 coprocessor bank-key-hash --input session.tls.json    # për add_bank_key
 coprocessor serve --addr 127.0.0.1:8787               # GET /health, POST /prove (qarku dev)
 coprocessor serve --backend rapidsnark --rapidsnark /usr/local/bin/prover \
-    --witness-bin circuits/build/main_cpp/main         # qarku i plotë (CPP_WITNESS=1 make circuits)
+    --witness-bin circuits/build/cpp/main_c_cpp/main_c         # qarku i plotë (CPP_WITNESS=1 make circuits)
 ```
 
 ## Demo web (lidh portofolin → provo → verifiko on-chain)
