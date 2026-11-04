@@ -1,0 +1,11 @@
+**/target
+**/node_modules
+.git
+.anchor
+test-ledger
+artifacts
+app
+circuits/build
+*.ptau
+# çelësat e qarkut hyjnë vetëm nga deploy/keys/
+!deploy/keys/*

@@ -6,24 +6,51 @@
 //! ```ignore
 //! use solana_zk_verifier::{gate::{self, Requirement}, AttestationRecord};
 //!
-//! #[account(
-//!     seeds = [b"attestation", user.key().as_ref()],
-//!     bump = attestation.bump,
-//!     seeds::program = solana_zk_verifier::ID,
-//! )]
+//! /// Atestimi zkTLS i portofolit; `require_attested` kontrollon PDA-në dhe pronarin.
 //! pub attestation: Account<'info, AttestationRecord>,
 //!
 //! // në handler:
 //! gate::require_attested(&ctx.accounts.attestation, &user, &Requirement::at_least("balance", 5_000))?;
+//! gate::require_attested(&ctx.accounts.age, &user, &Requirement::min_age(18, now))?;
 //! ```
 //!
 //! `Account<AttestationRecord>` garanton që llogaria i përket programit verifikues
-//! (pra prova është verifikuar on-chain); `seeds` garanton që është e këtij portofoli.
+//! (pra prova është verifikuar on-chain); [`require_attested`] që është PDA-ja
+//! `["attestation", portofoli, claim_key_id]` e këtij portofoli dhe këtij lloji
+//! pretendimi. Çdo lloj (bilanc, datëlindje, ...) ka atestimin e vet, të pavarur.
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::hash::hash;
 
 use crate::{AttestationRecord, ZkVerifierError};
+
+/// `claim_key_id("balance")`
+pub const BALANCE: u64 = 6292056758205541950;
+/// `claim_key_id("date_of_birth")`
+pub const DATE_OF_BIRTH: u64 = 10499278090922323829;
+
+/// PDA-ja e atestimit të një portofoli për një lloj pretendimi.
+pub fn attestation_address(user: &Pubkey, claim_key_id: u64) -> Pubkey {
+    Pubkey::find_program_address(
+        &[b"attestation", user.as_ref(), &claim_key_id.to_be_bytes()],
+        &crate::ID,
+    )
+    .0
+}
+
+/// Data e kalendarit (YYYYMMDD) e një kohe Unix (UTC), algoritmi "civil_from_days".
+pub fn yyyymmdd(unix: i64) -> u64 {
+    let z = unix.div_euclid(86_400) + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + (m <= 2) as i64;
+    (y * 10_000 + m * 100 + d) as u64
+}
 
 /// `claim_key_id = SHA-256(çelësi JSON)[0..8]` si u64 BE (si në qark dhe në CLI).
 pub fn claim_key_id(key: &str) -> u64 {
@@ -64,6 +91,18 @@ impl Requirement {
         }
     }
 
+    /// Mosha ≥ `years` sipas orës së zinxhirit: datëlindja ≤ sot − `years` vjet.
+    /// Kufiri llogaritet on-chain, kështu që aplikacioni nuk mund ta gabojë.
+    pub fn min_age(years: u64, now_unix: i64) -> Self {
+        let today = yyyymmdd(now_unix);
+        Self {
+            claim_key_id: DATE_OF_BIRTH,
+            min_value: 0,
+            max_value: today.saturating_sub(years.saturating_mul(10_000)),
+            max_age_secs: 0,
+        }
+    }
+
     pub fn fresh_within(mut self, secs: i64) -> Self {
         self.max_age_secs = secs;
         self
@@ -94,13 +133,29 @@ pub fn check(record: &AttestationRecord, user: &Pubkey, req: &Requirement, now: 
     Ok(())
 }
 
-/// Kontrolli me orën e zinxhirit.
+/// Kontrolli i plotë: PDA-ja e saktë (portofol + lloj pretendimi) dhe kushti,
+/// me orën e zinxhirit.
 pub fn require_attested(
-    record: &AttestationRecord,
+    attestation: &Account<AttestationRecord>,
     user: &Pubkey,
     req: &Requirement,
 ) -> Result<()> {
-    check(record, user, req, Clock::get()?.unix_timestamp)
+    let expected = Pubkey::create_program_address(
+        &[
+            b"attestation",
+            user.as_ref(),
+            &req.claim_key_id.to_be_bytes(),
+            &[attestation.bump],
+        ],
+        &crate::ID,
+    )
+    .map_err(|_| error!(ZkVerifierError::GateWrongAccount))?;
+    require_keys_eq!(
+        attestation.key(),
+        expected,
+        ZkVerifierError::GateWrongAccount
+    );
+    check(attestation, user, req, Clock::get()?.unix_timestamp)
 }
 
 #[cfg(test)]
@@ -167,6 +222,37 @@ mod tests {
         let req = Requirement::at_least("balance", 1).fresh_within(3_600);
         assert!(check(&r, &u, &req, 4_600).is_ok());
         assert!(code(check(&r, &u, &req, 4_601)).contains("GateExpired"));
+    }
+
+    #[test]
+    fn constants_and_dates() {
+        assert_eq!(claim_key_id("balance"), BALANCE);
+        assert_eq!(claim_key_id("date_of_birth"), DATE_OF_BIRTH);
+        assert_eq!(yyyymmdd(0), 19700101);
+        assert_eq!(yyyymmdd(951_782_400), 20000229); // vit i brishtë
+        assert_eq!(yyyymmdd(1_793_750_399), 20261103); // 23:59:59 UTC
+        assert_eq!(yyyymmdd(1_793_750_400), 20261104);
+        assert_eq!(yyyymmdd(-1), 19691231);
+        // 18 vjeç sot (2026-11-04): i lindur më ose para 2008-11-04
+        assert_eq!(Requirement::min_age(18, 1_793_750_400).max_value, 20081104);
+    }
+
+    #[test]
+    fn min_age_boundaries() {
+        let u = Pubkey::new_unique();
+        let now = 1_793_750_400; // 2026-11-04
+                                 // prova u bë dje me kufirin 2008-11-03 → sot vlen (≤ 2008-11-04)
+        let r = rec(u, 0, 20081103, "date_of_birth", now - 86_400);
+        assert!(check(&r, &u, &Requirement::min_age(18, now), now).is_ok());
+        // kufiri 2008-11-05 (dikush që mbush 18 nesër) → refuzohet
+        let r = rec(u, 0, 20081105, "date_of_birth", now);
+        assert!(code(check(&r, &u, &Requirement::min_age(18, now), now))
+            .contains("GateThresholdNotMet"));
+        // një provë bilanci nuk kalon si moshë
+        let r = rec(u, 0, 20081103, "balance", now);
+        assert!(
+            code(check(&r, &u, &Requirement::min_age(18, now), now)).contains("GateClaimMismatch")
+        );
     }
 
     #[test]

@@ -67,7 +67,7 @@ export function App() {
   const [proof, setProof] = useState<ProofBundle | null>(null);
   const [proofMs, setProofMs] = useState(0);
   const [sig, setSig] = useState("");
-  const [att, setAtt] = useState<Attestation | null>(null);
+  const [atts, setAtts] = useState<Attestation[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -125,7 +125,12 @@ export function App() {
     });
 
   const refresh = useCallback(async () => {
-    if (program && publicKey) setAtt(await fetchAttestation(program, publicKey).catch(() => null));
+    if (!program || !publicKey) return;
+    // atestime të pavarura: bilanci dhe mosha
+    const all = await Promise.all(
+      ["balance", "date_of_birth"].map((k) => fetchAttestation(program, publicKey, k).catch(() => null))
+    );
+    setAtts(all.filter((a): a is Attestation => a !== null));
   }, [program, publicKey]);
   useEffect(() => {
     refresh();
@@ -226,8 +231,8 @@ export function App() {
         <code>{APP_LABEL}</code>
       </div>
 
-      {att && (
-        <div className="verified">
+      {atts.map((att) => (
+        <div className="verified" key={att.claim}>
           <strong>✓ Ky portofol është i verifikuar</strong>
           <span>
             {att.isBirthDate
@@ -238,7 +243,7 @@ export function App() {
             {" · "}nullifier <code>{short(att.nullifier)}</code>
           </span>
         </div>
-      )}
+      ))}
 
       <Step n={1} title="Lidh portofolin" done={connected} active={step === 1}>
         {connected ? (

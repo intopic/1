@@ -1,0 +1,67 @@
+name: Çelësat e qarkut (release)
+
+# Ekzekutohet me dorë (Actions → "Çelësat e qarkut" → Run workflow). Kompilon qarkun,
+# bën ceremoninë Groth16 dhe publikon një release `circuit-keys-<nr>` me:
+#   main_final.zkey          → deploy/keys/ (imazhi i fly.io)
+#   verification_key.json    → scripts/deploy-devnet.sh (VK on-chain)
+#   vk.json                  → VK në formatin e programit Solana
+# zkey dhe VK duhet të vijnë GJITHMONË nga i njëjti release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CIRCOM_VERSION: v2.1.9
+  SNARKJS_VERSION: 0.7.6
+
+jobs:
+  keys:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cache circom
+        id: circom-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/circom
+          key: circom-${{ env.CIRCOM_VERSION }}-${{ runner.os }}
+      - name: Instalo circom
+        if: steps.circom-cache.outputs.cache-hit != 'true'
+        run: cargo install --git https://github.com/iden3/circom.git --tag "$CIRCOM_VERSION" circom --locked
+      - run: npm install -g "snarkjs@$SNARKJS_VERSION"
+      - name: Kompilo qarkun
+        working-directory: circuits
+        run: npm install && bash scripts/compile.sh
+      - name: Cache ptau
+        uses: actions/cache@v4
+        with:
+          path: circuits/build/ppot_0080_*.ptau
+          key: ppot-${{ hashFiles('circuits/*.circom') }}
+          restore-keys: ppot-
+      - name: Ceremonia Groth16
+        working-directory: circuits
+        env:
+          SNARKJS: snarkjs
+          NODE_OPTIONS: --max-old-space-size=12000
+        run: bash scripts/setup_keys.sh
+      - name: VK për Solana
+        run: |
+          cargo run -q --release -p coprocessor-cli -- export-vk \
+            --snarkjs-vk circuits/build/verification_key.json --out circuits/build/vk.json
+          sha256sum circuits/build/main_final.zkey circuits/build/verification_key.json | tee circuits/build/SHA256SUMS
+      - name: Publiko release-in
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="circuit-keys-${{ github.run_number }}"
+          gh release create "$tag" --target "${{ github.sha }}" --title "Çelësat e qarkut #${{ github.run_number }}" \
+            --notes "Ceremoni me një kontribues (vetëm devnet/demo). Commit ${{ github.sha }}." \
+            circuits/build/main_final.zkey circuits/build/verification_key.json circuits/build/vk.json circuits/build/SHA256SUMS

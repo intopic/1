@@ -89,6 +89,8 @@ fn bridge() -> Bridge {
                 path_prefix: "/v1/accounts/".into(),
                 target_key: "balance".into(),
                 account_key: "iban".into(),
+                currency: Some("EUR".into()),
+                currency_key: "currency".into(),
             }],
             max_age_secs: 600,
         },
@@ -179,6 +181,17 @@ async fn tlsnotary_to_groth16() {
             now
         )
         .is_err());
+    // monedhë tjetër: 15 200 EUR nuk kalon si 15 200 ALL (dhe anasjelltas)
+    let mut other = bridge();
+    other.policy.sources[0].currency = Some("ALL".into());
+    let e = other.attest(
+        &AttestRequest {
+            presentation: b64.clone(),
+            wallet: WALLET.into(),
+        },
+        now,
+    );
+    assert!(format!("{:#}", e.unwrap_err()).contains("monedhë e gabuar"));
     // sesion i vjetër
     assert!(br
         .attest(

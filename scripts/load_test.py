@@ -24,11 +24,18 @@ def owns(p, w):
 def post(path, body):
     r = urllib.request.Request(URL + path, json.dumps(body).encode(), {"content-type": "application/json"})
     with urllib.request.urlopen(r, timeout=600) as f: return json.loads(f.read())
-pid = int(os.environ.get("PID") or subprocess.check_output(["pgrep", "-x", "coprocessor"]).split()[0])
-def cpu():  # sekonda CPU (user+sys) të daemon-it
+try:
+    pid = int(os.environ.get("PID") or subprocess.check_output(["pgrep", "-x", "coprocessor"]).split()[0])
+except Exception:
+    pid = None  # daemon-i në një makinë tjetër: pa matje CPU/RAM
+def cpu():
+    """Sekonda CPU (user+sys) të daemon-it + proceseve bijë të përfunduara
+    (rapidsnark dhe dëshmitari C++ janë procese më vete)."""
+    if pid is None: return 0.0
     f = open(f"/proc/{pid}/stat").read().split(")")[-1].split()
-    return (int(f[11]) + int(f[12])) / os.sysconf("SC_CLK_TCK")
+    return sum(int(x) for x in f[11:15]) / os.sysconf("SC_CLK_TCK")
 def rss():
+    if pid is None: return "?"
     for l in open(f"/proc/{pid}/status"):
         if l.startswith("VmHWM"): return int(l.split()[1]) // 1024
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 64
@@ -68,6 +75,6 @@ for conc in LEVELS:
     failed += bad
     print(f"| {conc} | {N} | {statistics.median(lat):.0f} | {lat[int(.95*N)-1]:.0f} | {N/dt:.2f} | {dc/N:.2f} | {bad} |") if os.environ.get("MD") else \
     print(f"{conc:>8} {N:>8} {statistics.median(lat):>8.0f} {lat[int(.95*N)-1]:>8.0f} {N/dt:>8.1f} {dc/N:>11.3f} {bad:>7}")
-print(f"\nRSS maksimale e daemon-it: {rss()} MB")
+print(f"\nRSS maksimale e daemon-it (pa procesin rapidsnark, ~316 MB/provë): {rss()} MB")
 if failed:
     sys.exit(f"GABIM: {failed} prova të përziera/dublikuara")

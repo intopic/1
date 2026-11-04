@@ -114,3 +114,16 @@ pub fn remove_bank_key_handler(ctx: Context<AdminUpdate>, bank_key_hash: [u8; 32
     require!(list.len() < before, ZkVerifierError::BankKeyNotWhitelisted);
     Ok(())
 }
+
+/// Ndryshon llojet e pretendimeve që pranon aplikacioni (p.sh. shton `date_of_birth`).
+pub fn set_allowed_claim_keys_handler(
+    ctx: Context<AdminUpdate>,
+    allowed_claim_keys: Vec<u64>,
+) -> Result<()> {
+    require!(
+        allowed_claim_keys.len() <= crate::state::MAX_CLAIM_KEYS,
+        ZkVerifierError::WhitelistFull
+    );
+    ctx.accounts.verifier_state.allowed_claim_keys = allowed_claim_keys;
+    Ok(())
+}

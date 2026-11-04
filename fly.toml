@@ -1,0 +1,87 @@
+# fly.io: një imazh, tre procese (shih deploy/Dockerfile dhe deploy/entrypoint.sh).
+#
+#   fly launch --no-deploy --copy-config --name <emri-juaj>
+#   fly secrets set NOTARY_KEY=$(openssl rand -hex 32) BRIDGE_RSA_KEY_PEM="$(cat bridge_rsa.pem)"
+#   fly deploy
+#
+# Vetëm demo me noter të simuluar (pa urë/noter real): fly scale count bridge=0 notary=0
+app = "zktls-coprocessor"
+primary_region = "fra"
+
+[build]
+  dockerfile = "deploy/Dockerfile"
+
+[env]
+  # 1 = /mock-session aktiv (sesione të simuluara për demo). 0 për prodhim.
+  DEMO_MOCK_NOTARY = "1"
+  # 0 = automatikisht (bërthamat / 3 për rapidsnark)
+  PROVER_PARALLEL = "0"
+
+[processes]
+  prover = "prover"
+  bridge = "bridge"
+  notary = "notary"
+
+# --- daemon-i i provës: https://<app>.fly.dev ---
+[[services]]
+  processes = ["prover"]
+  internal_port = 8787
+  protocol = "tcp"
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  [services.concurrency]
+    type = "connections"
+    soft_limit = 64
+    hard_limit = 120   # daemon-i refuzon me 503 mbi 128
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "get"
+    path = "/health"
+
+# --- ura: https://<app>.fly.dev:8790/attest ---
+[[services]]
+  processes = ["bridge"]
+  internal_port = 8790
+  protocol = "tcp"
+  [[services.ports]]
+    port = 8790
+    handlers = ["tls", "http"]
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "get"
+    path = "/health"
+
+# --- noteri: TCP i pastër në <app>.fly.dev:7047 (MPC-TLS) ---
+[[services]]
+  processes = ["notary"]
+  internal_port = 7047
+  protocol = "tcp"
+  [[services.ports]]
+    port = 7047
+  [[services.tcp_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+
+# rapidsnark: ~2.3 s/provë dhe ~320 MB për provë të njëkohshme
+[[vm]]
+  processes = ["prover"]
+  size = "performance-2x"
+  memory = "4gb"
+
+[[vm]]
+  processes = ["bridge", "notary"]
+  size = "shared-cpu-2x"
+  memory = "2gb"

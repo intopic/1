@@ -48,8 +48,14 @@ const program = new anchor.Program(idl, provider);
 console.log("programi:", program.programId.toBase58(), "· autoriteti:", authority.publicKey.toBase58());
 
 mkdirSync(OUT, { recursive: true });
-if (!existsSync(join(OUT, "dev_pk.bin"))) cli("setup", "--out-dir", OUT);
-const vk = JSON.parse(readFileSync(join(OUT, "vk.json"), "utf8"));
+// VK_JSON: VK-ja e qarkut Circom (prodhim/devnet, `coprocessor export-vk`); përndryshe qarku dev
+let vkPath = process.env.VK_JSON;
+if (!vkPath) {
+  if (!existsSync(join(OUT, "dev_pk.bin"))) cli("setup", "--out-dir", OUT);
+  vkPath = join(OUT, "vk.json");
+}
+const vk = JSON.parse(readFileSync(vkPath, "utf8"));
+console.log("VK:", vkPath);
 const appId = cli("app-id", "--app", APP_LABEL);
 
 // hash-i i çelësit të noterit të simuluar (nga një sesion i përkohshëm)
@@ -94,10 +100,16 @@ if (!existing) {
   await extendIc();
   console.log("gjendja ekzistonte; VK u rifreskua");
 }
-const st = await program.account.verifierState.fetch(statePda);
-if (!st.bankKeyWhitelist.some((k) => Buffer.from(k).toString("hex") === bankKeyHash)) {
-  await program.methods.addBankKey(hex(bankKeyHash)).accounts({ authority: authority.publicKey }).rpc();
-  console.log("noteri i simuluar u shtua në whitelist");
+// noteri i simuluar (demo) dhe, me BRIDGE_SESSION=<session.tls.json nga ura>, çelësi RSA i urës reale
+const keys = [[bankKeyHash, "noteri i simuluar"]];
+if (process.env.BRIDGE_SESSION) keys.push([cli("bank-key-hash", "--input", process.env.BRIDGE_SESSION), "ura TLSNotary"]);
+if (process.env.SKIP_MOCK_KEY === "1") keys.shift();
+for (const [h, name] of keys) {
+  const st = await program.account.verifierState.fetch(statePda);
+  if (!st.bankKeyWhitelist.some((k) => Buffer.from(k).toString("hex") === h)) {
+    await program.methods.addBankKey(hex(h)).accounts({ authority: authority.publicKey }).rpc();
+    console.log(`${name} u shtua në whitelist`);
+  }
 }
 
 // Shembulli i DEX-it: pool që pranon vetëm portofole me "bilanc ≥ MIN_BALANCE"
@@ -109,11 +121,12 @@ if (existsSync(POOL_IDL)) {
   const minBalance = Number(process.env.MIN_BALANCE ?? 10000);
   const [poolPda] = PublicKey.findProgramAddressSync([Buffer.from("pool"), authority.publicKey.toBuffer()], pool.programId);
   if (!(await pool.account.pool.fetchNullable(poolPda))) {
-    await pool.methods.createPool(new anchor.BN(minBalance), new anchor.BN(0)).accounts({ authority: authority.publicKey }).rpc();
+    await pool.methods.createPool(new anchor.BN(minBalance), 0, new anchor.BN(0)).accounts({ authority: authority.publicKey }).rpc();
     console.log(`pool-i i mbrojtur u krijua (bilanc ≥ ${minBalance}):`, poolPda.toBase58());
   }
   env += `VITE_POOL_AUTHORITY=${authority.publicKey.toBase58()}\nVITE_MIN_BALANCE=${minBalance}\n`;
 }
+if (process.env.PROVER_URL) env += `VITE_PROVER_URL=${process.env.PROVER_URL}\n`;
 writeFileSync(join(ROOT, "app/.env.local"), env);
 console.log(`
 Gati. Tani:

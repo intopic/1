@@ -32,10 +32,15 @@ describe("solana-zk-verifier", () => {
   const user = provider.wallet.publicKey;
   console.log("      program id (IDL):", program.programId.toBase58());
   const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("verifier_state")], program.programId);
-  const [recordPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("attestation"), user.toBuffer()],
-    program.programId
-  );
+  // claim_key_id i provës (hyrja publike 2: 8 bajtët e fundit, BE)
+  const claimOf = (p: any) => new BN(Buffer.from(p.public_inputs[2], "hex").subarray(24));
+  // një atestim për çdo (portofol, lloj pretendimi)
+  const recordFor = (wallet: PublicKey, claim: BN) =>
+    PublicKey.findProgramAddressSync(
+      [Buffer.from("attestation"), wallet.toBuffer(), claim.toArrayLike(Buffer, "be", 8)],
+      program.programId
+    )[0];
+  const recordPda = recordFor(user, claimKeyId("balance"));
 
   // Një portofol i dytë që përpiqet të ripërdorë të njëjtën llogari bankare (Sybil)
   const sybil = Keypair.generate();
@@ -129,7 +134,7 @@ describe("solana-zk-verifier", () => {
     let failed = false;
     try {
       await program.methods
-        .verifyAndAttest(hex(proof.proof_a), hex(proof.proof_b), hex(proof.proof_c), inputs, hex(proof.nullifier))
+        .verifyAndAttest(hex(proof.proof_a), hex(proof.proof_b), hex(proof.proof_c), inputs, hex(proof.nullifier), claimOf(proof))
         .accountsPartial({ user, nullifierRecord: nullifierPda(proof) })
         .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
         .rpc();
@@ -146,7 +151,8 @@ describe("solana-zk-verifier", () => {
         hex(proof.proof_b),
         hex(proof.proof_c),
         proof.public_inputs.map(hex),
-        hex(proof.nullifier)
+        hex(proof.nullifier),
+        claimOf(proof)
       )
       .accountsPartial({ user, nullifierRecord: nullifierPda(proof) })
       .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
@@ -177,7 +183,8 @@ describe("solana-zk-verifier", () => {
           hex(sybilProof.proof_b),
           hex(sybilProof.proof_c),
           sybilProof.public_inputs.map(hex),
-          hex(sybilProof.nullifier)
+          hex(sybilProof.nullifier),
+          claimOf(sybilProof)
         )
         .accountsPartial({ user: sybil.publicKey, nullifierRecord: nullifierPda(sybilProof) })
         .signers([sybil])
@@ -203,7 +210,7 @@ describe("solana-zk-verifier", () => {
     let err = "";
     try {
       await program.methods
-        .verifyAndAttest(hex(p.proof_a), hex(p.proof_b), hex(p.proof_c), p.public_inputs.map(hex), hex(p.nullifier))
+        .verifyAndAttest(hex(p.proof_a), hex(p.proof_b), hex(p.proof_c), p.public_inputs.map(hex), hex(p.nullifier), claimOf(p))
         .accountsPartial({ user: other.publicKey, nullifierRecord: nullifierPda(p) })
         .signers([other])
         .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
@@ -228,7 +235,7 @@ describe("solana-zk-verifier", () => {
     let err = "";
     try {
       await program.methods
-        .verifyAndAttest(hex(p.proof_a), hex(p.proof_b), hex(p.proof_c), p.public_inputs.map(hex), hex(p.nullifier))
+        .verifyAndAttest(hex(p.proof_a), hex(p.proof_b), hex(p.proof_c), p.public_inputs.map(hex), hex(p.nullifier), claimOf(p))
         .accountsPartial({ user: other.publicKey, nullifierRecord: nullifierPda(p) })
         .signers([other])
         .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
@@ -237,5 +244,45 @@ describe("solana-zk-verifier", () => {
       err = String(e);
     }
     expect(err).to.contain("ClaimKeyNotAllowed");
+  });
+
+  it("bilanci dhe mosha janë atestime të pavarura (njëra nuk fshin tjetrën)", async () => {
+    // aplikacioni tani pranon edhe datëlindjen
+    await program.methods
+      .setAllowedClaimKeys([claimKeyId("balance"), claimKeyId("date_of_birth")])
+      .accounts({ authority: user })
+      .rpc();
+    const run = (args: string) => execSync(`${CLI} ${args}`, { cwd: ROOT, stdio: "pipe" }).toString().trim();
+    run(
+      `mock-session --kind age --dob 2001-05-17 --account-id J0USER --key tests/fixtures/mock_notary_key.pem ` +
+        `--cert tests/fixtures/mock_notary_cert.pem --wallet ${user.toBase58()} --out ${TMP}/user-age.tls.json`
+    );
+    run(`prove --input ${TMP}/user-age.tls.json --min-age 18 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/user-age.json`);
+    const p = JSON.parse(readFileSync(`${TMP}/user-age.json`, "utf8"));
+    // argumenti claim_key_id duhet të jetë ai i provës
+    let err = "";
+    try {
+      await program.methods
+        .verifyAndAttest(hex(p.proof_a), hex(p.proof_b), hex(p.proof_c), p.public_inputs.map(hex), hex(p.nullifier), claimKeyId("balance"))
+        .accountsPartial({ user, nullifierRecord: nullifierPda(p), attestationRecord: recordPda })
+        .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
+        .rpc();
+    } catch (e: any) {
+      err = String(e);
+    }
+    expect(err).to.contain("ClaimKeyArgMismatch");
+
+    await program.methods
+      .verifyAndAttest(hex(p.proof_a), hex(p.proof_b), hex(p.proof_c), p.public_inputs.map(hex), hex(p.nullifier), claimOf(p))
+      .accountsPartial({ user, nullifierRecord: nullifierPda(p) })
+      .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
+      .rpc();
+    const age: any = await program.account.attestationRecord.fetch(recordFor(user, claimKeyId("date_of_birth")));
+    const bal: any = await program.account.attestationRecord.fetch(recordPda);
+    expect(age.claimKeyId.toString()).to.eq(claimKeyId("date_of_birth").toString());
+    expect(age.minValue.toNumber()).to.eq(0);
+    // atestimi i bilancit mbetet i paprekur
+    expect(bal.claimKeyId.toString()).to.eq(claimKeyId("balance").toString());
+    expect(bal.minValue.toNumber()).to.eq(10000);
   });
 });

@@ -36,7 +36,7 @@ prova Groth16 gjenerohet off-chain dhe verifikohet on-chain me syscall-et vendas
  ┌───────────────────────────────────────────────────────────────┐
  │ programs/solana-zk-verifier (Anchor)                          │
  │  whitelist bankash · lidhje me portofolin · alt_bn128_pairing │
- │  → AttestationRecord (PDA ["attestation", user])              │
+ │  → AttestationRecord (PDA ["attestation", user, claim_id])    │
  └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -196,9 +196,11 @@ përdor noterin e simuluar (`/mock-session`) ose një `session.tls.json` real ng
 
 ## Integrimi në një DEX / aplikacion (`zk-gate`)
 
-Programi verifikues ruan për çdo portofol një `AttestationRecord` (PDA
-`["attestation", wallet]`). Një program tjetër e kërkon atë si llogari dhe thërret
-një funksion; nuk sheh asnjë të dhënë bankare. Shembull i plotë: `programs/gated-pool`.
+Programi verifikues ruan për çdo portofol **dhe çdo lloj pretendimi** një
+`AttestationRecord` (PDA `["attestation", wallet, claim_key_id BE]`): bilanci dhe mosha
+janë atestime të pavarura, njëra nuk mbishkruan tjetrën. Një program tjetër kërkon
+vetëm ato që i duhen dhe thërret një funksion; nuk sheh asnjë të dhënë bankare.
+Shembull i plotë: `programs/gated-pool` (pool vetëm-bilanc, vetëm-moshë ose të dyja).
 
 ```toml
 solana-zk-verifier = { path = "...", features = ["cpi"] }
@@ -207,18 +209,25 @@ solana-zk-verifier = { path = "...", features = ["cpi"] }
 ```rust
 use solana_zk_verifier::{gate::{self, Requirement}, AttestationRecord};
 
-#[account(seeds = [b"attestation", user.key().as_ref()], bump = attestation.bump,
-          seeds::program = solana_zk_verifier::ID)]
-pub attestation: Account<'info, AttestationRecord>,
+pub balance_attestation: Account<'info, AttestationRecord>,
+pub age_attestation: Option<Account<'info, AttestationRecord>>,
 
-// në handler
-gate::require_attested(&ctx.accounts.attestation, &user, &Requirement::at_least("balance", 5_000))?;
-// mosha 18+: Requirement::at_most("date_of_birth", 20071104); freskia: .fresh_within(86_400)
+// në handler: PDA-ja (portofol + lloj) dhe kushti kontrollohen brenda
+gate::require_attested(&ctx.accounts.balance_attestation, &user,
+    &Requirement::at_least("balance", 5_000).fresh_within(86_400))?;
+// mosha: kufiri llogaritet on-chain nga ora e Solana-s (UTC)
+gate::require_attested(age, &user, &Requirement::min_age(18, Clock::get()?.unix_timestamp))?;
 ```
 
-Gabimet: `GateWrongUser`, `GateClaimMismatch`, `GateThresholdNotMet`, `GateExpired`;
-pa atestim fare, Anchor kthen `AccountNotInitialized`. Në front-end: `depositToPool`
-te `app/src/sdk.ts` dhe hapi 5 i demos.
+Gabimet: `GateWrongAccount` (atestim i portofolit/llojit tjetër), `GateWrongUser`,
+`GateClaimMismatch`, `GateThresholdNotMet`, `GateExpired`; pa atestim fare, Anchor
+kthen `AccountNotInitialized`. Në front-end: `depositToPool` te `app/src/sdk.ts` dhe
+hapi 5 i demos.
+
+## Deploy (fly.io + devnet)
+
+Shih [docs/DEPLOY.md](docs/DEPLOY.md): një imazh Docker për daemon-in (rapidsnark),
+urën dhe noterin në fly.io; `scripts/deploy-devnet.sh` për programet.
 
 ## API kryesore (Rust)
 
@@ -239,7 +248,7 @@ RsaPublicKey::from_be_bytes(&n, 65537)?.verify_pkcs1v15_sha256(msg, sig)?;
 ```
 
 Programi Anchor: `initialize(vk, max_age)`, `set_verifying_key(vk)`, `add_bank_key(hash)`,
-`remove_bank_key(hash)`, `verify_and_attest(proof_a, proof_b, proof_c, public_inputs)`.
+`remove_bank_key(hash)`, `verify_and_attest(proof_a, proof_b, proof_c, public_inputs, nullifier, claim_key_id)`, `set_allowed_claim_keys(ids)`.
 
 ---
 

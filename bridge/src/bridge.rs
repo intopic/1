@@ -29,6 +29,17 @@ pub struct Source {
     pub target_key: String,
     /// Çelësi JSON i identifikuesit të llogarisë (burimi i nullifier-it).
     pub account_key: String,
+    /// Monedha e detyrueshme (p.sh. `EUR`) për burimet e bilancit: pa këtë,
+    /// 15 200 lekë do të kalonin si 15 200 €. Mungon = nuk kontrollohet (p.sh. regjistri i moshës).
+    #[serde(default)]
+    pub currency: Option<String>,
+    /// Çelësi JSON i monedhës në përgjigje.
+    #[serde(default = "default_currency_key")]
+    pub currency_key: String,
+}
+
+fn default_currency_key() -> String {
+    "currency".into()
 }
 
 /// Politika e urës (skedar JSON).
@@ -194,6 +205,14 @@ impl Bridge {
             "përgjigjet chunked nuk mbështeten ende"
         );
         let account_id = unique_json_value(body, &source.account_key)?;
+        if let Some(expected) = &source.currency {
+            let got = unique_json_value(body, &source.currency_key)
+                .with_context(|| format!("mungon monedha (`{}`)", source.currency_key))?;
+            ensure!(
+                got.eq_ignore_ascii_case(expected),
+                "monedhë e gabuar: {got} (pritet {expected})"
+            );
+        }
 
         // 6. nënshkruaj mesazhin kanonik (normalizuesi refuzon dublikatat/escape)
         let wallet: [u8; 32] = bs58_decode(wallet)?;

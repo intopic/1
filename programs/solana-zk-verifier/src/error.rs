@@ -43,4 +43,8 @@ pub enum ZkVerifierError {
     GateThresholdNotMet,
     #[msg("Atestimi është shumë i vjetër për këtë aplikacion")]
     GateExpired,
+    #[msg("Llogaria e atestimit nuk është PDA-ja e këtij portofoli/pretendimi")]
+    GateWrongAccount,
+    #[msg("Argumenti claim_key_id nuk përputhet me hyrjen publike")]
+    ClaimKeyArgMismatch,
 }

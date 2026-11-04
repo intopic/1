@@ -61,6 +61,14 @@ pub mod solana_zk_verifier {
         instructions::remove_bank_key_handler(ctx, bank_key_hash)
     }
 
+    /// Ndryshon llojet e pretendimeve të pranuara (`claim_key_id`).
+    pub fn set_allowed_claim_keys(
+        ctx: Context<AdminUpdate>,
+        allowed_claim_keys: Vec<u64>,
+    ) -> Result<()> {
+        instructions::set_allowed_claim_keys_handler(ctx, allowed_claim_keys)
+    }
+
     /// Verifikon provën Groth16 për një përdorues dhe ruan atestatin on-chain.
     pub fn verify_and_attest(
         ctx: Context<VerifyAndAttest>,
@@ -69,6 +77,7 @@ pub mod solana_zk_verifier {
         proof_c: [u8; 64],
         public_inputs: Vec<[u8; 32]>,
         nullifier: [u8; 32],
+        claim_key_id: u64,
     ) -> Result<()> {
         instructions::verify_and_attest_handler(
             ctx,
@@ -77,6 +86,7 @@ pub mod solana_zk_verifier {
             proof_c,
             public_inputs,
             nullifier,
+            claim_key_id,
         )
     }
 }

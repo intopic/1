@@ -23,8 +23,14 @@ export interface ProofBundle {
 
 export const hexBytes = (s: string) => Array.from(Buffer.from(s, "hex"));
 
-export const attestationPda = (programId: PublicKey, wallet: PublicKey) =>
-  PublicKey.findProgramAddressSync([Buffer.from("attestation"), wallet.toBuffer()], programId)[0];
+const be8 = (v: bigint) => Buffer.from(v.toString(16).padStart(16, "0"), "hex");
+
+/** Një atestim për çdo (portofol, lloj pretendimi): bilanci dhe mosha janë të pavarura. */
+export const attestationPda = (programId: PublicKey, wallet: PublicKey, claim: string = "balance") =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from("attestation"), wallet.toBuffer(), be8(CLAIM_KEYS[claim])],
+    programId
+  )[0];
 
 export const nullifierPda = (programId: PublicKey, nullifierHex: string) =>
   PublicKey.findProgramAddressSync([Buffer.from("nullifier"), Buffer.from(nullifierHex, "hex")], programId)[0];
@@ -51,10 +57,14 @@ export interface Attestation {
   attestedAt: number;
 }
 
-/** Lexon atestimin e një portofoli (null nëse nuk ekziston). */
-export async function fetchAttestation(program: anchor.Program<any>, wallet: PublicKey): Promise<Attestation | null> {
+/** Lexon atestimin e një portofoli për një lloj pretendimi (null nëse nuk ekziston). */
+export async function fetchAttestation(
+  program: anchor.Program<any>,
+  wallet: PublicKey,
+  claimKey: string = "balance"
+): Promise<Attestation | null> {
   const rec: any = await (program.account as any).attestationRecord.fetchNullable(
-    attestationPda(program.programId, wallet)
+    attestationPda(program.programId, wallet, claimKey)
   );
   if (!rec) return null;
   const id = BigInt(rec.claimKeyId.toString());
@@ -76,8 +86,13 @@ export async function fetchAttestation(program: anchor.Program<any>, wallet: Pub
  * kushte të sakta përdorni `fetchAttestation` dhe kontrolloni `claim`,
  * `minValue`/`maxValue` (p.sh. mosha: `isBirthDate && maxValue <= cutoff`).
  */
-export async function isVerified(connection: Connection, programId: PublicKey, wallet: PublicKey): Promise<boolean> {
-  const info = await connection.getAccountInfo(attestationPda(programId, wallet));
+export async function isVerified(
+  connection: Connection,
+  programId: PublicKey,
+  wallet: PublicKey,
+  claim: string = "balance"
+): Promise<boolean> {
+  const info = await connection.getAccountInfo(attestationPda(programId, wallet, claim));
   return info !== null && info.owner.equals(programId);
 }
 
@@ -89,7 +104,9 @@ export async function verifyAndAttest(program: anchor.Program<any>, user: Public
       hexBytes(p.proof_b),
       hexBytes(p.proof_c),
       p.public_inputs.map(hexBytes),
-      hexBytes(p.nullifier)
+      hexBytes(p.nullifier),
+      // claim_key_id = 8 bajtët e fundit të hyrjes publike 2
+      new anchor.BN(Buffer.from(p.public_inputs[2], "hex").subarray(24))
     )
     .accountsPartial({ user, nullifierRecord: nullifierPda(program.programId, p.nullifier) })
     .preInstructions([ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })])
@@ -102,6 +119,8 @@ export function explainError(e: unknown): string {
   const map: [RegExp, string][] = [
     [/GateThresholdNotMet/, "Prova jote vërteton një prag më të ulët se ç'kërkon ky pool."],
     [/GateClaimMismatch/, "Ky pool kërkon një provë bilanci, jo moshe."],
+    [/GateWrongAccount/, "Atestimi i dhënë nuk është i këtij portofoli ose i këtij lloji."],
+    [/MissingAttestation/, "Ky pool kërkon edhe një atestim tjetër (bilanc ose moshë)."],
     [/AccountNotInitialized|3012/, "Ky portofol nuk ka ende atestim on-chain: kryej hapat 2–4."],
     [/NullifierAlreadyUsed/, "Kjo llogari është përdorur tashmë nga një portofol tjetër."],
     [/kushti nuk plotësohet|ThresholdNotMet/, "Të dhënat nuk e plotësojnë kushtin (bilanci ose mosha)."],
@@ -139,7 +158,9 @@ export async function depositToPool(
       user,
       pool: p,
       position: positionPda(pool.programId, p, user),
-      attestation: attestationPda(verifierId, user),
+      // pool-i i demos kërkon vetëm bilancin; mosha nuk kërkohet
+      balanceAttestation: attestationPda(verifierId, user, "balance"),
+      ageAttestation: null,
     })
     .rpc();
 }

@@ -5,7 +5,8 @@
       "server": "test-server.io",
       "path_prefix": "/v1/accounts/",
       "target_key": "balance",
-      "account_key": "iban"
+      "account_key": "iban",
+      "currency": "EUR"
     }
   ],
   "max_age_secs": 600

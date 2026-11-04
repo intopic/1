@@ -29,7 +29,7 @@ pub const BN254_FR_MODULUS: [u8; 32] = [
 ];
 
 #[derive(Accounts)]
-#[instruction(proof_a: [u8; 64], proof_b: [u8; 128], proof_c: [u8; 64], public_inputs: Vec<[u8; 32]>, nullifier: [u8; 32])]
+#[instruction(proof_a: [u8; 64], proof_b: [u8; 128], proof_c: [u8; 64], public_inputs: Vec<[u8; 32]>, nullifier: [u8; 32], claim_key_id: u64)]
 pub struct VerifyAndAttest<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
@@ -38,11 +38,13 @@ pub struct VerifyAndAttest<'info> {
         bump = verifier_state.bump,
     )]
     pub verifier_state: Box<Account<'info, VerifierState>>,
+    /// Një atestim për çdo (portofol, lloj pretendimi): prova e moshës nuk mbishkruan
+    /// provën e bilancit dhe anasjelltas.
     #[account(
         init_if_needed,
         payer = user,
         space = 8 + AttestationRecord::INIT_SPACE,
-        seeds = [b"attestation", user.key().as_ref()],
+        seeds = [b"attestation", user.key().as_ref(), &claim_key_id.to_be_bytes()],
         bump,
     )]
     pub attestation_record: Box<Account<'info, AttestationRecord>>,
@@ -154,6 +156,7 @@ pub fn verify_and_attest_handler(
     proof_c: [u8; 64],
     public_inputs: Vec<[u8; 32]>,
     nullifier: [u8; 32],
+    claim_key_id_arg: u64,
 ) -> Result<()> {
     require!(
         public_inputs.len() == NUM_PUBLIC_INPUTS,
@@ -204,6 +207,11 @@ pub fn verify_and_attest_handler(
     require!(
         state.allowed_claim_keys.contains(&claim_key_id),
         ZkVerifierError::ClaimKeyNotAllowed
+    );
+    // argumenti përdoret vetëm për PDA-në; duhet të jetë ai i provës
+    require!(
+        claim_key_id == claim_key_id_arg,
+        ZkVerifierError::ClaimKeyArgMismatch
     );
 
     let is_valid = verify_groth16_bn254(

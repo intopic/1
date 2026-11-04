@@ -1,12 +1,12 @@
 //! # gated-pool
 //!
 //! Shembulli minimal se si një DEX/protokoll përdor atestimin zkTLS: një pool
-//! depozitash SOL ku **vetëm** portofolet që kanë vërtetuar on-chain "bilanc ≥ X"
-//! (me programin `solana-zk-verifier`) mund të depozitojnë. Tërheqja e parave të
-//! veta lejohet gjithmonë.
+//! depozitash SOL që kërkon, sipas konfigurimit të vet, **bilanc ≥ X**, **moshë ≥ N**,
+//! të dyja, ose asnjërën. Kushtet janë të pavarura: një pool vetëm-bilanc nuk
+//! kërkon moshë dhe anasjelltas. Tërheqja e parave të veta lejohet gjithmonë.
 //!
-//! I gjithë integrimi është llogaria `attestation` te [`Deposit`] dhe një rresht
-//! `gate::require_attested(...)`.
+//! I gjithë integrimi është llogaria e atestimit te [`Deposit`] dhe një rresht
+//! `gate::require_attested(...)` për çdo kusht.
 
 // Makrot e Anchor 0.31 gjenerojnë thirrje te `AccountInfo::realloc` (e vjetëruar).
 #![allow(deprecated)]
@@ -44,12 +44,28 @@ pub mod gated_pool {
         let user = ctx.accounts.user.key();
         let pool = &ctx.accounts.pool;
 
-        // ---- integrimi zkTLS: një rresht ----
-        gate::require_attested(
-            &ctx.accounts.attestation,
-            &user,
-            &Requirement::at_least("balance", pool.min_balance).fresh_within(pool.max_age_secs),
-        )?;
+        // ---- integrimi zkTLS: një rresht për çdo kusht ----
+        if pool.min_balance > 0 {
+            let att = ctx
+                .accounts
+                .balance_attestation
+                .as_ref()
+                .ok_or(PoolError::MissingAttestation)?;
+            gate::require_attested(
+                att,
+                &user,
+                &Requirement::at_least("balance", pool.min_balance).fresh_within(pool.max_age_secs),
+            )?;
+        }
+        if pool.min_age > 0 {
+            let att = ctx
+                .accounts
+                .age_attestation
+                .as_ref()
+                .ok_or(PoolError::MissingAttestation)?;
+            let now = Clock::get()?.unix_timestamp;
+            gate::require_attested(att, &user, &Requirement::min_age(pool.min_age as u64, now))?;
+        }
 
         system_program::transfer(
             CpiContext::new(
@@ -102,6 +118,7 @@ pub mod gated_pool {
 pub struct Pool {
     pub authority: Pubkey,
     pub min_balance: u64,
+    pub min_age: u8,
     pub max_age_secs: i64,
     pub total_deposits: u64,
     pub bump: u8,
@@ -138,14 +155,12 @@ pub struct Deposit<'info> {
         bump,
     )]
     pub position: Account<'info, Position>,
-    /// Atestimi zkTLS i këtij portofoli. `Account<AttestationRecord>` kontrollon që
-    /// llogaria i përket programit verifikues; `seeds` që është e këtij portofoli.
-    #[account(
-        seeds = [b"attestation", user.key().as_ref()],
-        bump = attestation.bump,
-        seeds::program = solana_zk_verifier::ID,
-    )]
-    pub attestation: Account<'info, AttestationRecord>,
+    /// Atestimi "bilanc" i portofolit (kërkohet vetëm nëse `pool.min_balance > 0`).
+    /// `Account<AttestationRecord>` kontrollon që i përket programit verifikues;
+    /// `require_attested` që është PDA-ja e këtij portofoli dhe këtij lloji.
+    pub balance_attestation: Option<Account<'info, AttestationRecord>>,
+    /// Atestimi "datëlindje" (kërkohet vetëm nëse `pool.min_age > 0`).
+    pub age_attestation: Option<Account<'info, AttestationRecord>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -166,6 +181,8 @@ pub enum PoolError {
     ZeroAmount,
     #[msg("Tejkalim numerik")]
     Overflow,
+    #[msg("Ky pool kërkon një atestim që nuk u dha")]
+    MissingAttestation,
     #[msg("Fonde të pamjaftueshme në pozicion")]
     InsufficientFunds,
 }
