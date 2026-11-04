@@ -9,7 +9,8 @@ import { execSync } from "child_process";
 import { readFileSync, mkdirSync } from "fs";
 import { expect } from "chai";
 
-const ROOT = `${__dirname}/../../..`;
+// `anchor test` ekzekutohet nga rrënja e depos (ESM: __dirname nuk ekziston)
+const ROOT = process.cwd();
 const TMP = `${ROOT}/target/ts-test`;
 const CLI = `cargo run -q --release -p coprocessor-cli --`;
 const hex = (s: string) => Array.from(Buffer.from(s, "hex"));
