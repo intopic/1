@@ -1,9 +1,9 @@
-[toolchain]
-anchor_version = "0.31.1"
-
 [features]
 resolution = true
 skip-lint = false
+
+[workspace]
+members = ["programs/solana-zk-verifier"]
 
 [programs.localnet]
 solana_zk_verifier = "ZkTLSCoprocessor111111111111111111111111111"

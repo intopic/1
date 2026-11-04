@@ -1,0 +1,153 @@
+name: ZK E2E
+
+# Qarku i plotë Circom (RSA-2048 + SHA-256) dhe programi Solana në localnet.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CIRCOM_VERSION: v2.1.9
+  SNARKJS_VERSION: 0.7.6
+  ANCHOR_VERSION: v0.31.1
+  WALLET: 4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw
+
+jobs:
+  circuits:
+    name: Circom → Groth16 → verifikim
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache circom
+        id: circom-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/circom
+          key: circom-${{ env.CIRCOM_VERSION }}-${{ runner.os }}
+      - name: Instalo circom
+        if: steps.circom-cache.outputs.cache-hit != 'true'
+        run: cargo install --git https://github.com/iden3/circom.git --tag "$CIRCOM_VERSION" circom --locked
+      - name: Instalo snarkjs
+        run: npm install -g "snarkjs@$SNARKJS_VERSION"
+
+      - name: Kompilo qarkun
+        working-directory: circuits
+        run: |
+          npm install
+          circom --version
+          bash scripts/compile.sh
+
+      - name: Cache ptau
+        uses: actions/cache@v4
+        with:
+          path: circuits/build/powersOfTau28_hez_final_*.ptau
+          key: ptau-hez-${{ hashFiles('circuits/*.circom') }}
+          restore-keys: ptau-hez-
+
+      - name: Ceremonia Groth16 (ptau + zkey)
+        working-directory: circuits
+        env:
+          SNARKJS: snarkjs
+        run: bash scripts/setup_keys.sh
+
+      - name: Provë me qarkun e plotë
+        run: |
+          cargo build --release -p coprocessor-cli
+          B=target/release/coprocessor
+          mkdir -p artifacts
+          $B export-vk --snarkjs-vk circuits/build/verification_key.json --out artifacts/vk.json
+          $B mock-session --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem \
+            --balance 15200 --wallet "$WALLET" --out artifacts/session.tls.json
+          /usr/bin/time -v $B prove --backend snarkjs --input artifacts/session.tls.json --threshold 10000 \
+            --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey \
+            --witness-out artifacts/input.json --out artifacts/proof.json 2> artifacts/prove_time.txt \
+            || { cat artifacts/prove_time.txt; exit 1; }
+          grep -E "Elapsed|Maximum resident" artifacts/prove_time.txt
+          snarkjs groth16 verify circuits/build/verification_key.json target/snarkjs/public.json target/snarkjs/proof.json
+          $B verify --proof artifacts/proof.json --vk artifacts/vk.json
+          jq -n --slurpfile vk artifacts/vk.json --slurpfile p artifacts/proof.json \
+            '{note: "Prove e qarkut Circom nga CI", wallet: $p[0].wallet, vk: $vk[0], proof: $p[0]}' \
+            > artifacts/circom_fixture.json
+
+      - name: Testet negative
+        run: |
+          B=target/release/coprocessor
+          # pragu mbi bilancin -> duhet të dështojë
+          if $B prove --backend snarkjs --input artifacts/session.tls.json --threshold 20000 \
+               --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey --out /tmp/x.json; then
+            echo "prova duhej të dështonte"; exit 1
+          fi
+          # witness me bilanc të ndryshuar në mesazh -> qarku duhet ta refuzojë (RSA)
+          jq '.attestation_msg[15] = "99"' artifacts/input.json > /tmp/bad_input.json
+          if snarkjs wtns calculate circuits/build/main_js/main.wasm /tmp/bad_input.json /tmp/bad.wtns; then
+            echo "qarku pranoi mesazh të ndryshuar"; exit 1
+          fi
+          echo "OK: refuzimet funksionojnë"
+
+      - name: Programi Solana pranon provën Circom
+        run: |
+          ZKTLS_CIRCOM_FIXTURE="$PWD/artifacts/circom_fixture.json" \
+            cargo test --manifest-path programs/solana-zk-verifier/Cargo.toml accepts_circom_fixture -- --nocapture
+
+      - name: Statistikat e qarkut
+        if: always()
+        working-directory: circuits
+        run: snarkjs r1cs info build/main.r1cs || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: circom-artifacts
+          path: |
+            artifacts/
+            circuits/build/verification_key.json
+
+  program:
+    name: Anchor → localnet → testet TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            programs/solana-zk-verifier
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalo Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Cache anchor-cli
+        id: anchor-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/anchor
+          key: anchor-${{ env.ANCHOR_VERSION }}-${{ runner.os }}
+      - name: Instalo anchor-cli
+        if: steps.anchor-cache.outputs.cache-hit != 'true'
+        run: cargo install --git https://github.com/solana-foundation/anchor --tag "$ANCHOR_VERSION" anchor-cli --locked
+
+      - name: Versionet dhe portofoli
+        run: |
+          solana --version
+          anchor --version
+          solana-keygen new --no-bip39-passphrase --silent --force -o ~/.config/solana/id.json
+
+      - name: Build + testet TypeScript në localnet
+        run: |
+          npm install
+          anchor keys sync
+          anchor test

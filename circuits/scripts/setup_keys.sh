@@ -7,11 +7,20 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-POWER="${PTAU_POWER:-19}"   # ~250k kufizime -> 2^19 (kontrolloni `snarkjs r1cs info`)
-PTAU="build/powersOfTau28_hez_final_${POWER}.ptau"
-SNARKJS="npx snarkjs"
+SNARKJS="${SNARKJS:-npx snarkjs}"
 
 [ -f build/main.r1cs ] || bash scripts/compile.sh
+
+# Fuqia e ptau zgjidhet nga numri i kufizimeve: 2^POWER >= kufizimet + hyrjet
+if [ -z "${PTAU_POWER:-}" ]; then
+  CONSTRAINTS="$($SNARKJS r1cs info build/main.r1cs | sed -n 's/.*# of Constraints: *\([0-9]*\).*/\1/p')"
+  POWER=10
+  while [ $((1 << POWER)) -lt $((CONSTRAINTS + 64)) ]; do POWER=$((POWER + 1)); done
+  echo "Kufizime: $CONSTRAINTS -> ptau 2^$POWER"
+else
+  POWER="$PTAU_POWER"
+fi
+PTAU="build/powersOfTau28_hez_final_${POWER}.ptau"
 
 if [ ! -f "$PTAU" ]; then
   echo "Shkarkimi i $PTAU ..."

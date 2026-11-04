@@ -75,15 +75,17 @@ mod tests {
             .unwrap()
     }
 
-    fn load() -> (
+    type Fixture = (
         VerifyingKey,
         [u8; 64],
         [u8; 128],
         [u8; 64],
         Vec<[u8; 32]>,
         Pubkey,
-    ) {
-        let f: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+    );
+
+    fn load_from(json: &str) -> Fixture {
+        let f: serde_json::Value = serde_json::from_str(json).unwrap();
         let vk = &f["vk"];
         let vk = VerifyingKey {
             alpha_g1: h(&vk["alpha_g1"]),
@@ -112,6 +114,29 @@ mod tests {
             inputs,
             Pubkey::new_from_array(wallet),
         )
+    }
+
+    fn load() -> Fixture {
+        load_from(FIXTURE)
+    }
+
+    /// Prova e qarkut të plotë Circom (RSA-2048 + SHA-256), e prodhuar në CI
+    /// nga workflow `zk-e2e.yml`. Anashkalohet kur variabli nuk është vendosur.
+    #[test]
+    fn accepts_circom_fixture_if_present() {
+        let Ok(path) = std::env::var("ZKTLS_CIRCOM_FIXTURE") else {
+            eprintln!("ZKTLS_CIRCOM_FIXTURE mungon - testi anashkalohet");
+            return;
+        };
+        let (vk, a, b, c, inputs, wallet) = load_from(&std::fs::read_to_string(path).unwrap());
+        assert_eq!(inputs.len(), NUM_PUBLIC_INPUTS);
+        assert!(verify_groth16_bn254(&a, &b, &c, &inputs, &vk).unwrap());
+        let (hi, lo) = wallet_halves(&wallet);
+        assert_eq!(inputs[layout::USER_PUBKEY_HI], hi);
+        assert_eq!(inputs[layout::USER_PUBKEY_LO], lo);
+        let mut bad = inputs.clone();
+        bad[layout::MIN_THRESHOLD][31] ^= 1;
+        assert!(!verify_groth16_bn254(&a, &b, &c, &bad, &vk).unwrap_or(false));
     }
 
     #[test]
