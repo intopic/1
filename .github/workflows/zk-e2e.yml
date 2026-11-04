@@ -10,6 +10,7 @@ env:
   CARGO_TERM_COLOR: always
   CIRCOM_VERSION: v2.1.9
   SNARKJS_VERSION: 0.7.6
+  RAPIDSNARK_VERSION: v0.0.8
   ANCHOR_VERSION: v0.31.1
   WALLET: 4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw
 
@@ -77,6 +78,56 @@ jobs:
           jq -n --slurpfile vk artifacts/vk.json --slurpfile p artifacts/proof.json \
             '{note: "Prove e qarkut Circom nga CI", wallet: $p[0].wallet, vk: $vk[0], proof: $p[0]}' \
             > artifacts/circom_fixture.json
+
+      - name: Cache rapidsnark
+        id: rapidsnark-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/rapidsnark
+          key: rapidsnark-${{ env.RAPIDSNARK_VERSION }}-${{ runner.os }}
+      - name: Instalo rapidsnark
+        if: steps.rapidsnark-cache.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ~/rapidsnark /tmp/rs && cd /tmp/rs
+          # binari i gatshëm nga release; nëse mungon, kompilim nga kodi burimor
+          if gh release download "$RAPIDSNARK_VERSION" -R iden3/rapidsnark --pattern '*linux-x86_64*' 2>/dev/null; then
+            for f in *; do case "$f" in *.zip) unzip -q "$f";; *.tar.gz) tar xzf "$f";; esac; done
+            cp "$(find . -type f -name prover | head -1)" ~/rapidsnark/prover
+          else
+            sudo apt-get update -qq && sudo apt-get install -y -qq build-essential cmake m4 nasm libsodium-dev
+            git clone -q --depth 1 --branch "$RAPIDSNARK_VERSION" --recursive https://github.com/iden3/rapidsnark .
+            ./build_gmp.sh host
+            cmake -S . -B build -DTARGET_PLATFORM=x86_64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=pkg
+            cmake --build build -j4 && cmake --install build
+            cp pkg/bin/prover ~/rapidsnark/prover
+          fi
+          chmod +x ~/rapidsnark/prover
+
+      - name: rapidsnark kundrejt snarkjs (i njëjti qark, e njëjta zkey)
+        run: |
+          B=target/release/coprocessor
+          nproc
+          for backend in snarkjs rapidsnark; do
+            /usr/bin/time -v $B prove --backend $backend --rapidsnark ~/rapidsnark/prover \
+              --input artifacts/session.tls.json --min 10000 \
+              --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey \
+              --out artifacts/proof_$backend.json 2> artifacts/time_$backend.txt \
+              || { cat artifacts/time_$backend.txt; exit 1; }
+            $B verify --proof artifacts/proof_$backend.json --vk artifacts/vk.json
+            echo "== $backend"; grep -E "kohët|Elapsed|Maximum resident|Percent of CPU" artifacts/time_$backend.txt
+          done
+          {
+            echo "### Koha e provës, qarku i plotë (277k kufizime)"
+            echo '| backend | dëshmitari + prova | gjithsej | RAM max | CPU |'
+            echo '|---|---|---|---|---|'
+            for backend in snarkjs rapidsnark; do
+              f=artifacts/time_$backend.txt
+              echo "| $backend | $(grep kohët $f | sed 's/kohët: //') | $(grep Elapsed $f | awk '{print $NF}') | $(grep Maximum $f | awk '{printf "%.0f MB", $NF/1024}') | $(grep Percent $f | awk '{print $NF}') |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
 
       - name: Testet negative
         run: |

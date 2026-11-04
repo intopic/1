@@ -225,15 +225,38 @@ pub fn verify_ark(
     )?)
 }
 
-/// Prapavija e prodhimit: thërret `snarkjs groth16 fullprove` mbi qarkun Circom.
-///
-/// STATUS: e pa-testuar në CI (kërkon `circom`, `snarkjs` dhe një `.zkey` të
-/// prodhuar nga `circuits/scripts/setup_keys.sh`).
+/// Prapavija e prodhimit mbi qarkun Circom:
+/// * `rapidsnark: None` – `snarkjs groth16 fullprove` (JavaScript, i ngadaltë)
+/// * `rapidsnark: Some(bin)` – dëshmitari me `snarkjs wtns calculate`, prova me
+///   `rapidsnark` (C++ me asm për BN254, shumë më i shpejtë te MSM/FFT)
 pub struct SnarkjsProver {
     pub wasm: PathBuf,
     pub zkey: PathBuf,
     pub snarkjs_bin: String,
+    pub rapidsnark: Option<String>,
     pub work_dir: PathBuf,
+}
+
+/// Kohët e matura të një prove Circom (ms).
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct ProveTimings {
+    pub witness_ms: u64,
+    pub prove_ms: u64,
+}
+
+fn run_cmd(bin: &str, args: &[&std::ffi::OsStr]) -> Result<(), ProverError> {
+    let out = Command::new(bin)
+        .args(args)
+        .output()
+        .map_err(|e| ProverError::Snarkjs(format!("nuk u nis `{bin}`: {e}")))?;
+    if !out.status.success() {
+        return Err(ProverError::Snarkjs(format!(
+            "`{bin}` dështoi: {}{}",
+            String::from_utf8_lossy(&out.stderr),
+            String::from_utf8_lossy(&out.stdout)
+        )));
+    }
+    Ok(())
 }
 
 impl SnarkjsProver {
@@ -241,24 +264,62 @@ impl SnarkjsProver {
         &self,
         w: &ZkWebProofWitness,
     ) -> Result<(SolanaProof, Vec<[u8; 32]>), ProverError> {
+        self.prove_timed(w).map(|(p, i, _)| (p, i))
+    }
+
+    pub fn prove_timed(
+        &self,
+        w: &ZkWebProofWitness,
+    ) -> Result<(SolanaProof, Vec<[u8; 32]>, ProveTimings), ProverError> {
         std::fs::create_dir_all(&self.work_dir)?;
         let input = self.work_dir.join("input.json");
+        let wtns = self.work_dir.join("witness.wtns");
         let proof_p = self.work_dir.join("proof.json");
         let public_p = self.work_dir.join("public.json");
         std::fs::write(&input, serde_json::to_vec_pretty(&w.to_circom_input())?)?;
-        let out = Command::new(&self.snarkjs_bin)
-            .args(["groth16", "fullprove"])
-            .arg(&input)
-            .arg(&self.wasm)
-            .arg(&self.zkey)
-            .arg(&proof_p)
-            .arg(&public_p)
-            .output()
-            .map_err(|e| ProverError::Snarkjs(format!("nuk u nis `{}`: {e}", self.snarkjs_bin)))?;
-        if !out.status.success() {
-            return Err(ProverError::Snarkjs(
-                String::from_utf8_lossy(&out.stderr).into_owned(),
-            ));
+        let mut t = ProveTimings::default();
+        match &self.rapidsnark {
+            None => {
+                let t0 = std::time::Instant::now();
+                run_cmd(
+                    &self.snarkjs_bin,
+                    &[
+                        "groth16".as_ref(),
+                        "fullprove".as_ref(),
+                        input.as_os_str(),
+                        self.wasm.as_os_str(),
+                        self.zkey.as_os_str(),
+                        proof_p.as_os_str(),
+                        public_p.as_os_str(),
+                    ],
+                )?;
+                t.prove_ms = t0.elapsed().as_millis() as u64;
+            }
+            Some(rs) => {
+                let t0 = std::time::Instant::now();
+                run_cmd(
+                    &self.snarkjs_bin,
+                    &[
+                        "wtns".as_ref(),
+                        "calculate".as_ref(),
+                        self.wasm.as_os_str(),
+                        input.as_os_str(),
+                        wtns.as_os_str(),
+                    ],
+                )?;
+                t.witness_ms = t0.elapsed().as_millis() as u64;
+                let t1 = std::time::Instant::now();
+                run_cmd(
+                    rs,
+                    &[
+                        self.zkey.as_os_str(),
+                        wtns.as_os_str(),
+                        proof_p.as_os_str(),
+                        public_p.as_os_str(),
+                    ],
+                )?;
+                t.prove_ms = t1.elapsed().as_millis() as u64;
+            }
         }
         let proof = solana::proof_from_snarkjs(&std::fs::read_to_string(&proof_p)?)?;
         let public = solana::public_from_snarkjs(&std::fs::read_to_string(&public_p)?)?;
@@ -267,7 +328,7 @@ impl SnarkjsProver {
                 "public.json nuk përputhet me hyrjet e pritura".into(),
             ));
         }
-        Ok((SolanaProof::from_ark(&proof), public))
+        Ok((SolanaProof::from_ark(&proof), public, t))
     }
 }
 

@@ -44,6 +44,8 @@ enum Backend {
     Dev,
     /// Qarku i plotë Circom përmes snarkjs
     Snarkjs,
+    /// Qarku i plotë Circom: dëshmitari me snarkjs, prova me rapidsnark (C++)
+    Rapidsnark,
 }
 
 #[derive(Clone, Copy, ValueEnum, Deserialize)]
@@ -159,6 +161,9 @@ enum Cmd {
         zkey: PathBuf,
         #[arg(long, default_value = "snarkjs")]
         snarkjs: String,
+        /// Binari `prover` i rapidsnark (për `--backend rapidsnark`)
+        #[arg(long, default_value = "prover")]
+        rapidsnark: String,
         /// Ruaj edhe input.json për Circom
         #[arg(long)]
         witness_out: Option<PathBuf>,
@@ -303,6 +308,7 @@ fn main() -> Result<()> {
             wasm,
             zkey,
             snarkjs,
+            rapidsnark,
             witness_out,
             out,
         } => {
@@ -315,16 +321,27 @@ fn main() -> Result<()> {
                     })?;
                     prove_dev(&prover, &session, &claim)?
                 }
-                Backend::Snarkjs => {
+                Backend::Snarkjs | Backend::Rapidsnark => {
                     let w = witness_for(&session, &claim)?;
+                    let rapid = matches!(backend, Backend::Rapidsnark);
                     let sp = SnarkjsProver {
                         wasm,
                         zkey,
                         snarkjs_bin: snarkjs,
+                        rapidsnark: rapid.then(|| rapidsnark.clone()),
                         work_dir: PathBuf::from("target/snarkjs"),
                     };
-                    let (proof, inputs) = sp.prove(&w)?;
-                    (ProofBundle::new("circom-snarkjs", &w, &proof, &inputs), w)
+                    let (proof, inputs, t) = sp.prove_timed(&w)?;
+                    eprintln!(
+                        "kohët: dëshmitari {} ms, prova {} ms",
+                        t.witness_ms, t.prove_ms
+                    );
+                    let name = if rapid {
+                        "circom-rapidsnark"
+                    } else {
+                        "circom-snarkjs"
+                    };
+                    (ProofBundle::new(name, &w, &proof, &inputs), w)
                 }
             };
             if let Some(p) = witness_out {
