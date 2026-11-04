@@ -34,4 +34,13 @@ pub enum ZkVerifierError {
     AppIdMismatch,
     #[msg("Çelësi verifikues ka shumë pika IC")]
     VerifyingKeyTooLarge,
+    // --- zk-gate (përdoret nga programet që kërkojnë atestim) ---
+    #[msg("Atestimi i përket një portofoli tjetër")]
+    GateWrongUser,
+    #[msg("Atestimi është për një lloj tjetër pretendimi")]
+    GateClaimMismatch,
+    #[msg("Prova nuk e plotëson pragun që kërkon ky aplikacion")]
+    GateThresholdNotMet,
+    #[msg("Atestimi është shumë i vjetër për këtë aplikacion")]
+    GateExpired,
 }

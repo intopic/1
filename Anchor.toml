@@ -3,17 +3,18 @@ resolution = true
 skip-lint = false
 
 [workspace]
-members = ["programs/solana-zk-verifier"]
+members = ["programs/solana-zk-verifier", "programs/gated-pool"]
 
 [programs.localnet]
 solana_zk_verifier = "ZkTLSCoprocessor111111111111111111111111111"
+gated_pool = "GatedPoo11111111111111111111111111111111111"
 
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 1000000 programs/solana-zk-verifier/tests/**/*.ts"
+test = "npx ts-mocha -p ./tsconfig.json -t 1000000 programs/solana-zk-verifier/tests/**/*.ts programs/gated-pool/tests/**/*.ts"
 
 [test]
 startup_wait = 60000

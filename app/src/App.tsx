@@ -2,8 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as anchor from "@coral-xyz/anchor";
 import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { APP_LABEL, MIN_AGE, MIN_BALANCE, PROVER_URL, RPC_URL } from "./config";
-import { Attestation, ProofBundle, U64_MAX, explainError, fetchAttestation, verifyAndAttest } from "./sdk";
+import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { APP_LABEL, MIN_AGE, MIN_BALANCE, POOL_AUTHORITY, PROVER_URL, RPC_URL } from "./config";
+import {
+  Attestation,
+  ProofBundle,
+  U64_MAX,
+  depositToPool,
+  explainError,
+  fetchAttestation,
+  poolPda,
+  positionPda,
+  verifyAndAttest,
+} from "./sdk";
 
 type Kind = "balance" | "age";
 
@@ -75,6 +86,43 @@ export function App() {
       })
       .catch((e) => setSetupError(String(e.message ?? e)));
   }, [connection, wallet]);
+
+  // Shembulli i DEX-it (opsional): `npm run init-localnet` kopjon public/pool-idl.json
+  const [poolProgram, setPoolProgram] = useState<anchor.Program<any> | null>(null);
+  const [deposited, setDeposited] = useState<bigint | null>(null);
+  const [poolSig, setPoolSig] = useState("");
+  useEffect(() => {
+    if (!wallet || !POOL_AUTHORITY) return setPoolProgram(null);
+    fetch("/pool-idl.json")
+      .then((r) => (r.ok && (r.headers.get("content-type") ?? "").includes("json") ? r.json() : null))
+      .then((idl) => {
+        if (!idl) return;
+        const provider = new anchor.AnchorProvider(connection, wallet, { commitment: "confirmed" });
+        setPoolProgram(new anchor.Program(idl, provider));
+      })
+      .catch(() => setPoolProgram(null));
+  }, [connection, wallet]);
+  const refreshPosition = useCallback(async () => {
+    if (!poolProgram || !publicKey) return setDeposited(null);
+    const p = poolPda(poolProgram.programId, new PublicKey(POOL_AUTHORITY));
+    const pos = await (poolProgram.account as any).position.fetchNullable(positionPda(poolProgram.programId, p, publicKey));
+    setDeposited(pos ? BigInt(pos.amount.toString()) : 0n);
+  }, [poolProgram, publicKey]);
+  useEffect(() => {
+    refreshPosition().catch(() => setDeposited(null));
+  }, [refreshPosition]);
+  const deposit = () =>
+    run("Pool-i po kontrollon atestimin…", async () => {
+      const s = await depositToPool(
+        poolProgram!,
+        program!.programId,
+        new PublicKey(POOL_AUTHORITY),
+        publicKey!,
+        0.1 * LAMPORTS_PER_SOL
+      );
+      setPoolSig(s);
+      await refreshPosition();
+    });
 
   const refresh = useCallback(async () => {
     if (program && publicKey) setAtt(await fetchAttestation(program, publicKey).catch(() => null));
@@ -287,6 +335,31 @@ export function App() {
           )
         )}
       </Step>
+
+      {poolProgram && connected && (
+        <Step n={5} title="Përdore te një DEX: pool i mbrojtur" done={!!poolSig} active>
+          <p className="muted">
+            Një program tjetër (<code>gated-pool</code>) pranon depozita vetëm nga portofole që kanë vërtetuar{" "}
+            <b>bilanc ≥ {fmtNum(MIN_BALANCE)}</b>. Ai nuk sheh asnjë të dhënë bankare: lexon vetëm atestimin on-chain.
+          </p>
+          <button className="primary" disabled={!!busy || !program} onClick={deposit}>
+            Depozito 0.1 SOL
+          </button>
+          {deposited !== null && deposited > 0n && (
+            <p className="muted">
+              Pozicioni yt: {Number(deposited) / LAMPORTS_PER_SOL} SOL
+              {poolSig && (
+                <>
+                  {" · "}
+                  <a href={explorer(poolSig)} target="_blank" rel="noreferrer">
+                    transaksioni ↗
+                  </a>
+                </>
+              )}
+            </p>
+          )}
+        </Step>
+      )}
 
       {busy && <div className="status">{busy}</div>}
       {error && <div className="error">{error}</div>}

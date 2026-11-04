@@ -7,7 +7,7 @@ members = [
 ]
 # Programi Anchor ka grafin e vet të varësive (toolchain-i SBF i Solana-s),
 # ndaj ndërtohet veçmas: shih `make program-test` dhe `Anchor.toml`.
-exclude = ["programs/solana-zk-verifier"]
+exclude = ["programs/solana-zk-verifier", "programs/gated-pool"]
 
 [workspace.package]
 version = "0.1.0"

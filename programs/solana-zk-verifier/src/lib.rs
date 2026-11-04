@@ -10,6 +10,7 @@
 use anchor_lang::prelude::*;
 
 pub mod error;
+pub mod gate;
 pub mod instructions;
 pub mod state;
 

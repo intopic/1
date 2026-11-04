@@ -100,6 +100,9 @@ export async function verifyAndAttest(program: anchor.Program<any>, user: Public
 export function explainError(e: unknown): string {
   const s = String((e as any)?.message ?? e);
   const map: [RegExp, string][] = [
+    [/GateThresholdNotMet/, "Prova jote vërteton një prag më të ulët se ç'kërkon ky pool."],
+    [/GateClaimMismatch/, "Ky pool kërkon një provë bilanci, jo moshe."],
+    [/AccountNotInitialized|3012/, "Ky portofol nuk ka ende atestim on-chain: kryej hapat 2–4."],
     [/NullifierAlreadyUsed/, "Kjo llogari është përdorur tashmë nga një portofol tjetër."],
     [/kushti nuk plotësohet|ThresholdNotMet/, "Të dhënat nuk e plotësojnë kushtin (bilanci ose mosha)."],
     [/StaleAttestation/, "Atestimi ka skaduar. Lidhu sërish me burimin."],
@@ -113,4 +116,30 @@ export function explainError(e: unknown): string {
   ];
   for (const [re, msg] of map) if (re.test(s)) return msg;
   return s.length > 240 ? s.slice(0, 240) + "…" : s;
+}
+
+// ---- Shembulli i një DEX-i: pool që kërkon atestimin (programs/gated-pool) ----
+export const poolPda = (poolProgramId: PublicKey, authority: PublicKey) =>
+  PublicKey.findProgramAddressSync([Buffer.from("pool"), authority.toBuffer()], poolProgramId)[0];
+export const positionPda = (poolProgramId: PublicKey, pool: PublicKey, wallet: PublicKey) =>
+  PublicKey.findProgramAddressSync([Buffer.from("position"), pool.toBuffer(), wallet.toBuffer()], poolProgramId)[0];
+
+/** Depozitë në pool: programi i pool-it lexon atestimin zkTLS të portofolit. */
+export async function depositToPool(
+  pool: anchor.Program<any>,
+  verifierId: PublicKey,
+  authority: PublicKey,
+  user: PublicKey,
+  lamports: number
+): Promise<string> {
+  const p = poolPda(pool.programId, authority);
+  return pool.methods
+    .deposit(new anchor.BN(lamports))
+    .accountsPartial({
+      user,
+      pool: p,
+      position: positionPda(pool.programId, p, user),
+      attestation: attestationPda(verifierId, user),
+    })
+    .rpc();
 }

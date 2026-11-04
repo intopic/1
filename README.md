@@ -194,6 +194,32 @@ TLSNotary, i ekzekutuar nga ju) merr pjesë në lidhjen TLS me MPC dhe dëshmon 
 domeni i bankës, pa parë fjalëkalimin apo bilancin. Banka nuk duhet të bëjë asgjë. Demoja web
 përdor noterin e simuluar (`/mock-session`) ose një `session.tls.json` real nga `zktls-fetch`.
 
+## Integrimi në një DEX / aplikacion (`zk-gate`)
+
+Programi verifikues ruan për çdo portofol një `AttestationRecord` (PDA
+`["attestation", wallet]`). Një program tjetër e kërkon atë si llogari dhe thërret
+një funksion; nuk sheh asnjë të dhënë bankare. Shembull i plotë: `programs/gated-pool`.
+
+```toml
+solana-zk-verifier = { path = "...", features = ["cpi"] }
+```
+
+```rust
+use solana_zk_verifier::{gate::{self, Requirement}, AttestationRecord};
+
+#[account(seeds = [b"attestation", user.key().as_ref()], bump = attestation.bump,
+          seeds::program = solana_zk_verifier::ID)]
+pub attestation: Account<'info, AttestationRecord>,
+
+// në handler
+gate::require_attested(&ctx.accounts.attestation, &user, &Requirement::at_least("balance", 5_000))?;
+// mosha 18+: Requirement::at_most("date_of_birth", 20071104); freskia: .fresh_within(86_400)
+```
+
+Gabimet: `GateWrongUser`, `GateClaimMismatch`, `GateThresholdNotMet`, `GateExpired`;
+pa atestim fare, Anchor kthen `AccountNotInitialized`. Në front-end: `depositToPool`
+te `app/src/sdk.ts` dhe hapi 5 i demos.
+
 ## API kryesore (Rust)
 
 ```rust

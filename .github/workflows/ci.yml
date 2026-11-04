@@ -20,12 +20,15 @@ jobs:
           workspaces: |
             .
             programs/solana-zk-verifier
+            programs/gated-pool
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo build -p triad-core --no-default-features
       - name: Testet native të programit Anchor
-        run: cargo test --manifest-path programs/solana-zk-verifier/Cargo.toml
+        run: |
+          cargo test --manifest-path programs/solana-zk-verifier/Cargo.toml
+          cargo clippy --manifest-path programs/gated-pool/Cargo.toml -- -D warnings
 
   # Demo web (app/) + daemon-i që e shërben: build i faqes dhe rrjedha HTTP
   # /mock-session → /prove që përdor faqja.

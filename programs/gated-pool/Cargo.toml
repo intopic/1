@@ -1,0 +1,33 @@
+[package]
+name = "gated-pool"
+version = "0.1.0"
+description = "Shembull: pool depozitash që pranon vetëm portofole me atestim zkTLS"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "gated_pool"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "solana-zk-verifier/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+# vetëm tipet + zk-gate; programi verifikues nuk futet si entrypoint
+solana-zk-verifier = { path = "../solana-zk-verifier", features = ["cpi"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("custom-heap", "custom-panic", "anchor-debug"))'] }
+
+[workspace]
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1

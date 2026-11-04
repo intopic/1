@@ -7,3 +7,5 @@ export const APP_LABEL = import.meta.env.VITE_APP_LABEL ?? "demo";
 /** Pragu i bilancit që kërkon "aplikacioni" (p.sh. një pool DeFi) */
 export const MIN_BALANCE = Number(import.meta.env.VITE_MIN_BALANCE ?? 10000);
 export const MIN_AGE = 18;
+/** Autoriteti i pool-it të mbrojtur (shembulli `gated-pool`); bosh = hapi 5 fshihet */
+export const POOL_AUTHORITY: string = import.meta.env.VITE_POOL_AUTHORITY ?? "";

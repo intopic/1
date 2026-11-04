@@ -100,7 +100,21 @@ if (!st.bankKeyWhitelist.some((k) => Buffer.from(k).toString("hex") === bankKeyH
   console.log("noteri i simuluar u shtua në whitelist");
 }
 
-writeFileSync(join(ROOT, "app/.env.local"), `VITE_RPC_URL=${RPC_URL}\nVITE_APP_LABEL=${APP_LABEL}\n`);
+// Shembulli i DEX-it: pool që pranon vetëm portofole me "bilanc ≥ MIN_BALANCE"
+let env = `VITE_RPC_URL=${RPC_URL}\nVITE_APP_LABEL=${APP_LABEL}\n`;
+const POOL_IDL = join(ROOT, "target/idl/gated_pool.json");
+if (existsSync(POOL_IDL)) {
+  copyFileSync(POOL_IDL, join(ROOT, "app/public/pool-idl.json"));
+  const pool = new anchor.Program(JSON.parse(readFileSync(POOL_IDL, "utf8")), provider);
+  const minBalance = Number(process.env.MIN_BALANCE ?? 10000);
+  const [poolPda] = PublicKey.findProgramAddressSync([Buffer.from("pool"), authority.publicKey.toBuffer()], pool.programId);
+  if (!(await pool.account.pool.fetchNullable(poolPda))) {
+    await pool.methods.createPool(new anchor.BN(minBalance), new anchor.BN(0)).accounts({ authority: authority.publicKey }).rpc();
+    console.log(`pool-i i mbrojtur u krijua (bilanc ≥ ${minBalance}):`, poolPda.toBase58());
+  }
+  env += `VITE_POOL_AUTHORITY=${authority.publicKey.toBase58()}\nVITE_MIN_BALANCE=${minBalance}\n`;
+}
+writeFileSync(join(ROOT, "app/.env.local"), env);
 console.log(`
 Gati. Tani:
   target/release/coprocessor serve --pk ${OUT}/dev_pk.bin \\
