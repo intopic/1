@@ -151,3 +151,6 @@ jobs:
           npm install
           anchor keys sync
           anchor test
+      - name: Log-u i validatorit
+        if: failure()
+        run: tail -n 80 .anchor/test-ledger/test-ledger-log.txt || true
