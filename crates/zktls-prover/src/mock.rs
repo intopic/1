@@ -49,6 +49,16 @@ pub struct MockNotary {
 }
 
 impl MockNotary {
+    /// Sekreti i `account_tag` (HMAC), i nxjerrë nga çelësi privat RSA: i qëndrueshëm
+    /// sa kohë çelësi nuk ndryshon dhe i panjohur për këdo pa çelësin.
+    pub fn tag_key(&self) -> [u8; 32] {
+        use rsa::traits::PrivateKeyParts;
+        let mut h = Sha256::new();
+        h.update(b"zktls/tag-key/v1");
+        h.update(self.key.d().to_bytes_be());
+        h.finalize().into()
+    }
+
     pub fn notarize(
         &self,
         server_name: &str,
@@ -66,7 +76,7 @@ impl MockNotary {
             claim_key_id: claim_key_id(target_key),
             wallet,
             payload_digest: claim.payload_digest,
-            account_tag: account_tag(account_id),
+            account_tag: account_tag(&self.tag_key(), server_name, account_id),
         };
         let bytes = msg.to_bytes();
         let digest = Sha256::digest(bytes);

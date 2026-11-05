@@ -87,6 +87,60 @@ fn request_path(sent: &[u8]) -> Result<(usize, String)> {
     Ok((end, path.context("mungon rruga")?.to_string()))
 }
 
+/// Rruga duhet të jetë e thjeshtë: pa `..`, pa `%` (kodim), pa `//`, pa `\\`, vetëm
+/// karaktere të sigurta. Përndryshe `/v1/accounts/../loans/me` do të kalonte prefiksin.
+fn check_path(path: &str) -> Result<()> {
+    ensure!(path.starts_with('/'), "rruga duhet të fillojë me /");
+    let (p, query) = path.split_once('?').unwrap_or((path, ""));
+    let ok = |c: char| c.is_ascii_alphanumeric() || "/-_.~".contains(c);
+    ensure!(
+        p.chars().all(ok) && query.chars().all(|c| ok(c) || "=&".contains(c)),
+        "rruga ka karaktere të palejuara (p.sh. % ose \\)"
+    );
+    ensure!(!p.contains("//"), "rruga ka // ");
+    ensure!(
+        !p.split('/').any(|seg| seg == "." || seg == ".."),
+        "rruga ka segmente . ose .."
+    );
+    Ok(())
+}
+
+/// Portofoli i shkruar nga prover-i në header-in [`WALLET_HEADER`] të kërkesës.
+/// Rreshti i header-it duhet të jetë i plotë në pjesën e autentikuar të transkriptit.
+fn bound_wallet(sent: &[u8], unauthed: &[std::ops::Range<usize>]) -> Result<String> {
+    let head_end = sent
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .context("kërkesa nuk ka fund header-ash")?;
+    let mut found = Vec::new();
+    let mut start = 0;
+    while start < head_end {
+        let end = sent[start..head_end]
+            .windows(2)
+            .position(|w| w == b"\r\n")
+            .map(|i| start + i)
+            .unwrap_or(head_end);
+        let line = &sent[start..end];
+        if let Some(colon) = line.iter().position(|&b| b == b':') {
+            if line[..colon].eq_ignore_ascii_case(crate::WALLET_HEADER.as_bytes()) {
+                ensure!(
+                    unauthed.iter().all(|r| r.end <= start || r.start >= end),
+                    "header-i i portofolit nuk është i autentikuar"
+                );
+                found.push(std::str::from_utf8(&line[colon + 1..])?.trim().to_string());
+            }
+        }
+        start = end + 2;
+    }
+    ensure!(
+        found.len() == 1,
+        "sesioni TLS duhet të ketë saktësisht një header `{}` ({})",
+        crate::WALLET_HEADER,
+        found.len()
+    );
+    Ok(found.remove(0))
+}
+
 /// Vlera (string ose numër) e një çelësi JSON që shfaqet saktësisht një herë.
 fn unique_json_value(body: &str, key: &str) -> Result<String> {
     let v: serde_json::Value = serde_json::from_str(body).context("trupi nuk është JSON")?;
@@ -179,6 +233,14 @@ impl Bridge {
                 "rreshti i kërkesës nuk është zbuluar"
             );
         }
+        check_path(&path)?;
+        // portofoli vjen nga sesioni TLS, jo nga kërkesa JSON (anti ri-lidhje)
+        let unauthed: Vec<_> = transcript.sent_unauthed().iter().collect();
+        let session_wallet = bound_wallet(sent, &unauthed)?;
+        ensure!(
+            session_wallet == wallet,
+            "portofoli i kërkesës ({wallet}) nuk është ai i sesionit TLS ({session_wallet})"
+        );
         let source = self
             .policy
             .sources
@@ -253,6 +315,34 @@ mod tests {
         assert_eq!(unique_json_value(b, "pid").unwrap(), "12");
         assert!(unique_json_value(r#"{"iban":"A","y":{"iban":"B"}}"#, "iban").is_err());
         assert!(unique_json_value(r#"{"iban":""}"#, "iban").is_err());
+    }
+
+    #[test]
+    fn paths() {
+        assert!(check_path("/v1/accounts/me").is_ok());
+        assert!(check_path("/v1/accounts/me?fields=balance&x=1").is_ok());
+        for bad in [
+            "/v1/accounts/../loans/me",
+            "/v1/accounts/%2e%2e/loans/me",
+            "/v1/accounts//me",
+            "/v1/accounts/./me",
+            "/v1/accounts\\..\\loans",
+            "v1/accounts/me",
+        ] {
+            assert!(check_path(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn wallet_header() {
+        let req = b"GET /v1/me HTTP/1.1\r\nhost: x\r\nx-zktls-wallet: W1\r\n\r\n";
+        assert_eq!(bound_wallet(req, &[]).unwrap(), "W1");
+        // i fshehur (i paautentikuar) → refuzohet
+        assert!(bound_wallet(req, std::slice::from_ref(&(30..40))).is_err());
+        // mungon ose dy herë → refuzohet
+        assert!(bound_wallet(b"GET / HTTP/1.1\r\nhost: x\r\n\r\n", &[]).is_err());
+        let two = b"GET / HTTP/1.1\r\nX-Zktls-Wallet: A\r\nx-zktls-wallet: B\r\n\r\n";
+        assert!(bound_wallet(two, &[]).is_err());
     }
 
     #[test]

@@ -635,16 +635,25 @@ fn handle(
     notary: Option<&MockNotary>,
     stream: &mut TcpStream,
 ) -> Result<()> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+    // Rreshti i kërkesës + header-at: gjithsej ≤ 16 KiB (pa kufi, një klient mund të
+    // dërgonte header-a me madhësi arbitrare dhe të mbushte memorien).
+    const MAX_HEAD: u64 = 16 * 1024;
+    let mut reader = BufReader::new(stream.try_clone()?.take(MAX_HEAD));
     let mut line = String::new();
     reader.read_line(&mut line)?;
+    if !line.ends_with('\n') {
+        bail!("rreshti i kërkesës është i paplotë ose > 16 KiB");
+    }
     let mut parts = line.split_whitespace();
     let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
     let mut len = 0usize;
     loop {
         let mut h = String::new();
         reader.read_line(&mut h)?;
-        if h == "\r\n" || h.is_empty() {
+        if !h.ends_with('\n') {
+            bail!("header-at e kërkesës janë të paplota ose > 16 KiB");
+        }
+        if h == "\r\n" || h == "\n" {
             break;
         }
         if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
@@ -654,6 +663,8 @@ fn handle(
     if len > 1 << 20 {
         bail!("trupi i kërkesës > 1 MiB");
     }
+    // trupi: saktësisht `len` bajte (bajtet e buferuara + `len` të tjera mjaftojnë)
+    reader.get_mut().set_limit(len as u64);
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body)?;
     match (method, path) {

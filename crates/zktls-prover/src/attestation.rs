@@ -15,12 +15,18 @@
 //! | 24..32    | claim_key_id     | SHA-256(target_key)[0..8]                      |
 //! | 32..64    | wallet           | çelësi publik Solana i përdoruesit             |
 //! | 64..96    | payload_digest   | SHA-256(përgjigja HTTP e maskuar)              |
-//! | 96..128   | account_tag      | `0x00 ‖ SHA-256(id e llogarisë)[1..32]`        |
+//! | 96..128   | account_tag      | `0x00 ‖ HMAC(çelësi i noterit, burim ‖ id)[1..32]` |
 //!
 //! `account_tag` është identifikues deterministik dhe privat i llogarisë burimore
 //! (p.sh. IBAN-i ose user-id). Bajti i parë është 0, ndaj vlera nxë në fushën
 //! BN254. Qarku e përdor për nullifier-in `Poseidon(account_tag, app_id)`: e njëjta
 //! llogari jep të njëjtin nullifier për një aplikacion, pa u zbuluar (anti-Sybil).
+//!
+//! * **I fshehtë (HMAC me çelës):** pa çelësin e noterit nuk mund të provohen ID të
+//!   hamendësueshme (user_id 1..100, IBAN të njohura) kundrejt nullifier-it publik.
+//!   Vetëm operatori i noterit/urës e ka këtë çelës.
+//! * **I ndarë sipas burimit:** domeni i serverit hyn në HMAC, ndaj `user_id=42` te
+//!   dy banka të ndryshme jep nullifier-ë të ndryshëm.
 
 use crate::ProverError;
 
@@ -78,13 +84,18 @@ impl AttestationMessage {
     }
 }
 
-/// `account_tag` deterministik nga identifikuesi i llogarisë (IBAN, user-id, …).
-pub fn account_tag(account_id: &str) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
-    let mut h = Sha256::new();
-    h.update(b"zktls/account-tag/v1");
-    h.update(account_id.as_bytes());
-    let mut t: [u8; 32] = h.finalize().into();
+/// `account_tag` = `0x00 ‖ HMAC-SHA256(tag_key, "zktls/account-tag/v2" ‖ len(server) ‖ server ‖ id)[1..32]`.
+///
+/// `tag_key` është sekret i noterit (shih `MockNotary::tag_key`); `server_name` është
+/// domeni i autentikuar i burimit.
+pub fn account_tag(tag_key: &[u8], server_name: &str, account_id: &str) -> [u8; 32] {
+    use hmac::{Hmac, Mac};
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(tag_key).expect("HMAC pranon çdo gjatësi");
+    mac.update(b"zktls/account-tag/v2");
+    mac.update(&(server_name.len() as u64).to_be_bytes());
+    mac.update(server_name.as_bytes());
+    mac.update(account_id.as_bytes());
+    let mut t: [u8; 32] = mac.finalize().into_bytes().into();
     t[0] = 0;
     t
 }
@@ -92,6 +103,22 @@ pub fn account_tag(account_id: &str) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_tag_is_keyed_and_per_source() {
+        let t = account_tag(b"sekret", "api.banka-a.al", "42");
+        assert_eq!(t[0], 0);
+        assert_eq!(t, account_tag(b"sekret", "api.banka-a.al", "42"));
+        // burim tjetër, e njëjta ID → tag tjetër (pa përplasje mes bankave)
+        assert_ne!(t, account_tag(b"sekret", "api.banka-b.al", "42"));
+        // pa çelësin nuk rikuperohet: çelës tjetër → tag tjetër
+        assert_ne!(t, account_tag(b"tjeter", "api.banka-a.al", "42"));
+        // ndarja server/id është e paqartë pa gjatësinë: "a.al"+"b42" ≠ "a.alb"+"42"
+        assert_ne!(
+            account_tag(b"k", "a.al", "b42"),
+            account_tag(b"k", "a.alb", "42")
+        );
+    }
     #[test]
     fn roundtrip() {
         let m = AttestationMessage {
@@ -100,7 +127,7 @@ mod tests {
             claim_key_id: 0xdead_beef,
             wallet: [7; 32],
             payload_digest: [9; 32],
-            account_tag: account_tag("AL35202111090000000001234567"),
+            account_tag: account_tag(b"k", "api.banka.al", "AL35202111090000000001234567"),
         };
         assert_eq!(AttestationMessage::from_bytes(&m.to_bytes()).unwrap(), m);
         let mut bad = m.to_bytes();

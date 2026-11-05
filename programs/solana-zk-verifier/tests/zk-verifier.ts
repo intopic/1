@@ -280,7 +280,8 @@ describe("solana-zk-verifier", () => {
     const age: any = await program.account.attestationRecord.fetch(recordFor(user, claimKeyId("date_of_birth")));
     const bal: any = await program.account.attestationRecord.fetch(recordPda);
     expect(age.claimKeyId.toString()).to.eq(claimKeyId("date_of_birth").toString());
-    expect(age.minValue.toNumber()).to.eq(0);
+    // kufiri i poshtëm 1900-01-01: "datëlindja" 0 nuk kalon
+    expect(age.minValue.toNumber()).to.eq(19000101);
     // atestimi i bilancit mbetet i paprekur
     expect(bal.claimKeyId.toString()).to.eq(claimKeyId("balance").toString());
     expect(bal.minValue.toNumber()).to.eq(10000);

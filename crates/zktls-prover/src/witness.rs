@@ -36,10 +36,19 @@ impl ValueRange {
     pub fn at_most(max: u64) -> Self {
         Self { min: 0, max }
     }
+    /// `EARLIEST_BIRTH_DATE ≤ datëlindja ≤ yyyymmdd`. Kufiri i poshtëm hyn në provë
+    /// (dhe kontrollohet on-chain nga `gate::Requirement::min_age`), ndaj një
+    /// "datëlindje" 0 ose 1 nuk kalon si "mbi 18".
     pub fn born_on_or_before(yyyymmdd: u64) -> Self {
-        Self::at_most(yyyymmdd)
+        Self {
+            min: EARLIEST_BIRTH_DATE,
+            max: yyyymmdd,
+        }
     }
 }
+
+/// Data më e hershme e lindjes që pranohet (YYYYMMDD).
+pub const EARLIEST_BIRTH_DATE: u64 = 19_000_101;
 
 /// Mosha maksimale që pranohet në `--min-age`.
 pub const MAX_AGE_YEARS: u64 = 150;

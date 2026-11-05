@@ -29,6 +29,10 @@ pub const BALANCE: u64 = 6292056758205541950;
 /// `claim_key_id("date_of_birth")`
 pub const DATE_OF_BIRTH: u64 = 10499278090922323829;
 
+/// Data më e hershme e lindjes që pranohet. Prova e moshës duhet të ketë vërtetuar
+/// edhe `datëlindja ≥ kjo datë`, ndaj një "datëlindje" 0 nuk kalon si "mbi 18".
+pub const EARLIEST_BIRTH_DATE: u64 = 19_000_101;
+
 /// PDA-ja e atestimit të një portofoli për një lloj pretendimi.
 pub fn attestation_address(user: &Pubkey, claim_key_id: u64) -> Pubkey {
     Pubkey::find_program_address(
@@ -97,7 +101,7 @@ impl Requirement {
         let today = yyyymmdd(now_unix);
         Self {
             claim_key_id: DATE_OF_BIRTH,
-            min_value: 0,
+            min_value: EARLIEST_BIRTH_DATE,
             max_value: today.saturating_sub(years.saturating_mul(10_000)),
             max_age_secs: 0,
         }
@@ -242,14 +246,39 @@ mod tests {
         let u = Pubkey::new_unique();
         let now = 1_793_750_400; // 2026-11-04
                                  // prova u bë dje me kufirin 2008-11-03 → sot vlen (≤ 2008-11-04)
-        let r = rec(u, 0, 20081103, "date_of_birth", now - 86_400);
+        let r = rec(
+            u,
+            EARLIEST_BIRTH_DATE,
+            20081103,
+            "date_of_birth",
+            now - 86_400,
+        );
         assert!(check(&r, &u, &Requirement::min_age(18, now), now).is_ok());
         // kufiri 2008-11-05 (dikush që mbush 18 nesër) → refuzohet
-        let r = rec(u, 0, 20081105, "date_of_birth", now);
+        let r = rec(u, EARLIEST_BIRTH_DATE, 20081105, "date_of_birth", now);
         assert!(code(check(&r, &u, &Requirement::min_age(18, now), now))
             .contains("GateThresholdNotMet"));
+        // prova pa kufi të poshtëm (datëlindja mund të ishte 0) → refuzohet
+        let r = rec(u, 0, 20081103, "date_of_birth", now);
+        assert!(code(check(&r, &u, &Requirement::min_age(18, now), now))
+            .contains("GateThresholdNotMet"));
+        // e vjetër: freskia vlen edhe për moshën
+        let r = rec(
+            u,
+            EARLIEST_BIRTH_DATE,
+            20081103,
+            "date_of_birth",
+            now - 2 * 3_600,
+        );
+        assert!(code(check(
+            &r,
+            &u,
+            &Requirement::min_age(18, now).fresh_within(3_600),
+            now
+        ))
+        .contains("GateExpired"));
         // një provë bilanci nuk kalon si moshë
-        let r = rec(u, 0, 20081103, "balance", now);
+        let r = rec(u, EARLIEST_BIRTH_DATE, 20081103, "balance", now);
         assert!(
             code(check(&r, &u, &Requirement::min_age(18, now), now)).contains("GateClaimMismatch")
         );

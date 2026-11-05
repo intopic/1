@@ -4,14 +4,21 @@
 //! ```text
 //! zktls-fetch --notary 127.0.0.1:7047 --url https://api.banka.al/v1/me \
 //!     --header "Authorization: Bearer ..." --wallet <PUBKEY> \
-//!     --bridge 127.0.0.1:8790 --out session.tls.json
+//!     --bridge https://<app>.fly.dev:8790 --out session.tls.json
 //! ```
-use std::io::{Read, Write};
+//!
+//! `--bridge` pranon `https://host[:port]`, `http://host:port` ose `host:port` (HTTP, lokal).
+use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use base64::Engine;
 use clap::Parser;
+use http_body_util::{BodyExt, Full};
+use hyper::{body::Bytes, Request};
+use hyper_util::rt::TokioIo;
 use tlsn::webpki::{CertificateDer, RootCertStore};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_rustls::rustls;
 use zktls_bridge::prover::{notarize, present, FetchRequest};
 
 #[derive(Parser)]
@@ -29,7 +36,7 @@ struct Args {
     connect: Option<String>,
     #[arg(long)]
     wallet: String,
-    /// Ura (host:port). Pa të, shkruhet vetëm prezantimi (base64).
+    /// Ura: `https://host[:port]` ose `host:port` (HTTP). Pa të, shkruhet vetëm prezantimi (base64).
     #[arg(long)]
     bridge: Option<String>,
     #[arg(long, default_value = "session.tls.json")]
@@ -59,23 +66,62 @@ fn parse_url(url: &str) -> Result<(String, u16, String)> {
     ))
 }
 
-/// POST minimal HTTP/1.1 (ura është lokale ose pas një reverse proxy).
-fn post_json(addr: &str, path: &str, body: &str) -> Result<String> {
-    let mut s = std::net::TcpStream::connect(addr)?;
-    write!(
-        s,
-        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    )?;
-    let mut resp = String::new();
-    s.read_to_string(&mut resp)?;
-    let (head, body) = resp
-        .split_once("\r\n\r\n")
-        .context("përgjigje e pavlefshme")?;
-    if !head.starts_with("HTTP/1.1 200") {
-        bail!("ura refuzoi: {body}");
+async fn send<S>(io: S, req: Request<Full<Bytes>>) -> Result<(hyper::StatusCode, Bytes)>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(io)).await?;
+    tokio::spawn(conn);
+    let resp = sender.send_request(req).await?;
+    let status = resp.status();
+    Ok((status, resp.into_body().collect().await?.to_bytes()))
+}
+
+/// POST JSON te ura, me TLS (`https://`, certifikatat Mozilla) ose HTTP i thjeshtë.
+async fn post_json(bridge: &str, path: &str, body: String) -> Result<String> {
+    let (tls, rest) = match (
+        bridge.strip_prefix("https://"),
+        bridge.strip_prefix("http://"),
+    ) {
+        (Some(r), _) => (true, r),
+        (_, Some(r)) => (false, r),
+        _ => (false, bridge),
+    };
+    let hostport = rest.trim_end_matches('/');
+    let host = hostport
+        .rsplit_once(':')
+        .map_or(hostport, |(h, _)| h)
+        .to_string();
+    let addr = if hostport.contains(':') {
+        hostport.to_string()
+    } else {
+        format!("{hostport}:{}", if tls { 443 } else { 80 })
+    };
+    let req = Request::post(path)
+        .header("host", &host)
+        .header("content-type", "application/json")
+        .body(Full::new(Bytes::from(body)))?;
+    let tcp = tokio::net::TcpStream::connect(&addr).await?;
+    let (status, body) = if tls {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let cfg = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let name = rustls::pki_types::ServerName::try_from(host.clone())?;
+        let stream = tokio_rustls::TlsConnector::from(Arc::new(cfg))
+            .connect(name, tcp)
+            .await?;
+        send(stream, req).await?
+    } else {
+        send(tcp, req).await?
+    };
+    let body = String::from_utf8_lossy(&body).into_owned();
+    if !status.is_success() {
+        bail!("ura refuzoi ({status}): {body}");
     }
-    Ok(body.to_string())
+    Ok(body)
 }
 
 #[tokio::main]
@@ -107,6 +153,7 @@ async fn main() -> Result<()> {
         server_name: host,
         path,
         headers,
+        wallet: a.wallet.clone(),
     };
     let (att, secrets) = notarize(notary, server, &req, roots).await?;
     let pres = present(&att, &secrets)?;
@@ -118,7 +165,7 @@ async fn main() -> Result<()> {
         }
         Some(addr) => {
             let body = serde_json::json!({ "presentation": b64, "wallet": a.wallet }).to_string();
-            std::fs::write(&a.out, post_json(addr, "/attest", &body)?)?;
+            std::fs::write(&a.out, post_json(addr, "/attest", body).await?)?;
             eprintln!("sesioni i atestuar u shkrua në {}", a.out.display());
         }
     }

@@ -67,7 +67,11 @@ pub mod gated_pool {
                 .as_ref()
                 .ok_or(PoolError::MissingAttestation)?;
             let now = Clock::get()?.unix_timestamp;
-            gate::require_attested(att, &user, &Requirement::min_age(pool.min_age as u64, now))?;
+            gate::require_attested(
+                att,
+                &user,
+                &Requirement::min_age(pool.min_age as u64, now).fresh_within(pool.max_age_secs),
+            )?;
         }
 
         system_program::transfer(

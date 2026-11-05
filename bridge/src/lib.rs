@@ -25,5 +25,10 @@ pub mod prover;
 pub const MAX_SENT_DATA: usize = 1 << 12;
 pub const MAX_RECV_DATA: usize = 1 << 14;
 
+/// Header-i që lidh sesionin TLS me portofolin Solana. Shkruhet nga prover-i në
+/// kërkesën drejt bankës (pjesë e transkriptit të autentikuar nga noteri), ndaj
+/// një prezantim nuk mund të ri-lidhet me një portofol tjetër te ura.
+pub const WALLET_HEADER: &str = "x-zktls-wallet";
+
 /// Header-at që nuk zbulohen kurrë në prezantim.
 pub const SECRET_HEADERS: [&str; 3] = ["authorization", "cookie", "x-api-key"];

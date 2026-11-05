@@ -309,6 +309,15 @@ nënshkrimi RSA verifikohet natively jashtë provës, pra kushdo me çelësin e 
    (intervalet e maskimit në bufer fiks, hash-i në rrjedhë).
 3. **Privatësia**: vetëm zotimi, pragu, koha, ID e çelësit, hash-i i bankës dhe portofoli janë publikë.
 4. **Whitelist**: `verify_and_attest` refuzon çdo provë me `bank_key_hash` jashtë listës së autoritetit.
+5. **Portofoli i lidhur me TLS**: prover-i dërgon `x-zktls-wallet` brenda sesionit me bankën
+   (pjesë e transkriptit të autentikuar); ura refuzon një portofol tjetër në kërkesën JSON.
+6. **Nullifier i fshehtë**: `account_tag = HMAC(çelësi i noterit, domeni ‖ id)`. Pa çelësin
+   nuk provohen ID të hamendësueshme, dhe e njëjta ID te dy banka jep nullifier-ë të ndryshëm.
+   Operatori i noterit/urës e ka çelësin: ai mund ta lidhë nullifier-in me llogarinë.
+7. **Datëlindja**: prova e moshës vërteton `1900-01-01 ≤ datëlindja ≤ kufiri`; `min_age`
+   on-chain e kërkon këtë kufi të poshtëm dhe freskinë e pool-it.
+8. **Ura**: rruga pa `..`/`%`/`//`, monedha e detyrueshme për bilancet. **Daemon-i**:
+   header-at ≤ 16 KiB, trupi ≤ 1 MiB, ≤ 128 lidhje.
 
 ## Plani (milestones)
 

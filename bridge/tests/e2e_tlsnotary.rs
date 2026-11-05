@@ -112,6 +112,7 @@ async fn session(balance: u64, path: &str) -> String {
         server_name: SERVER_DOMAIN.into(),
         path: path.into(),
         headers: vec![("Authorization".into(), TOKEN.into())],
+        wallet: WALLET.into(),
     };
     let (att, secrets) = notarize(prover_io, client_io, &req, roots()).await.unwrap();
     n.await.unwrap().unwrap();
@@ -181,6 +182,15 @@ async fn tlsnotary_to_groth16() {
             now
         )
         .is_err());
+    // ri-lidhje: i njëjti prezantim, portofol tjetër → refuzohet (portofoli është në sesionin TLS)
+    let e = br.attest(
+        &AttestRequest {
+            presentation: b64.clone(),
+            wallet: "11111111111111111111111111111111".into(),
+        },
+        now,
+    );
+    assert!(format!("{:#}", e.unwrap_err()).contains("nuk është ai i sesionit TLS"));
     // monedhë tjetër: 15 200 EUR nuk kalon si 15 200 ALL (dhe anasjelltas)
     let mut other = bridge();
     other.policy.sources[0].currency = Some("ALL".into());

@@ -28,6 +28,7 @@ rand = { workspace = true }
 rsa = { workspace = true }
 x509-parser = { workspace = true }
 bs58 = { workspace = true }
+hmac = "0.12"
 
 [dev-dependencies]
 

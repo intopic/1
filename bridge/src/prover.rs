@@ -29,7 +29,7 @@ use tlsn::{
 };
 use tlsn_formats::http::{DefaultHttpCommitter, HttpCommit, HttpTranscript};
 
-use crate::{MAX_RECV_DATA, MAX_SENT_DATA, SECRET_HEADERS};
+use crate::{MAX_RECV_DATA, MAX_SENT_DATA, SECRET_HEADERS, WALLET_HEADER};
 
 /// Një kërkesë GET drejt API-së së bankës/regjistrit.
 #[derive(Debug, Clone)]
@@ -40,6 +40,9 @@ pub struct FetchRequest {
     pub path: String,
     /// Header-a shtesë (p.sh. `Authorization`). Vlerat e [`SECRET_HEADERS`] fshihen në prezantim.
     pub headers: Vec<(String, String)>,
+    /// Portofoli Solana (base58): dërgohet si [`WALLET_HEADER`] brenda sesionit TLS,
+    /// që atestimi të mos mund të kërkohet për një portofol tjetër.
+    pub wallet: String,
 }
 
 /// Kryen kërkesën HTTPS me noterin si palë MPC dhe kthen atestimin + sekretet.
@@ -89,7 +92,8 @@ where
         .header("Accept", "application/json")
         // TLSNotary nuk mbështet kompresimin
         .header("Accept-Encoding", "identity")
-        .header("Connection", "close");
+        .header("Connection", "close")
+        .header(WALLET_HEADER, &req.wallet);
     for (k, v) in &req.headers {
         builder = builder.header(k, v);
     }
