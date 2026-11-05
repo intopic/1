@@ -22,11 +22,28 @@ use anchor_lang::system_program;
 use solana_zk_verifier::gate::{self, Requirement};
 use solana_zk_verifier::{AttestationRecord, VerifierState};
 
+pub mod access_pool;
+pub use access_pool::*;
+
 declare_id!("HQGnwqNbvNX2Z43ZUjTQWPw1WZXPbba7bZqTsVbjoVcX");
 
 #[program]
 pub mod gated_pool {
     use super::*;
+
+    /// New business integration: pin a policy, then consume independent access grants.
+    pub fn create_access_pool(ctx: Context<CreateAccessPool>, pool_id: u64) -> Result<()> {
+        access_pool::create_access_pool_handler(ctx, pool_id)
+    }
+
+    pub fn deposit_access(ctx: Context<DepositAccess>, amount: u64) -> Result<()> {
+        access_pool::deposit_access_handler(ctx, amount)
+    }
+
+    /// Users retain withdrawal rights after access expiry, pause or revocation.
+    pub fn withdraw_access(ctx: Context<WithdrawAccess>, amount: u64) -> Result<()> {
+        access_pool::withdraw_access_handler(ctx, amount)
+    }
 
     /// Krijon pool-in me kushtet e hyrjes (0 = kushti nuk kërkohet):
     /// bilanc i vërtetuar ≥ `min_balance` me sesion TLS jo më të vjetër se

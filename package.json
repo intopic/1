@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "test:program": "anchor test",
-    "typecheck": "tsc --noEmit --types mocha,chai,node --esModuleInterop --resolveJsonModule --target es2020 --module commonjs --strict false programs/solana-zk-verifier/tests/zk-verifier.ts programs/gated-pool/tests/gated-pool.ts"
+    "typecheck": "tsc --noEmit --types mocha,chai,node --esModuleInterop --resolveJsonModule --target es2020 --module commonjs --strict false programs/solana-zk-verifier/tests/zk-verifier.ts programs/gated-pool/tests/gated-pool.ts programs/gated-pool/tests/access.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",

@@ -9,11 +9,13 @@
 
 use anchor_lang::prelude::*;
 
+pub mod access;
 pub mod error;
 pub mod gate;
 pub mod instructions;
 pub mod state;
 
+pub use access::*;
 pub use error::ZkVerifierError;
 pub use instructions::*;
 pub use state::*;
@@ -23,6 +25,35 @@ declare_id!("4LK4V8o74xbsG8oYYzrJmoPuBnaMCbdu7J7AfpAAjUtg");
 #[program]
 pub mod solana_zk_verifier {
     use super::*;
+
+    /// Business-controlled immutable admission terms and independent access lifetime.
+    pub fn create_access_policy(
+        ctx: Context<CreateAccessPolicy>,
+        policy_id: u64,
+        config: AccessPolicyConfig,
+    ) -> Result<()> {
+        access::create_policy(ctx, policy_id, config)
+    }
+
+    /// Initial admission or renewal after expiry; never bypasses fresh evidence checks.
+    pub fn admit_access(ctx: Context<QualifyAccess>) -> Result<()> {
+        access::qualify_access(ctx, false)
+    }
+
+    /// Requalify without extending the original grant expiry.
+    pub fn refresh_access(ctx: Context<QualifyAccess>) -> Result<()> {
+        access::qualify_access(ctx, true)
+    }
+
+    pub fn set_access_policy_paused(ctx: Context<ManageAccessPolicy>, paused: bool) -> Result<()> {
+        ctx.accounts.policy.paused = paused;
+        Ok(())
+    }
+
+    pub fn set_access_revoked(ctx: Context<ManageAccessGrant>, revoked: bool) -> Result<()> {
+        ctx.accounts.grant.revoked = revoked;
+        Ok(())
+    }
 
     /// Inicializon gjendjen e verifikuesit me çelësin verifikues (VK).
     pub fn initialize(

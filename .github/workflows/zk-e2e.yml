@@ -327,7 +327,17 @@ jobs:
           echo "keypair:    $(solana-keygen pubkey target/deploy/solana_zk_verifier-keypair.json)"
           echo "idl:        $(jq -r .address target/idl/solana_zk_verifier.json)"
           grep -n solana_zk_verifier Anchor.toml
-          anchor test --skip-build
+          mkdir -p artifacts
+          anchor test --skip-build 2>&1 | tee artifacts/access-localnet.log
+      - name: Rezultatet e politikave dhe aksesit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: access-localnet
+          path: |
+            artifacts/access-localnet.log
+            target/idl/solana_zk_verifier.json
+            target/idl/gated_pool.json
       - name: Log-u i validatorit
         if: failure()
         run: tail -n 80 .anchor/test-ledger/test-ledger-log.txt || true

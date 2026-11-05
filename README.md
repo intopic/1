@@ -42,6 +42,11 @@ prova Groth16 gjenerohet off-chain dhe verifikohet on-chain me syscall-et vendas
 
 ### Modeli i besimit (e rëndësishme)
 
+**Politikat e biznesit dhe aksesi:** [API-ja e pranimit dhe autorizimit](docs/ACCESS.md)
+ndan freskinë e provës nga afati i aksesit. Biznesi zgjedh kushtet e moshës/bilancit,
+akses me afat ose pa skadim dhe riverifikim periodik opsional. `AccessPool` konsumon
+autorizimin pa provë të re; pool-et ekzistuese ruajnë kontrollet për çdo veprim.
+
 TLS nuk nënshkruan përmbajtjen HTTP. TLSNotary vërteton sesionin; **ura** verifikon
 prezantimin dhe nënshkruan mesazhin kanonik 128-bajtësh me **BabyJubjub EdDSA-Poseidon**.
 Qarku verifikon këtë nënshkrim dhe lidh çelësin me whitelist-ën on-chain.
