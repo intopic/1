@@ -17,8 +17,12 @@ describe("gated-pool (integrimi i një DEX-i)", () => {
   anchor.setProvider(provider);
   const load = (name: string) => JSON.parse(readFileSync(`${ROOT}/target/idl/${name}.json`, "utf8"));
   const pool: any = new anchor.Program(load("gated_pool"), provider);
-  const verifier = new PublicKey(load("solana_zk_verifier").address);
+  const vprog: any = new anchor.Program(load("solana_zk_verifier"), provider);
+  const verifier = vprog.programId as PublicKey;
   const user = provider.wallet.publicKey;
+  const verifierState = PublicKey.findProgramAddressSync([Buffer.from("verifier_state")], verifier)[0];
+  // afati i freskisë së bilancit (1 orë); sesionet e testeve janë të sapokrijuara
+  const FRESH = new BN(3600);
 
   const poolPda = (authority: PublicKey) =>
     PublicKey.findProgramAddressSync([Buffer.from("pool"), authority.toBuffer()], pool.programId)[0];
@@ -47,6 +51,7 @@ describe("gated-pool (integrimi i një DEX-i)", () => {
         position: positionPda(p, u),
         balanceAttestation: atts.balance ?? null,
         ageAttestation: atts.age ?? null,
+        verifierState,
       })
       .signers(signers)
       .rpc();
@@ -61,7 +66,7 @@ describe("gated-pool (integrimi i një DEX-i)", () => {
   const newPool = async (minBalance: number, minAge: number) => {
     const a = await funded();
     await pool.methods
-      .createPool(new BN(minBalance), minAge, new BN(0))
+      .createPool(new BN(minBalance), minAge, FRESH)
       .accounts({ authority: a.publicKey })
       .signers([a])
       .rpc();
@@ -74,7 +79,7 @@ describe("gated-pool (integrimi i një DEX-i)", () => {
   let bothPool: PublicKey; // bilanc ≥ 5 000 DHE mosha ≥ 18
 
   before(async () => {
-    await pool.methods.createPool(new BN(5_000), 0, new BN(0)).accounts({ authority: user }).rpc();
+    await pool.methods.createPool(new BN(5_000), 0, FRESH).accounts({ authority: user }).rpc();
     balancePool = poolPda(user);
     strictPool = await newPool(20_000, 0);
     agePool = await newPool(0, 18);
@@ -125,14 +130,39 @@ describe("gated-pool (integrimi i një DEX-i)", () => {
     expect(err).to.match(/GateWrongAccount|GateWrongUser/);
   });
 
+  it("refuzon pool bilanci pa afat freskie (bilanci i vjetër s'vlen përgjithmonë)", async () => {
+    const a = await funded();
+    const create = (maxAge: number) =>
+      pool.methods
+        .createPool(new BN(5_000), 0, new BN(maxAge))
+        .accounts({ authority: a.publicKey })
+        .signers([a])
+        .rpc();
+    expect(await error(() => create(0))).to.contain("FreshnessRequired");
+    expect(await error(() => create(-1))).to.contain("InvalidMaxAge");
+  });
+
+  it("refuzon atestimin nga një çelës banke i hequr nga whitelist-a", async () => {
+    const rec: any = await vprog.account.attestationRecord.fetch(BAL());
+    const h = Array.from(rec.bankKeyHash as number[]);
+    await vprog.methods.removeBankKey(h).accounts({ authority: user }).rpc();
+    try {
+      expect(await error(() => deposit(balancePool, user, { balance: BAL() }))).to.contain("GateSourceRevoked");
+    } finally {
+      await vprog.methods.addBankKey(h).accounts({ authority: user }).rpc();
+    }
+    await deposit(balancePool, user, { balance: BAL() });
+  });
+
   it("lejon tërheqjen e parave të veta", async () => {
     const before = await provider.connection.getBalance(balancePool);
+    const had = (await pool.account.position.fetch(positionPda(balancePool, user))).amount.toNumber();
     await pool.methods
       .withdraw(new BN(4_000))
       .accountsPartial({ user, pool: balancePool, position: positionPda(balancePool, user) })
       .rpc();
     const pos: any = await pool.account.position.fetch(positionPda(balancePool, user));
-    expect(pos.amount.toNumber()).to.eq(6_000);
+    expect(pos.amount.toNumber()).to.eq(had - 4_000);
     expect(before - (await provider.connection.getBalance(balancePool))).to.eq(4_000);
   });
 });

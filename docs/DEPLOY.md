@@ -44,7 +44,14 @@ curl https://<emri-juaj>.fly.dev/health   # {"status":"ok","backend":"circom-rap
 - `DEMO_MOCK_NOTARY=1` aktivizon `/mock-session` me çelësin testues **publik** të depos.
   Vetëm devnet. Në prodhim vendoseni `0` dhe mos e shtoni atë çelës në whitelist.
 - Politika e urës: çdo burim bilanci duhet të ketë `"currency"` (p.sh. `"EUR"`), që
-  15 200 lekë të mos kalojnë si 15 200 €.
+  15 200 lekë të mos kalojnë si 15 200 €. Ura refuzon në nisje dy burime të të njëjtit
+  `target_key` me monedha të ndryshme (on-chain të gjitha duken si një burim i vetëm).
+  `path_prefix` përputhet në kufi segmenti dhe query string (`?...`) refuzohet, përveç
+  kur burimi ka `"allow_query": true`.
+- Noteri: `NOTARY_MAX_SESSIONS` (parazgjedhur 4) sesione MPC-TLS njëkohësisht, secili me
+  afat `NOTARY_SESSION_TIMEOUT_SECS` (180). Lidhjet përtej kufirit mbyllen menjëherë.
+- Prover-i: në radhë presin deri në 32 kërkesa për çdo vend prove (~75 s); përtej
+  kësaj kthen **503** me `Retry-After: 5`. Kërkesa HTTP duhet të mbërrijë e plotë brenda 30 s.
 
 ## 3. Solana devnet
 
@@ -56,8 +63,10 @@ PROVER_URL=https://<emri-juaj>.fly.dev bash scripts/deploy-devnet.sh
 
 Skripti: `anchor keys sync` → `anchor build` → `anchor deploy` → VK e Circom on-chain,
 `app_id`, llojet e pranuara (bilanc + datëlindje), whitelist-a e noterit të simuluar
-(dhe e urës me `BRIDGE_SESSION=<session.tls.json>`), pool-i demo (bilanc ≥ 10 000).
-Shkruan `app/.env.local`.
+(dhe e urës me `BRIDGE_SESSION=<session.tls.json>`), pool-i demo (bilanc ≥ 10 000, sesioni
+TLS jo më i vjetër se `POOL_MAX_AGE_SECS`, parazgjedhur 1 ditë). Shkruan `app/.env.local`.
+Në mainnet skripti refuzon qarkun dev dhe noterin e simuluar (kërkon `VK_JSON`,
+`SKIP_MOCK_KEY=1` dhe `BRIDGE_SESSION`).
 
 ## 4. Faqja web
 

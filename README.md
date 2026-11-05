@@ -153,8 +153,8 @@ npm run dev                                            # http://localhost:5173
 ```
 
 Phantom duhet vendosur në "Localnet" (ose ndryshoni `VITE_RPC_URL`). Për integruesit (DEX, wallet,
-DAO), `app/src/sdk.ts` ka `isVerified(connection, programId, wallet)`, `fetchAttestation` dhe
-`verifyAndAttest`.
+DAO), `app/src/sdk.ts` ka `isVerified(program, wallet, {claim, minValue, maxAgeSecs})` (kontrollon
+pragun dhe freskinë, jo vetëm ekzistencën e llogarisë), `fetchAttestation` dhe `verifyAndAttest`.
 
 ## Noteri real (TLSNotary) → ura → qarku
 
@@ -207,21 +207,28 @@ solana-zk-verifier = { path = "...", features = ["cpi"] }
 ```
 
 ```rust
-use solana_zk_verifier::{gate::{self, Requirement}, AttestationRecord};
+use solana_zk_verifier::{gate::{self, Requirement}, AttestationRecord, VerifierState};
 
 pub balance_attestation: Account<'info, AttestationRecord>,
 pub age_attestation: Option<Account<'info, AttestationRecord>>,
+/// PDA ["verifier_state"] e programit verifikues (whitelist-a aktuale e bankave)
+pub verifier_state: Box<Account<'info, VerifierState>>,
 
-// në handler: PDA-ja (portofol + lloj) dhe kushti kontrollohen brenda
-gate::require_attested(&ctx.accounts.balance_attestation, &user,
+// në handler: PDA-ja (portofol + lloj), burimi ende i autorizuar dhe kushti kontrollohen brenda
+let state = &ctx.accounts.verifier_state;
+gate::require_attested_current(&ctx.accounts.balance_attestation, state, &user,
     &Requirement::at_least("balance", 5_000).fresh_within(86_400))?;
 // mosha: kufiri llogaritet on-chain nga ora e Solana-s (UTC)
-gate::require_attested(age, &user, &Requirement::min_age(18, Clock::get()?.unix_timestamp))?;
+gate::require_attested_current(age, state, &user, &Requirement::min_age(18, Clock::get()?.unix_timestamp))?;
 ```
 
+Për bilancet vendosni gjithmonë `fresh_within(...)`: pa afat, një bilanc i vërtetuar një
+herë vlen përgjithmonë, edhe pasi paratë janë tërhequr. `.from_source(hash)` pranon vetëm
+një bankë/urë të caktuar.
+
 Gabimet: `GateWrongAccount` (atestim i portofolit/llojit tjetër), `GateWrongUser`,
-`GateClaimMismatch`, `GateThresholdNotMet`, `GateExpired`; pa atestim fare, Anchor
-kthen `AccountNotInitialized`. Në front-end: `depositToPool` te `app/src/sdk.ts` dhe
+`GateClaimMismatch`, `GateThresholdNotMet`, `GateExpired`, `GateSourceRevoked` (banka u
+hoq nga whitelist-a), `GateWrongSource`; pa atestim fare, Anchor kthen `AccountNotInitialized`. Në front-end: `depositToPool` te `app/src/sdk.ts` dhe
 hapi 5 i demos.
 
 ## Deploy (fly.io + devnet)

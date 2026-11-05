@@ -47,4 +47,10 @@ pub enum ZkVerifierError {
     GateWrongAccount,
     #[msg("Argumenti claim_key_id nuk përputhet me hyrjen publike")]
     ClaimKeyArgMismatch,
+    #[msg("Atestimi vjen nga një burim (çelës banke/ure) tjetër nga ai që kërkon aplikacioni")]
+    GateWrongSource,
+    #[msg("Çelësi i bankës/urës që lëshoi atestimin është hequr nga whitelist-a")]
+    GateSourceRevoked,
+    #[msg("Llogaria nuk është gjendja (verifier_state) e programit verifikues")]
+    GateWrongState,
 }

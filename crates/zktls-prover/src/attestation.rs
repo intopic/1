@@ -88,13 +88,18 @@ impl AttestationMessage {
 ///
 /// `tag_key` është sekret i noterit (shih `MockNotary::tag_key`); `server_name` është
 /// domeni i autentikuar i burimit.
+///
+/// Hapësirat hiqen nga `account_id` para hash-it: e njëjta llogari e shkruar
+/// `AL35 2021 1109 ...` dhe `AL352021 1109...` jep të njëjtin tag (pa këtë, dy formate
+/// të të njëjtit IBAN do të jepnin dy nullifier-a, pra dy portofole).
 pub fn account_tag(tag_key: &[u8], server_name: &str, account_id: &str) -> [u8; 32] {
     use hmac::{Hmac, Mac};
     let mut mac = Hmac::<sha2::Sha256>::new_from_slice(tag_key).expect("HMAC pranon çdo gjatësi");
     mac.update(b"zktls/account-tag/v2");
     mac.update(&(server_name.len() as u64).to_be_bytes());
     mac.update(server_name.as_bytes());
-    mac.update(account_id.as_bytes());
+    let id: String = account_id.chars().filter(|c| !c.is_whitespace()).collect();
+    mac.update(id.as_bytes());
     let mut t: [u8; 32] = mac.finalize().into_bytes().into();
     t[0] = 0;
     t
@@ -114,6 +119,10 @@ mod tests {
         // pa çelësin nuk rikuperohet: çelës tjetër → tag tjetër
         assert_ne!(t, account_tag(b"tjeter", "api.banka-a.al", "42"));
         // ndarja server/id është e paqartë pa gjatësinë: "a.al"+"b42" ≠ "a.alb"+"42"
+        assert_eq!(
+            account_tag(b"k", "a.al", "AL35 2021 1109"),
+            account_tag(b"k", "a.al", "AL3520211109")
+        );
         assert_ne!(
             account_tag(b"k", "a.al", "b42"),
             account_tag(b"k", "a.alb", "42")

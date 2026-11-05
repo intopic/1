@@ -42,7 +42,10 @@ fn reply(code: StatusCode, body: String) -> Response<Full<Bytes>> {
         .unwrap()
 }
 
-async fn handle(bridge: &Bridge, req: Request<hyper::body::Incoming>) -> Response<Full<Bytes>> {
+async fn handle(
+    bridge: std::sync::Arc<Bridge>,
+    req: Request<hyper::body::Incoming>,
+) -> Response<Full<Bytes>> {
     match (req.method(), req.uri().path()) {
         (&Method::OPTIONS, _) => reply(StatusCode::NO_CONTENT, String::new()),
         (&Method::GET, "/health") => reply(StatusCode::OK, r#"{"status":"ok"}"#.into()),
@@ -56,9 +59,14 @@ async fn handle(bridge: &Bridge, req: Request<hyper::body::Incoming>) -> Respons
                     )
                 }
             };
-            let res = serde_json::from_slice::<AttestRequest>(&body)
-                .map_err(anyhow::Error::from)
-                .and_then(|r| bridge.attest(&r, unix_now()));
+            // verifikimi i prezantimit është punë CPU: jashtë thread-eve të I/O-së
+            let res = tokio::task::spawn_blocking(move || {
+                serde_json::from_slice::<AttestRequest>(&body)
+                    .map_err(anyhow::Error::from)
+                    .and_then(|r| bridge.attest(&r, unix_now()))
+            })
+            .await
+            .unwrap_or_else(|e| Err(anyhow::anyhow!("gabim i brendshëm: {e}")));
             match res {
                 Ok(s) => reply(StatusCode::OK, serde_json::to_string(&s).unwrap()),
                 Err(e) => reply(
@@ -75,6 +83,7 @@ async fn handle(bridge: &Bridge, req: Request<hyper::body::Incoming>) -> Respons
 async fn main() -> Result<()> {
     let a = Args::parse();
     let policy: Policy = serde_json::from_slice(&std::fs::read(&a.policy)?)?;
+    policy.validate()?;
     let roots = match &a.test_root_der {
         Some(p) => RootCertStore {
             roots: vec![CertificateDer(std::fs::read(p)?)],
@@ -96,12 +105,20 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&a.addr).await?;
     println!("ura po dëgjon në http://{}", a.addr);
     loop {
-        let (stream, _) = listener.accept().await?;
+        // një gabim i përkohshëm (p.sh. shumë skedarë të hapur) nuk e ndal urën
+        let stream = match listener.accept().await {
+            Ok((s, _)) => s,
+            Err(e) => {
+                eprintln!("accept: {e}");
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+        };
         let bridge = bridge.clone();
         tokio::spawn(async move {
             let svc = hyper::service::service_fn(move |req| {
                 let bridge = bridge.clone();
-                async move { Ok::<_, Infallible>(handle(&bridge, req).await) }
+                async move { Ok::<_, Infallible>(handle(bridge, req).await) }
             });
             let conn = hyper::server::conn::http1::Builder::new()
                 .timer(hyper_util::rt::TokioTimer::new())

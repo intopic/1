@@ -19,14 +19,21 @@ import {
 type Kind = "balance" | "age";
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(`${PROVER_URL}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-  return j as T;
+  // 503 = radha e provave është plot: prit pak dhe provo sërish (deri në ~1 min)
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(`${PROVER_URL}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (r.status === 503 && attempt < 12) {
+      await new Promise((ok) => setTimeout(ok, 5000));
+      continue;
+    }
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+    return j as T;
+  }
 }
 
 // "10.000" (stili shqip/evropian; Chromium s'ka të dhëna për "sq-AL")

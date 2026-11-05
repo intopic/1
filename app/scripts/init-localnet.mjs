@@ -47,6 +47,15 @@ const provider = new anchor.AnchorProvider(new Connection(RPC_URL, "confirmed"),
 const program = new anchor.Program(idl, provider);
 console.log("programi:", program.programId.toBase58(), "· autoriteti:", authority.publicKey.toBase58());
 
+// Qarku DEV (RSA jashtë provës) dhe noteri i simuluar (çelësi privat është në repo) lejojnë
+// kujtdo të falsifikojë prova: nuk lejohen kurrë në mainnet.
+const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+if ((await provider.connection.getGenesisHash()) === MAINNET_GENESIS) {
+  if (!process.env.VK_JSON || process.env.SKIP_MOCK_KEY !== "1")
+    throw new Error("mainnet: kërkohen VK_JSON (VK e qarkut Circom nga ceremonia) dhe SKIP_MOCK_KEY=1");
+  if (!process.env.BRIDGE_SESSION) throw new Error("mainnet: kërkohet BRIDGE_SESSION (çelësi i urës reale)");
+}
+
 mkdirSync(OUT, { recursive: true });
 // VK_JSON: VK-ja e qarkut Circom (prodhim/devnet, `coprocessor export-vk`); përndryshe qarku dev
 let vkPath = process.env.VK_JSON;
@@ -119,10 +128,12 @@ if (existsSync(POOL_IDL)) {
   copyFileSync(POOL_IDL, join(ROOT, "app/public/pool-idl.json"));
   const pool = new anchor.Program(JSON.parse(readFileSync(POOL_IDL, "utf8")), provider);
   const minBalance = Number(process.env.MIN_BALANCE ?? 10000);
+  // bilanci kërkon afat freskie: një bilanc i vërtetuar dje mund të jetë tërhequr sot
+  const maxAge = Number(process.env.POOL_MAX_AGE_SECS ?? 86400);
   const [poolPda] = PublicKey.findProgramAddressSync([Buffer.from("pool"), authority.publicKey.toBuffer()], pool.programId);
   if (!(await pool.account.pool.fetchNullable(poolPda))) {
-    await pool.methods.createPool(new anchor.BN(minBalance), 0, new anchor.BN(0)).accounts({ authority: authority.publicKey }).rpc();
-    console.log(`pool-i i mbrojtur u krijua (bilanc ≥ ${minBalance}):`, poolPda.toBase58());
+    await pool.methods.createPool(new anchor.BN(minBalance), 0, new anchor.BN(maxAge)).accounts({ authority: authority.publicKey }).rpc();
+    console.log(`pool-i i mbrojtur u krijua (bilanc ≥ ${minBalance}, sesion ≤ ${maxAge} s):`, poolPda.toBase58());
   }
   env += `VITE_POOL_AUTHORITY=${authority.publicKey.toBase58()}\nVITE_MIN_BALANCE=${minBalance}\n`;
 }

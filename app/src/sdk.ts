@@ -1,9 +1,9 @@
 // SDK minimal për integruesit (DEX, wallet, DAO):
-//   * `isVerified(connection, programId, wallet)` – kontroll i thjeshtë on-chain
+//   * `isVerified(program, wallet, kërkesa)` – a e plotëson atestimi kushtin (si zk-gate on-chain)
 //   * `verifyAndAttest(program, proof)` – dërgon provën nga daemon-i
 import { Buffer } from "buffer";
 import * as anchor from "@coral-xyz/anchor";
-import { ComputeBudgetProgram, Connection, PublicKey } from "@solana/web3.js";
+import { ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
 
 /** Formati i `proof.json` / përgjigjes së `POST /prove`. */
 export const U64_MAX = 18446744073709551615n;
@@ -48,6 +48,8 @@ const BIRTH_KEYS = new Set(["date_of_birth", "birth_date", "birthdate", "dob"]);
 
 export interface Attestation {
   user: PublicKey;
+  /** Hash-i (hex) i çelësit të bankës/urës që e lëshoi. */
+  bankKeyHash: string;
   /** Çelësi JSON i provuar (p.sh. "balance", "date_of_birth"), ose id-ja hex nëse nuk njihet. */
   claim: string;
   /** true kur pretendimi është mbi një datë lindjeje (`maxValue` = data kufi YYYYMMDD). */
@@ -72,6 +74,7 @@ export async function fetchAttestation(
   const claim = Object.keys(CLAIM_KEYS).find((k) => CLAIM_KEYS[k] === id) ?? id.toString(16);
   return {
     user: rec.user,
+    bankKeyHash: Buffer.from(rec.bankKeyHash).toString("hex"),
     claim,
     isBirthDate: BIRTH_KEYS.has(claim),
     minValue: BigInt(rec.minValue.toString()),
@@ -81,20 +84,40 @@ export async function fetchAttestation(
   };
 }
 
+/** Kushti i aplikacionit, si `gate::Requirement` on-chain. */
+export interface Requirement {
+  claim?: string;
+  /** Prova duhet të ketë vërtetuar `vlera >= minValue`. */
+  minValue?: bigint;
+  /** Prova duhet të ketë vërtetuar `vlera <= maxValue`. */
+  maxValue?: bigint;
+  /** Sesioni TLS jo më i vjetër se kaq sekonda (rekomandohet gjithmonë për bilanc). */
+  maxAgeSecs?: number;
+  /** Pranohet vetëm ky burim (hash hex i çelësit të bankës/urës). */
+  bankKeyHash?: string;
+}
+
+/** Kontrolli i pastër i `Requirement` mbi një atestim (pa rrjet), si `gate::check`. */
+export function meetsRequirement(a: Attestation, req: Requirement, nowSecs = Math.floor(Date.now() / 1000)): boolean {
+  if (req.claim && a.claim !== req.claim) return false;
+  if (a.minValue < (req.minValue ?? 0n) || a.maxValue > (req.maxValue ?? U64_MAX)) return false;
+  if (req.maxAgeSecs && req.maxAgeSecs > 0 && nowSecs - a.attestedAt > req.maxAgeSecs) return false;
+  if (req.bankKeyHash && a.bankKeyHash !== req.bankKeyHash.toLowerCase()) return false;
+  return true;
+}
+
 /**
- * Kontrolli i shpejtë: a ka ky portofol një atestim zkTLS në këtë program?
- * Programi pranon vetëm llojet e pretendimeve të caktuara në `initialize`; për
- * kushte të sakta përdorni `fetchAttestation` dhe kontrolloni `claim`,
- * `minValue`/`maxValue` (p.sh. mosha: `isBirthDate && maxValue <= cutoff`).
+ * A e plotëson atestimi on-chain i portofolit kushtin e aplikacionit? Ekzistenca e
+ * llogarisë nuk mjafton: dikush mund të ketë vërtetuar vetëm "bilanc ≥ 0". Kontrolli
+ * off-chain është vetëm për UI; vendimi që lëviz para bëhet on-chain me zk-gate.
  */
 export async function isVerified(
-  connection: Connection,
-  programId: PublicKey,
+  program: anchor.Program<any>,
   wallet: PublicKey,
-  claim: string = "balance"
+  req: Requirement & { claim: string; minValue: bigint }
 ): Promise<boolean> {
-  const info = await connection.getAccountInfo(attestationPda(programId, wallet, claim));
-  return info !== null && info.owner.equals(programId);
+  const a = await fetchAttestation(program, wallet, req.claim);
+  return a !== null && meetsRequirement(a, req);
 }
 
 /** Dërgon provën te programi. Kthen nënshkrimin e transaksionit. */
@@ -121,6 +144,9 @@ export function explainError(e: unknown): string {
     [/GateThresholdNotMet/, "Prova jote vërteton një prag më të ulët se ç'kërkon ky pool."],
     [/GateClaimMismatch/, "Ky pool kërkon një provë bilanci, jo moshe."],
     [/GateWrongAccount/, "Atestimi i dhënë nuk është i këtij portofoli ose i këtij lloji."],
+    [/GateExpired/, "Atestimi është më i vjetër se ç'pranon ky pool. Lidhu sërish me bankën dhe provo përsëri."],
+    [/GateSourceRevoked/, "Banka/ura që lëshoi atestimin nuk është më e autorizuar. Verifikohu përsëri."],
+    [/GateWrongSource/, "Ky aplikacion pranon vetëm një burim tjetër (bankë/urë)."],
     [/MissingAttestation/, "Ky pool kërkon edhe një atestim tjetër (bilanc ose moshë)."],
     [/AccountNotInitialized|3012/, "Ky portofol nuk ka ende atestim on-chain: kryej hapat 2–4."],
     [/NullifierAlreadyUsed/, "Kjo llogari është përdorur tashmë nga një portofol tjetër."],
@@ -162,6 +188,8 @@ export async function depositToPool(
       // pool-i i demos kërkon vetëm bilancin; mosha nuk kërkohet
       balanceAttestation: attestationPda(verifierId, user, "balance"),
       ageAttestation: null,
+      // whitelist-a aktuale: atestimet nga një bankë e revokuar refuzohen
+      verifierState: PublicKey.findProgramAddressSync([Buffer.from("verifier_state")], verifierId)[0],
     })
     .rpc();
 }

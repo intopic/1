@@ -68,8 +68,17 @@ where
     handle.close();
     let mut socket = driver_task.await??;
 
+    // kërkesa e atestimit është e vogël (disa KB); kufiri pengon një klient që
+    // dërgon pafundësisht bajte të mbushë memorien
+    const MAX_REQUEST: u64 = 1 << 20;
     let mut request_bytes = Vec::new();
-    socket.read_to_end(&mut request_bytes).await?;
+    (&mut socket)
+        .take(MAX_REQUEST + 1)
+        .read_to_end(&mut request_bytes)
+        .await?;
+    if request_bytes.len() as u64 > MAX_REQUEST {
+        bail!("kërkesa e atestimit > 1 MiB");
+    }
     let request: AttestationRequest = bincode::deserialize(&request_bytes)?;
 
     let mut provider = CryptoProvider::default();

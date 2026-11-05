@@ -68,6 +68,12 @@ impl MockNotary {
         wallet: [u8; 32],
         timestamp: u64,
     ) -> Result<NotarizedSession, ProverError> {
+        // një ID bosh (ose vetëm hapësira) do t'u jepte të gjithëve të njëjtin nullifier
+        if account_id.chars().all(char::is_whitespace) {
+            return Err(ProverError::Attestation(
+                "identifikuesi i llogarisë është bosh".into(),
+            ));
+        }
         let claim =
             AlgebraicNormalizer::normalize_and_mask(http_response.as_bytes(), target_key, 0)?;
         let msg = AttestationMessage {

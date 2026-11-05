@@ -10,9 +10,17 @@
 //! pub attestation: Account<'info, AttestationRecord>,
 //!
 //! // në handler:
-//! gate::require_attested(&ctx.accounts.attestation, &user, &Requirement::at_least("balance", 5_000))?;
-//! gate::require_attested(&ctx.accounts.age, &user, &Requirement::min_age(18, now))?;
+//! let state = &ctx.accounts.verifier_state;
+//! gate::require_attested_current(&ctx.accounts.attestation, state, &user,
+//!     &Requirement::at_least("balance", 5_000).fresh_within(7 * 86_400))?;
+//! gate::require_attested_current(&ctx.accounts.age, state, &user, &Requirement::min_age(18, now))?;
 //! ```
+//!
+//! [`require_attested_current`] refuzon edhe atestimet e lëshuara nga një çelës
+//! banke/ure që administratori e ka hequr nga whitelist-a (p.sh. pas një komprometimi);
+//! [`require_attested`] nuk e sheh whitelist-ën. Për bilancet vendosni gjithmonë
+//! `fresh_within(...)`: pa të, një bilanc i vërtetuar një herë vlen përgjithmonë,
+//! edhe pasi paratë janë tërhequr.
 //!
 //! `Account<AttestationRecord>` garanton që llogaria i përket programit verifikues
 //! (pra prova është verifikuar on-chain); [`require_attested`] që është PDA-ja
@@ -22,7 +30,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::hash::hash;
 
-use crate::{AttestationRecord, ZkVerifierError};
+use crate::{AttestationRecord, VerifierState, ZkVerifierError};
 
 /// `claim_key_id("balance")`
 pub const BALANCE: u64 = 6292056758205541950;
@@ -72,6 +80,9 @@ pub struct Requirement {
     pub max_value: u64,
     /// 0 = pa kufi; përndryshe sesioni TLS duhet të jetë më i ri se kaq sekonda.
     pub max_age_secs: i64,
+    /// `Some(h)`: pranohet vetëm atestimi i lëshuar nga ky çelës (hash-i Poseidon i
+    /// modulit RSA të bankës/urës), p.sh. kur aplikacioni beson vetëm një bankë.
+    pub bank_key_hash: Option<[u8; 32]>,
 }
 
 impl Requirement {
@@ -82,6 +93,7 @@ impl Requirement {
             min_value,
             max_value: u64::MAX,
             max_age_secs: 0,
+            bank_key_hash: None,
         }
     }
 
@@ -92,6 +104,7 @@ impl Requirement {
             min_value: 0,
             max_value,
             max_age_secs: 0,
+            bank_key_hash: None,
         }
     }
 
@@ -104,11 +117,19 @@ impl Requirement {
             min_value: EARLIEST_BIRTH_DATE,
             max_value: today.saturating_sub(years.saturating_mul(10_000)),
             max_age_secs: 0,
+            bank_key_hash: None,
         }
     }
 
+    /// Sesioni TLS duhet të jetë më i ri se `secs` sekonda (`secs <= 0` = pa kufi).
     pub fn fresh_within(mut self, secs: i64) -> Self {
         self.max_age_secs = secs;
+        self
+    }
+
+    /// Pranon vetëm atestimet e lëshuara nga ky çelës banke/ure.
+    pub fn from_source(mut self, bank_key_hash: [u8; 32]) -> Self {
+        self.bank_key_hash = Some(bank_key_hash);
         self
     }
 }
@@ -128,6 +149,9 @@ pub fn check(record: &AttestationRecord, user: &Pubkey, req: &Requirement, now: 
         record.min_value >= req.min_value && record.max_value <= req.max_value,
         ZkVerifierError::GateThresholdNotMet
     );
+    if let Some(h) = req.bank_key_hash {
+        require!(record.bank_key_hash == h, ZkVerifierError::GateWrongSource);
+    }
     if req.max_age_secs > 0 {
         require!(
             now.saturating_sub(record.attested_at) <= req.max_age_secs,
@@ -160,6 +184,30 @@ pub fn require_attested(
         ZkVerifierError::GateWrongAccount
     );
     check(attestation, user, req, Clock::get()?.unix_timestamp)
+}
+
+/// Si [`require_attested`], plus: burimi që lëshoi atestimin është ende në
+/// whitelist-ën e `verifier_state`. Kur administratori heq një çelës banke/ure
+/// (`remove_bank_key`), atestimet e vjetra prej tij nuk kalojnë më.
+pub fn require_attested_current(
+    attestation: &Account<AttestationRecord>,
+    state: &Account<VerifierState>,
+    user: &Pubkey,
+    req: &Requirement,
+) -> Result<()> {
+    let expected = Pubkey::create_program_address(&[b"verifier_state", &[state.bump]], &crate::ID)
+        .map_err(|_| error!(ZkVerifierError::GateWrongState))?;
+    require_keys_eq!(state.key(), expected, ZkVerifierError::GateWrongState);
+    require!(
+        is_current_source(attestation, state),
+        ZkVerifierError::GateSourceRevoked
+    );
+    require_attested(attestation, user, req)
+}
+
+/// Çelësi që lëshoi atestimin është ende i autorizuar.
+pub fn is_current_source(record: &AttestationRecord, state: &VerifierState) -> bool {
+    state.bank_key_whitelist.contains(&record.bank_key_hash)
 }
 
 #[cfg(test)]
@@ -226,6 +274,34 @@ mod tests {
         let req = Requirement::at_least("balance", 1).fresh_within(3_600);
         assert!(check(&r, &u, &req, 4_600).is_ok());
         assert!(code(check(&r, &u, &req, 4_601)).contains("GateExpired"));
+    }
+
+    #[test]
+    fn source_pinning_and_revocation() {
+        let u = Pubkey::new_unique();
+        let mut r = rec(u, 10_000, u64::MAX, "balance", 1_000);
+        r.bank_key_hash = [7; 32];
+        let req = Requirement::at_least("balance", 5_000);
+        assert!(check(&r, &u, &req.from_source([7; 32]), 1_000).is_ok());
+        assert!(code(check(&r, &u, &req.from_source([8; 32]), 1_000)).contains("GateWrongSource"));
+        let mut st = VerifierState {
+            authority: u,
+            verifying_key: crate::VerifyingKey {
+                alpha_g1: [0; 64],
+                beta_g2: [0; 128],
+                gamma_g2: [0; 128],
+                delta_g2: [0; 128],
+                ic: vec![],
+            },
+            bank_key_whitelist: vec![[7; 32]],
+            app_id: [0; 32],
+            allowed_claim_keys: vec![BALANCE],
+            max_attestation_age_secs: 0,
+            bump: 255,
+        };
+        assert!(is_current_source(&r, &st));
+        st.bank_key_whitelist.clear(); // remove_bank_key
+        assert!(!is_current_source(&r, &st));
     }
 
     #[test]

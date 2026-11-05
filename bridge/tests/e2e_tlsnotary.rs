@@ -91,6 +91,7 @@ fn bridge() -> Bridge {
                 account_key: "iban".into(),
                 currency: Some("EUR".into()),
                 currency_key: "currency".into(),
+                allow_query: false,
             }],
             max_age_secs: 600,
         },

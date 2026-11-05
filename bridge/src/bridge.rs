@@ -36,10 +36,28 @@ pub struct Source {
     /// Çelësi JSON i monedhës në përgjigje.
     #[serde(default = "default_currency_key")]
     pub currency_key: String,
+    /// Lejon query string (`?...`). Parazgjedhur jo: një parametër si `?as_of=2019-01-01`
+    /// ose `?account=...` mund të ndryshonte kuptimin e përgjigjes pa ndryshuar rrugën.
+    #[serde(default)]
+    pub allow_query: bool,
 }
 
 fn default_currency_key() -> String {
     "currency".into()
+}
+
+impl Source {
+    /// Rruga (pa query) i përket burimit: prefiksi përputhet në kufi segmenti, pra
+    /// `/v1/accounts` pranon `/v1/accounts/me`, jo `/v1/accounts-archive/me`.
+    fn matches_path(&self, path: &str) -> bool {
+        let p = path.split_once('?').map_or(path, |(p, _)| p);
+        match p.strip_prefix(self.path_prefix.as_str()) {
+            Some(rest) => {
+                self.path_prefix.ends_with('/') || rest.is_empty() || rest.starts_with('/')
+            }
+            None => false,
+        }
+    }
 }
 
 /// Politika e urës (skedar JSON).
@@ -55,6 +73,51 @@ pub struct Policy {
 
 fn default_max_age() -> u64 {
     600
+}
+
+impl Policy {
+    /// Kontrollet e politikës në nisje (jo në çdo kërkesë).
+    ///
+    /// Të gjitha burimet nënshkruhen me të njëjtin çelës RSA, pra on-chain duken si një
+    /// burim i vetëm: dy burime "balance" me monedha të ndryshme (EUR dhe ALL) do të
+    /// bënin "bilanc ≥ 5 000" të paqartë. Prandaj burimet e të njëjtit `target_key`
+    /// duhet të kenë të njëjtën monedhë.
+    pub fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.notary_keys.is_empty(),
+            "politika nuk ka noterë të besuar"
+        );
+        ensure!(!self.sources.is_empty(), "politika nuk ka burime");
+        ensure!(self.max_age_secs > 0, "max_age_secs duhet të jetë > 0");
+        for s in &self.sources {
+            ensure!(!s.server.is_empty(), "burim pa server");
+            check_path(&s.path_prefix)
+                .with_context(|| format!("path_prefix `{}`", s.path_prefix))?;
+            ensure!(
+                !s.path_prefix.contains('?'),
+                "path_prefix `{}` nuk mund të ketë query",
+                s.path_prefix
+            );
+            ensure!(
+                !s.target_key.is_empty() && !s.account_key.is_empty(),
+                "burimi {} ka target_key/account_key bosh",
+                s.server
+            );
+            let cur = |x: &Source| x.currency.as_deref().map(str::to_ascii_uppercase);
+            for o in self.sources.iter().filter(|o| o.target_key == s.target_key) {
+                ensure!(
+                    cur(o) == cur(s),
+                    "burimet e `{}` kanë monedha të ndryshme ({:?} te {}, {:?} te {})",
+                    s.target_key,
+                    s.currency,
+                    s.server,
+                    o.currency,
+                    o.server
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Kërkesa te `POST /attest`.
@@ -112,6 +175,11 @@ fn bound_wallet(sent: &[u8], unauthed: &[std::ops::Range<usize>]) -> Result<Stri
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
         .context("kërkesa nuk ka fund header-ash")?;
+    // një GET i vetëm pa trup: asgjë pas header-ave (p.sh. një kërkesë e dytë e fshehur)
+    ensure!(
+        head_end + 4 == sent.len(),
+        "sesioni duhet të ketë vetëm një kërkesë GET pa trup"
+    );
     let mut found = Vec::new();
     let mut start = 0;
     while start < head_end {
@@ -152,6 +220,22 @@ fn unique_json_value(body: &str, key: &str) -> Result<String> {
     ensure!(
         count == 1,
         "çelësi `{key}` duhet të shfaqet saktësisht një herë ({count})"
+    );
+    // edhe në pemën e analizuar: një çelës i shkruar me escape (`"\u0069ban"`) nuk
+    // shfaqet në numërimin e tekstit, por serde e njeh si `iban`
+    fn occurrences(v: &serde_json::Value, key: &str) -> usize {
+        match v {
+            serde_json::Value::Object(m) => m
+                .iter()
+                .map(|(k, x)| usize::from(k == key) + occurrences(x, key))
+                .sum(),
+            serde_json::Value::Array(a) => a.iter().map(|x| occurrences(x, key)).sum(),
+            _ => 0,
+        }
+    }
+    ensure!(
+        occurrences(&v, key) == 1,
+        "çelësi `{key}` duhet të shfaqet saktësisht një herë në JSON"
     );
     fn find<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
         match v {
@@ -245,8 +329,12 @@ impl Bridge {
             .policy
             .sources
             .iter()
-            .find(|s| s.server == server && path.starts_with(&s.path_prefix))
+            .find(|s| s.server == server && s.matches_path(&path))
             .with_context(|| format!("burim i palejuar: {server}{path}"))?;
+        ensure!(
+            source.allow_query || !path.contains('?'),
+            "ky burim nuk lejon query string ({path})"
+        );
 
         // 5. përgjigjja duhet të jetë e zbuluar e plotë (nuk lejohen fusha të fshehura)
         ensure!(
@@ -266,6 +354,22 @@ impl Bridge {
             !head.to_ascii_lowercase().contains("transfer-encoding:"),
             "përgjigjet chunked nuk mbështeten ende"
         );
+        // një përgjigje e vetme: trupi është saktësisht Content-Length bajte
+        let lengths: Vec<&str> = head
+            .split("\r\n")
+            .filter_map(|l| l.split_once(':'))
+            .filter(|(k, _)| k.trim().eq_ignore_ascii_case("content-length"))
+            .map(|(_, v)| v.trim())
+            .collect();
+        ensure!(lengths.len() <= 1, "përgjigjja ka disa Content-Length");
+        if let Some(cl) = lengths.first() {
+            let cl: usize = cl.parse().context("Content-Length i pavlefshëm")?;
+            ensure!(
+                cl == body.len(),
+                "trupi ka {} bajte, Content-Length thotë {cl} (përgjigje e dytë?)",
+                body.len()
+            );
+        }
         let account_id = unique_json_value(body, &source.account_key)?;
         if let Some(expected) = &source.currency {
             let got = unique_json_value(body, &source.currency_key)
@@ -343,6 +447,65 @@ mod tests {
         assert!(bound_wallet(b"GET / HTTP/1.1\r\nhost: x\r\n\r\n", &[]).is_err());
         let two = b"GET / HTTP/1.1\r\nX-Zktls-Wallet: A\r\nx-zktls-wallet: B\r\n\r\n";
         assert!(bound_wallet(two, &[]).is_err());
+    }
+
+    #[test]
+    fn single_request_only() {
+        let two = b"GET /v1/me HTTP/1.1\r\nx-zktls-wallet: W\r\n\r\nGET /v1/loans HTTP/1.1\r\n\r\n";
+        assert!(bound_wallet(two, &[]).is_err());
+        let body = b"GET /v1/me HTTP/1.1\r\nx-zktls-wallet: W\r\n\r\nx";
+        assert!(bound_wallet(body, &[]).is_err());
+    }
+
+    #[test]
+    fn escaped_duplicate_key() {
+        // teksti ka një `"iban"`, por serde sheh dy (njëri me escape)
+        let b = r#"{"\u0069ban":"X","y":{"iban":"Y"}}"#;
+        assert!(unique_json_value(b, "iban").is_err());
+    }
+
+    fn src(prefix: &str) -> Source {
+        Source {
+            server: "api.banka.al".into(),
+            path_prefix: prefix.into(),
+            target_key: "balance".into(),
+            account_key: "iban".into(),
+            currency: Some("EUR".into()),
+            currency_key: "currency".into(),
+            allow_query: false,
+        }
+    }
+
+    #[test]
+    fn prefix_on_segment_boundary() {
+        let s = src("/v1/accounts");
+        assert!(s.matches_path("/v1/accounts"));
+        assert!(s.matches_path("/v1/accounts/me"));
+        assert!(s.matches_path("/v1/accounts/me?x=1"));
+        assert!(!s.matches_path("/v1/accounts-archive/me"));
+        assert!(!s.matches_path("/v1/accountsX"));
+        let s = src("/v1/accounts/");
+        assert!(s.matches_path("/v1/accounts/me"));
+        assert!(!s.matches_path("/v1/accounts"));
+    }
+
+    #[test]
+    fn policy_validation() {
+        let p = |sources: Vec<Source>| Policy {
+            notary_keys: vec!["02ab".into()],
+            sources,
+            max_age_secs: 600,
+        };
+        assert!(p(vec![src("/v1/accounts/")]).validate().is_ok());
+        let mut all = src("/v2/accounts/");
+        all.currency = Some("ALL".into());
+        assert!(p(vec![src("/v1/accounts/"), all.clone()])
+            .validate()
+            .is_err());
+        all.currency = Some("eur".into());
+        assert!(p(vec![src("/v1/accounts/"), all]).validate().is_ok());
+        assert!(p(vec![src("/v1/../x/")]).validate().is_err());
+        assert!(p(vec![]).validate().is_err());
     }
 
     #[test]

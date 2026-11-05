@@ -125,8 +125,8 @@ impl Engine {
         }
     }
 
-    /// Provat e njëkohshme që nuk mbingarkojnë CPU-në: një provë Circom zë ~3
-    /// bërthama (matur në CI), një provë dev ~2.
+    /// Provat e njëkohshme që nuk mbingarkojnë CPU-në: një provë Circom zë ~3–4
+    /// bërthama (~8 s CPU në ~2.2 s, matur në CI), një provë dev ~2.
     fn default_parallel(&self) -> usize {
         let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
         match self {
@@ -633,37 +633,84 @@ const MAX_CONNECTIONS: usize = 128;
 /// secilën. Çdo kërkesë ka gjendjen e vet (sesion, dëshmitar, provë): nuk ka
 /// gjendje të përbashkët mes klientëve përveç çelësit të provimit (vetëm lexim).
 struct ProveGate {
-    free: std::sync::Mutex<usize>,
+    st: std::sync::Mutex<GateState>,
     cv: std::sync::Condvar,
+    /// Kërkesat që mund të presin në radhë; përtej kësaj → 503 menjëherë, në vend
+    /// që klienti të presë minuta dhe të bjerë në timeout.
+    max_waiting: usize,
 }
+
+struct GateState {
+    free: usize,
+    waiting: usize,
+}
+
+/// Kërkesa në pritje për çdo vend prove (~2–4 s secila me rapidsnark).
+const QUEUE_PER_SLOT: usize = 32;
 
 impl ProveGate {
     fn new(slots: usize) -> Self {
+        let slots = slots.max(1);
         ProveGate {
-            free: std::sync::Mutex::new(slots.max(1)),
+            st: std::sync::Mutex::new(GateState {
+                free: slots,
+                waiting: 0,
+            }),
             cv: std::sync::Condvar::new(),
+            max_waiting: slots * QUEUE_PER_SLOT,
         }
     }
-    fn run<T>(&self, f: impl FnOnce() -> T) -> T {
-        let mut free = self
-            .cv
-            .wait_while(self.free.lock().unwrap(), |n| *n == 0)
-            .unwrap();
-        *free -= 1;
-        drop(free);
+
+    /// `None` kur radha është plot.
+    fn run<T>(&self, f: impl FnOnce() -> T) -> Option<T> {
+        let mut st = self.st.lock().unwrap();
+        if st.free == 0 && st.waiting >= self.max_waiting {
+            return None;
+        }
+        st.waiting += 1;
+        let mut st = self.cv.wait_while(st, |s| s.free == 0).unwrap();
+        st.waiting -= 1;
+        st.free -= 1;
+        drop(st);
         struct Release<'a>(&'a ProveGate);
         impl Drop for Release<'_> {
             fn drop(&mut self) {
-                *self.0.free.lock().unwrap() += 1;
+                self.0.st.lock().unwrap().free += 1;
                 self.0.cv.notify_one();
             }
         }
         let _r = Release(self);
-        f()
+        Some(f())
     }
 }
 /// Afati i leximit/shkrimit: një klient i ngadaltë nuk e bllokon serverin.
 const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Afati total për të lexuar kërkesën (rreshti + header-at + trupi).
+const REQUEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Lexues me afat total. `set_read_timeout` vlen për çdo `read` veç e veç, ndaj
+/// një klient që dërgon 1 bajt çdo 9 s (slowloris) do ta mbante lidhjen me orë
+/// dhe, me 128 lidhje të tilla, do t'ua zinte vendin të gjithëve.
+struct DeadlineReader {
+    s: TcpStream,
+    until: std::time::Instant,
+}
+
+impl Read for DeadlineReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self
+            .until
+            .saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "kërkesa nuk mbërriti brenda afatit",
+            ));
+        }
+        self.s.set_read_timeout(Some(left.min(IO_TIMEOUT)))?;
+        self.s.read(buf)
+    }
+}
 
 fn serve(
     addr: &str,
@@ -733,7 +780,13 @@ fn handle(
     // Rreshti i kërkesës + header-at: gjithsej ≤ 16 KiB (pa kufi, një klient mund të
     // dërgonte header-a me madhësi arbitrare dhe të mbushte memorien).
     const MAX_HEAD: u64 = 16 * 1024;
-    let mut reader = BufReader::new(stream.try_clone()?.take(MAX_HEAD));
+    let mut reader = BufReader::new(
+        DeadlineReader {
+            s: stream.try_clone()?,
+            until: std::time::Instant::now() + REQUEST_DEADLINE,
+        }
+        .take(MAX_HEAD),
+    );
     let mut line = String::new();
     reader.read_line(&mut line)?;
     if !line.ends_with('\n') {
@@ -741,7 +794,7 @@ fn handle(
     }
     let mut parts = line.split_whitespace();
     let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    let mut len = 0usize;
+    let mut len: Option<usize> = None;
     loop {
         let mut h = String::new();
         reader.read_line(&mut h)?;
@@ -751,10 +804,18 @@ fn handle(
         if h == "\r\n" || h == "\n" {
             break;
         }
-        if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
-            len = v.trim().parse()?;
+        let lower = h.to_ascii_lowercase();
+        if let Some(v) = lower.strip_prefix("content-length:") {
+            // dy Content-Length (ose chunked) janë baza e "request smuggling" pas një proxy-je
+            if len.replace(v.trim().parse()?).is_some() {
+                bail!("kërkesa ka disa Content-Length");
+            }
+        }
+        if lower.starts_with("transfer-encoding:") {
+            bail!("Transfer-Encoding nuk mbështetet; përdorni Content-Length");
         }
     }
+    let len = len.unwrap_or(0);
     if len > 1 << 20 {
         bail!("trupi i kërkesës > 1 MiB");
     }
@@ -798,7 +859,14 @@ fn handle(
                     &serde_json::json!({ "error": e.to_string() }).to_string(),
                 );
             }
-            let (bundle, _, _) = gate.run(|| prover.prove(&req.session, &req.claim))?;
+            let Some(res) = gate.run(|| prover.prove(&req.session, &req.claim)) else {
+                return respond(
+                    stream,
+                    503,
+                    r#"{"error":"radha e provave është plot, provo pas pak sekondash"}"#,
+                );
+            };
+            let (bundle, _, _) = res?;
             respond(stream, 200, &serde_json::to_string(&bundle)?)
         }
         _ => respond(stream, 404, r#"{"error":"not found"}"#),
@@ -814,13 +882,61 @@ fn respond(stream: &mut TcpStream, code: u16, body: &str) -> Result<()> {
         404 => "Not Found",
         _ => "Bad Request",
     };
+    // 503 = i zënë: klienti mund të provojë sërish pas pak
+    let retry = if code == 503 {
+        "Retry-After: 5\r\n"
+    } else {
+        ""
+    };
     write!(
         stream,
-        "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n\
+        "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n{retry}\
          Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
          Access-Control-Allow-Headers: content-type\r\n\
          Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{mpsc, Arc};
+
+    fn wait_until(g: &ProveGate, f: impl Fn(&GateState) -> bool) {
+        while !f(&g.st.lock().unwrap()) {
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn gate_queue_is_bounded() {
+        let g = Arc::new(ProveGate {
+            st: std::sync::Mutex::new(GateState {
+                free: 1,
+                waiting: 0,
+            }),
+            cv: std::sync::Condvar::new(),
+            max_waiting: 1,
+        });
+        // A zë vendin, B pret në radhë
+        let (ta, ra) = mpsc::channel::<()>();
+        let ga = g.clone();
+        let a = std::thread::spawn(move || ga.run(|| ra.recv().unwrap()));
+        wait_until(&g, |s| s.free == 0);
+        let (tb, rb) = mpsc::channel::<()>();
+        let gb = g.clone();
+        let b = std::thread::spawn(move || gb.run(|| rb.recv().unwrap()));
+        wait_until(&g, |s| s.waiting == 1);
+        // C: radha plot → refuzohet menjëherë
+        assert!(g.run(|| ()).is_none());
+        ta.send(()).unwrap();
+        assert_eq!(a.join().unwrap(), Some(()));
+        tb.send(()).unwrap();
+        assert_eq!(b.join().unwrap(), Some(()));
+        assert_eq!(g.run(|| 5), Some(5));
+        let st = g.st.lock().unwrap();
+        assert_eq!((st.free, st.waiting), (1, 0));
+    }
 }
