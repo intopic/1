@@ -1,5 +1,7 @@
 # Prover parallelism and a pool of ten Fly Machines
 
+Measured results: [2,304 verified proofs on one four-CPU runner](PARALLEL_RESULTS.md).
+
 The ZK E2E workflow compares **1, 2 and 4 active proof workers on the same runner**.
 For each setting it runs balance, age and mixed traffic: 128 distinct wallets/source
 accounts per trial, 16 concurrent clients, two repeats, four excluded warmup requests.
