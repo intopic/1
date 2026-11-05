@@ -1,0 +1,82 @@
+{
+  "source_commit": "564b9a4095041ea9caedd49a86275da34cbedd41",
+  "verified_at_utc": "2026-11-05T19:51:39Z",
+  "ci": {
+    "run_url": "https://github.com/intopic/1/actions/runs/42096538591",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 127487938910,
+        "name": "rust",
+        "conclusion": "success"
+      },
+      {
+        "id": 127487938648,
+        "name": "web-demo",
+        "conclusion": "success"
+      },
+      {
+        "id": 127487938773,
+        "name": "tlsnotary-bridge",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "zk_e2e": {
+    "run_url": "https://github.com/intopic/1/actions/runs/42096538552",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 127487938338,
+        "name": "Circom → Groth16 → verifikim",
+        "conclusion": "success"
+      },
+      {
+        "id": 127487939029,
+        "name": "Anchor → localnet → testet TypeScript",
+        "conclusion": "success"
+      },
+      {
+        "id": 127491813918,
+        "name": "Imazhi fly.io (build + provë reale në kontejner)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "validation": {
+    "workspace_rust_tests_passed": 43,
+    "verifier_native_tests_passed": 22,
+    "new_access_native_tests": 9,
+    "bridge_unit_tests_passed": 13,
+    "bridge_mpc_tls_e2e_tests_passed": 2,
+    "localnet_tests_passed": 30,
+    "new_access_localnet_tests": 9,
+    "localnet_proof_backend": "arkworks dev; production Circom proof verification is tested separately",
+    "thirty_day_and_indefinite_time_boundaries": "native injected-clock tests",
+    "localnet_clock": "actual validator clock, short access lifetimes; no test-only mutation endpoints",
+    "clippy": [
+      "workspace all-targets",
+      "verifier all-targets",
+      "gated-pool",
+      "bridge all-targets"
+    ],
+    "typecheck": "passed",
+    "localnet_access_cases": [
+      "creates immutable business terms: 24h balance freshness and 30-day access (887ms)",
+      "requires every configured condition, correct claim, threshold and source (3335ms)",
+      "pins business policy and wallet; a weaker policy cannot bypass the gate (1690ms)",
+      "only the business authority can pause or revoke; users cannot readmit around revocation (2470ms)",
+      "access survives evidence freshness expiry; new admission still needs fresh evidence (14269ms)",
+      "supports age-only and indefinite grants without repeatedly checking stable DOB (1677ms)",
+      "expiry blocks new actions, not withdrawals; renewal requires a newer balance observation (5057ms)",
+      "periodic refresh requires new evidence and preserves the original access expiry (5066ms)",
+      "issuer and verifier security revocations also stop independent access grants (2190ms)"
+    ]
+  },
+  "artifact": {
+    "name": "access-localnet",
+    "id": 13447319270,
+    "sha256": "bae039a83756cda30baadef495eb0f7c38e74f6e9c21062fb3da98caaff3fe85"
+  },
+  "deployment": "No devnet or mainnet deployment performed"
+}

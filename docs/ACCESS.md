@@ -111,6 +111,14 @@ No circuit, zkey or proof-format change is required.
 
 ## Validation
 
+Validated against commit `564b9a4095041ea9caedd49a86275da34cbedd41`:
+[CI](https://github.com/intopic/1/actions/runs/42096538591) and
+[ZK E2E](https://github.com/intopic/1/actions/runs/42096538552) both passed, including
+the Docker proof test. Localnet passed 30 tests (9 new access cases); the verifier
+passed 22 native tests (9 new access cases). See the
+[structured validation record](measurements/access-policy-ci.json). No public-network
+deployment was performed.
+
 Native tests inject time to exercise exact 30-day expiry and indefinite lifetime,
 periodic checks, non-sliding refresh, newer-evidence renewal, invalid configuration,
 wallet/policy binding and revocation. Localnet tests use real signed transactions,
