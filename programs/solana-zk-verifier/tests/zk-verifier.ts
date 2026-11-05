@@ -11,6 +11,7 @@ import { readFileSync, mkdirSync } from "fs";
 import { expect } from "chai";
 // ESM: `anchor.BN` nuk eksportohet si emër nga paketa CJS, ndaj importohet direkt.
 import BN from "bn.js";
+import { prefund } from "./prefund";
 
 // `anchor test` ekzekutohet nga rrënja e depos (ESM: __dirname nuk ekziston)
 const ROOT = process.cwd();
@@ -100,6 +101,10 @@ describe("solana-zk-verifier", () => {
       err = String(e);
     }
     expect(err).to.contain("Unauthorized");
+  });
+
+  it("third-party prefunding does not block verifier, attestation or nullifier initialization", async () => {
+    await prefund(provider,[statePda,recordPda,nullifierPda(proof)]);
   });
 
   it("inicializon VK dhe whitelist-ën", async () => {

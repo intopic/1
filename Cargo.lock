@@ -456,7 +456,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "triad-core",
  "ureq",
  "zktls-prover",
 ]

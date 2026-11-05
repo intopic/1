@@ -74,6 +74,10 @@ curl https://<emri-juaj>.fly.dev/health   # {"status":"ok","backend":"circom-rap
   - `PROVER_API_KEYS=<k1>,<k2>`: çdo kërkesë kërkon `x-api-key` (përndryshe **401**). Për
     integrues server-me-server. Një çelës i futur në faqen web (`VITE_PROVER_API_KEY`)
     është publik: ndal vetëm përdorimin e rastësishëm, kufiri për IP mbetet mbrojtja reale.
+  - `PROVER_CLIENT_IP_HEADER` pranon vetëm `fly-client-ip` ose `cf-connecting-ip`.
+    Origin-i duhet të arrihet vetëm përmes proxy-t që e mbishkruan header-in; emri i
+    header-it nuk autentikon klientin. `X-Forwarded-For` nuk mbështetet. Header-at
+    e besuar të munguar, të dyfishtë, me lista ose me vlerë jo-IP refuzohen me 400.
 - Ura: `"target_pointer": "/account/balance"` (dhe `"account_pointer"`) e lidh vlerën me
   vendin e saktë në JSON, që një `loan.balance` të mos lexohet si bilanc. `"decimals": 2`
   i kthen shumat në centë (`15200.99` → `1520099`); me `0`, një shumë me presje refuzohet

@@ -21,6 +21,11 @@ use zktls_prover::NotarizedSession;
 /// Një burim i lejuar (bankë/regjistër) dhe fusha që lexohen prej tij.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Source {
+    #[serde(default = "default_method")]
+    pub method: String,
+    /// Exact, public, read-only POST query. Dynamic/secret bodies are unsupported.
+    #[serde(default)]
+    pub request_body: Option<String>,
     /// Domeni TLS i autentikuar nga noteri.
     pub server: String,
     /// Rruga e kërkesës duhet të fillojë me këtë.
@@ -61,6 +66,10 @@ pub struct Source {
 
 fn default_currency_key() -> String {
     "currency".into()
+}
+
+fn default_method() -> String {
+    "GET".into()
 }
 
 impl Source {
@@ -107,6 +116,29 @@ impl Policy {
         ensure!(!self.sources.is_empty(), "politika nuk ka burime");
         ensure!(self.max_age_secs > 0, "max_age_secs duhet të jetë > 0");
         for s in &self.sources {
+            ensure!(
+                s.method == "GET" || s.method == "POST",
+                "source method must be GET or POST"
+            );
+            if s.method == "POST" {
+                let body = s
+                    .request_body
+                    .as_deref()
+                    .context("POST source requires an exact request_body")?;
+                ensure!(
+                    body.len() <= crate::MAX_SENT_DATA / 2,
+                    "POST policy body too large"
+                );
+                ensure!(
+                    serde_json::from_str::<serde_json::Value>(body)?.is_object(),
+                    "POST body must be a JSON object"
+                );
+            } else {
+                ensure!(
+                    s.request_body.is_none(),
+                    "GET source cannot have request_body"
+                );
+            }
             ensure!(!s.server.is_empty(), "burim pa server");
             check_path(&s.path_prefix)
                 .with_context(|| format!("path_prefix `{}`", s.path_prefix))?;
@@ -213,7 +245,7 @@ fn response_parts(raw: &[u8]) -> Result<(&str, &str)> {
 }
 
 /// Kthen indeksin e fundit të rreshtit të parë (`\r\n`) dhe rrugën e kërkesës.
-fn request_path(sent: &[u8]) -> Result<(usize, String)> {
+fn request_path(sent: &[u8]) -> Result<(usize, String, String)> {
     let end = sent
         .windows(2)
         .position(|w| w == b"\r\n")
@@ -221,8 +253,19 @@ fn request_path(sent: &[u8]) -> Result<(usize, String)> {
     let line = std::str::from_utf8(&sent[..end])?;
     let mut parts = line.split(' ');
     let (method, path) = (parts.next(), parts.next());
-    ensure!(method == Some("GET"), "lejohen vetëm kërkesa GET");
-    Ok((end, path.context("mungon rruga")?.to_string()))
+    ensure!(
+        matches!(method, Some("GET" | "POST")),
+        "only GET and POST are supported"
+    );
+    ensure!(
+        matches!(parts.next(), Some("HTTP/1.0" | "HTTP/1.1")) && parts.next().is_none(),
+        "invalid HTTP request line"
+    );
+    Ok((
+        end,
+        method.unwrap().to_string(),
+        path.context("mungon rruga")?.to_string(),
+    ))
 }
 
 /// Rruga duhet të jetë e thjeshtë: pa `..`, pa `%` (kodim), pa `//`, pa `\\`, vetëm
@@ -243,20 +286,31 @@ fn check_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Portofoli i shkruar nga prover-i në header-in [`WALLET_HEADER`] të kërkesës.
-/// Rreshti i header-it duhet të jetë i plotë në pjesën e autentikuar të transkriptit.
-fn bound_wallet(sent: &[u8], unauthed: &[std::ops::Range<usize>]) -> Result<String> {
+/// Validate one authenticated request and its exact policy-approved framing/body.
+fn validate_request(
+    sent: &[u8],
+    unauthed: &[std::ops::Range<usize>],
+    source: &Source,
+) -> Result<()> {
     let head_end = sent
         .windows(4)
         .position(|w| w == b"\r\n\r\n")
         .context("kërkesa nuk ka fund header-ash")?;
     // një GET i vetëm pa trup: asgjë pas header-ave (p.sh. një kërkesë e dytë e fshehur)
+    let authenticated =
+        |start: usize, end: usize| unauthed.iter().all(|r| r.end <= start || r.start >= end);
     ensure!(
-        head_end + 4 == sent.len(),
-        "sesioni duhet të ketë vetëm një kërkesë GET pa trup"
+        authenticated(head_end, head_end + 4),
+        "hidden HTTP delimiter"
     );
-    let mut found = Vec::new();
-    let mut start = 0;
+    let mut lengths = Vec::new();
+    let mut hosts = Vec::new();
+    let mut types = Vec::new();
+    let mut start = sent
+        .windows(2)
+        .position(|w| w == b"\r\n")
+        .context("missing request line")?
+        + 2;
     while start < head_end {
         let end = sent[start..head_end]
             .windows(2)
@@ -264,24 +318,72 @@ fn bound_wallet(sent: &[u8], unauthed: &[std::ops::Range<usize>]) -> Result<Stri
             .map(|i| start + i)
             .unwrap_or(head_end);
         let line = &sent[start..end];
-        if let Some(colon) = line.iter().position(|&b| b == b':') {
-            if line[..colon].eq_ignore_ascii_case(crate::WALLET_HEADER.as_bytes()) {
-                ensure!(
-                    unauthed.iter().all(|r| r.end <= start || r.start >= end),
-                    "header-i i portofolit nuk është i autentikuar"
-                );
-                found.push(std::str::from_utf8(&line[colon + 1..])?.trim().to_string());
-            }
+        let colon = line
+            .iter()
+            .position(|&b| b == b':')
+            .context("invalid HTTP header")?;
+        let name = hyper::header::HeaderName::from_bytes(&line[..colon])?;
+        ensure!(
+            authenticated(start, start + colon + 1) && authenticated(end, end + 2),
+            "hidden HTTP framing"
+        );
+        if !crate::SECRET_HEADERS.contains(&name.as_str()) {
+            ensure!(
+                authenticated(start, end),
+                "non-secret HTTP header must be authenticated"
+            );
+        }
+        let value = std::str::from_utf8(&line[colon + 1..])?.trim();
+        match name.as_str() {
+            "transfer-encoding" => bail!("request Transfer-Encoding is unsupported"),
+            "content-length" => lengths.push(value.parse::<usize>()?),
+            "host" => hosts.push(value),
+            "content-type" => types.push(value),
+            _ => (),
         }
         start = end + 2;
     }
     ensure!(
-        found.len() == 1,
-        "sesioni TLS duhet të ketë saktësisht një header `{}` ({})",
-        crate::WALLET_HEADER,
-        found.len()
+        hosts.len() == 1
+            && (hosts[0].eq_ignore_ascii_case(&source.server)
+                || hosts[0].eq_ignore_ascii_case(&format!("{}:443", source.server))),
+        "Host must match the source domain"
     );
-    Ok(found.remove(0))
+    ensure!(lengths.len() <= 1, "duplicate request Content-Length");
+    let body = &sent[head_end + 4..];
+    if let Some(len) = lengths.first() {
+        ensure!(
+            *len == body.len(),
+            "request body length mismatch or pipelined request"
+        );
+    }
+    if source.method == "GET" {
+        ensure!(
+            body.is_empty(),
+            "GET must not have a body or pipelined request"
+        );
+    } else {
+        ensure!(
+            lengths.len() == 1
+                && types.len() == 1
+                && types[0]
+                    .split(';')
+                    .next()
+                    .unwrap()
+                    .trim()
+                    .eq_ignore_ascii_case("application/json"),
+            "POST requires JSON and Content-Length"
+        );
+        ensure!(
+            authenticated(head_end + 4, sent.len()),
+            "POST body must be authenticated"
+        );
+        ensure!(
+            source.request_body.as_deref().map(str::as_bytes) == Some(body),
+            "POST body does not match source policy"
+        );
+    }
+    Ok(())
 }
 
 /// Segmenti i fundit i një JSON Pointer-i (me `~1` → `/`, `~0` → `~`).
@@ -430,6 +532,7 @@ impl Bridge {
             server_name,
             connection_info,
             transcript,
+            extensions,
             ..
         } = presentation
             .verify(&provider)
@@ -450,7 +553,7 @@ impl Bridge {
 
         // 4. burimi i lejuar: domeni + rruga (rreshti i kërkesës duhet të jetë i autentikuar)
         let sent = transcript.sent_unsafe();
-        let (line_end, path) = request_path(sent)?;
+        let (line_end, method, path) = request_path(sent)?;
         if let Some(first_hidden) = transcript.sent_unauthed().min() {
             ensure!(
                 first_hidden >= line_end,
@@ -460,7 +563,7 @@ impl Bridge {
         check_path(&path)?;
         // portofoli vjen nga sesioni TLS, jo nga kërkesa JSON (anti ri-lidhje)
         let unauthed: Vec<_> = transcript.sent_unauthed().iter().collect();
-        let session_wallet = bound_wallet(sent, &unauthed)?;
+        let session_wallet = crate::wallet_from_extensions(&extensions)?;
         ensure!(
             session_wallet == wallet,
             "portofoli i kërkesës ({wallet}) nuk është ai i sesionit TLS ({session_wallet})"
@@ -469,8 +572,9 @@ impl Bridge {
             .policy
             .sources
             .iter()
-            .find(|s| s.server == server && s.matches_path(&path))
+            .find(|s| s.server == server && s.method == method && s.matches_path(&path))
             .with_context(|| format!("burim i palejuar: {server}{path}"))?;
+        validate_request(sent, &unauthed, source)?;
         ensure!(
             source.allow_query || !path.contains('?'),
             "ky burim nuk lejon query string ({path})"
@@ -578,23 +682,61 @@ mod tests {
     }
 
     #[test]
-    fn wallet_header() {
-        let req = b"GET /v1/me HTTP/1.1\r\nhost: x\r\nx-zktls-wallet: W1\r\n\r\n";
-        assert_eq!(bound_wallet(req, &[]).unwrap(), "W1");
-        // i fshehur (i paautentikuar) → refuzohet
-        assert!(bound_wallet(req, std::slice::from_ref(&(30..40))).is_err());
-        // mungon ose dy herë → refuzohet
-        assert!(bound_wallet(b"GET / HTTP/1.1\r\nhost: x\r\n\r\n", &[]).is_err());
-        let two = b"GET / HTTP/1.1\r\nX-Zktls-Wallet: A\r\nx-zktls-wallet: B\r\n\r\n";
-        assert!(bound_wallet(two, &[]).is_err());
+    fn signed_wallet_extension() {
+        let wallet = "11111111111111111111111111111111";
+        let ext = crate::wallet_extension(wallet).unwrap();
+        assert_eq!(
+            crate::wallet_from_extensions(std::slice::from_ref(&ext)).unwrap(),
+            wallet
+        );
+        assert!(crate::wallet_from_extensions(&[]).is_err());
+        assert!(crate::wallet_from_extensions(&[ext.clone(), ext.clone()]).is_err());
+        let mut wrong = ext;
+        wrong.value.pop();
+        assert!(crate::wallet_from_extensions(&[wrong]).is_err());
+        assert!(crate::wallet_extension("invalid").is_err());
     }
 
     #[test]
     fn single_request_only() {
-        let two = b"GET /v1/me HTTP/1.1\r\nx-zktls-wallet: W\r\n\r\nGET /v1/loans HTTP/1.1\r\n\r\n";
-        assert!(bound_wallet(two, &[]).is_err());
-        let body = b"GET /v1/me HTTP/1.1\r\nx-zktls-wallet: W\r\n\r\nx";
-        assert!(bound_wallet(body, &[]).is_err());
+        let source = src("/v1/me");
+        let good = b"GET /v1/me HTTP/1.1\r\nhost: api.banka.al\r\n\r\n";
+        assert!(validate_request(good, &[], &source).is_ok());
+        assert!(validate_request(good, std::slice::from_ref(&(30..34)), &source).is_err());
+        for suffix in [b"x".as_slice(), b"GET /v1/loans HTTP/1.1\r\n\r\n"] {
+            let mut bad = good.to_vec();
+            bad.extend_from_slice(suffix);
+            assert!(validate_request(&bad, &[], &source).is_err());
+        }
+    }
+
+    #[test]
+    fn exact_post_policy_rejects_hidden_modified_or_smuggled_body() {
+        let mut source = src("/v1/me");
+        source.method = "POST".into();
+        source.request_body = Some("{}".into());
+        let good = b"POST /v1/me HTTP/1.1\r\nhost: api.banka.al\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}";
+        assert!(validate_request(good, &[], &source).is_ok());
+        assert!(validate_request(
+            good,
+            std::slice::from_ref(&(good.len() - 2..good.len())),
+            &source
+        )
+        .is_err());
+        let mut changed = good.to_vec();
+        let n = changed.len();
+        changed[n - 1] = b']';
+        assert!(validate_request(&changed, &[], &source).is_err());
+        let duplicate = String::from_utf8(good.to_vec()).unwrap().replace(
+            "content-length: 2",
+            "content-length: 2\r\ncontent-length: 2",
+        );
+        assert!(validate_request(duplicate.as_bytes(), &[], &source).is_err());
+        let te = duplicate.replace(
+            "content-length: 2\r\ncontent-length: 2",
+            "transfer-encoding: chunked",
+        );
+        assert!(validate_request(te.as_bytes(), &[], &source).is_err());
     }
 
     #[test]
@@ -606,6 +748,8 @@ mod tests {
 
     fn src(prefix: &str) -> Source {
         Source {
+            method: "GET".into(),
+            request_body: None,
             server: "api.banka.al".into(),
             path_prefix: prefix.into(),
             target_key: "balance".into(),
@@ -682,9 +826,10 @@ mod tests {
 
     #[test]
     fn request_line() {
-        let (end, p) = request_path(b"GET /v1/me HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
-        assert_eq!((end, p.as_str()), (19, "/v1/me"));
-        assert!(request_path(b"POST /v1/me HTTP/1.1\r\n").is_err());
+        let (end, method, p) = request_path(b"GET /v1/me HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+        assert_eq!((end, method.as_str(), p.as_str()), (19, "GET", "/v1/me"));
+        assert!(request_path(b"POST /v1/me HTTP/1.1\r\n").is_ok());
+        assert!(request_path(b"PUT /v1/me HTTP/1.1\r\n").is_err());
     }
 }
 

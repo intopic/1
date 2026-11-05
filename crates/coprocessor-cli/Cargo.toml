@@ -11,7 +11,6 @@ name = "coprocessor"
 path = "src/main.rs"
 
 [dependencies]
-triad-core = { workspace = true }
 zktls-prover = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }

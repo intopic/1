@@ -87,6 +87,11 @@ where
         .set_signer(Box::new(Secp256k1Signer::new(signing_key)?));
     let mut cfg = AttestationConfig::builder();
     cfg.supported_signature_algs(Vec::from_iter(provider.signer.supported_algs()));
+    cfg.extension_validator(|extensions| {
+        crate::wallet_from_extensions(extensions)
+            .map(|_| ())
+            .map_err(|error| tlsn::attestation::InvalidExtension::new(error.to_string()))
+    });
     let cfg = cfg.build()?;
 
     let CertBinding::V1_2(binding) = tls_transcript.certificate_binding() else {

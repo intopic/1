@@ -22,14 +22,21 @@
 
 extern crate alloc;
 
+#[cfg(feature = "arithmetic")]
 pub mod bigint;
+#[cfg(feature = "arithmetic")]
 pub mod euclid;
+#[cfg(feature = "arithmetic")]
 pub mod montgomery;
 pub mod normalizer;
+#[cfg(feature = "arithmetic")]
 pub mod rsa;
+#[cfg(feature = "arithmetic")]
 pub mod simd;
 
+#[cfg(feature = "arithmetic")]
 pub use euclid::EuclidCore;
+#[cfg(feature = "arithmetic")]
 pub use montgomery::MontgomeryEngine;
 pub use normalizer::{
     is_calendar_date, AlgebraicNormalizer, CanonicalClaim, NormalizerError, MAX_DECIMALS,

@@ -268,6 +268,41 @@ mod tests {
     }
 
     #[test]
+    fn rejects_noncanonical_coordinates_in_every_proof_and_vk_component() {
+        let (vk, a, b, c, inputs, _) = load();
+        for (which, len) in [(0, 64), (1, 128), (2, 64)] {
+            for offset in (0..len).step_by(32) {
+                let (mut aa, mut bb, mut cc) = (a, b, c);
+                let point: &mut [u8] = match which {
+                    0 => &mut aa,
+                    1 => &mut bb,
+                    _ => &mut cc,
+                };
+                point[offset..offset + 32].copy_from_slice(&BN254_FQ_MODULUS);
+                assert!(verify_groth16_bn254(&aa, &bb, &cc, &inputs, &vk).is_err());
+            }
+        }
+        for component in 0..(4 + vk.ic.len()) {
+            let mut bad = vk.clone();
+            let point: &mut [u8] = match component {
+                0 => &mut bad.alpha_g1,
+                1 => &mut bad.beta_g2,
+                2 => &mut bad.gamma_g2,
+                3 => &mut bad.delta_g2,
+                i => &mut bad.ic[i - 4],
+            };
+            point[..32].copy_from_slice(&BN254_FQ_MODULUS);
+            assert!(verify_groth16_bn254(&a, &b, &c, &inputs, &bad).is_err());
+        }
+        let mut zero_y = [0; 64];
+        zero_y[31] = 1;
+        assert_eq!(negate_g1(&zero_y).unwrap(), zero_y);
+        assert!(!verify_groth16_bn254(&zero_y, &b, &c, &inputs, &vk).unwrap_or(false));
+        zero_y[..32].copy_from_slice(&BN254_FQ_MODULUS);
+        assert!(negate_g1(&zero_y).is_err());
+    }
+
+    #[test]
     fn account_sizes_fit() {
         // VerifierState duhet të nxërë në një llogari të krijuar me CPI (≤ 10 KiB).
         const { assert!(8 + VerifierState::INIT_SPACE < 10_240) };

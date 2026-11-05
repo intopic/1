@@ -65,14 +65,27 @@ pub fn lt_be(a: &[u8; 32], m: &[u8; 32]) -> bool {
     a < m // krahasimi leksikografik i bajteve BE == krahasim numerik
 }
 
+/// Range checks supplement the native curve-membership/subgroup validation.
+pub fn validate_coordinates(point: &[u8]) -> Result<()> {
+    for coord in point.chunks_exact(32) {
+        let value: &[u8; 32] = coord.try_into().unwrap();
+        require!(
+            lt_be(value, &BN254_FQ_MODULUS),
+            ZkVerifierError::InvalidPoint
+        );
+    }
+    Ok(())
+}
+
 /// −P për një pikë G1 të koduar `x ‖ y` (BE): `(x, q − y)`.
 pub fn negate_g1(p: &[u8; 64]) -> Result<[u8; 64]> {
+    validate_coordinates(p)?;
     let mut out = *p;
-    if p.iter().all(|&b| b == 0) {
+    // -0 = 0, including the conventional infinity encoding (0,0).
+    if p[32..].iter().all(|&b| b == 0) {
         return Ok(out);
     }
     let y: [u8; 32] = p[32..].try_into().unwrap();
-    require!(lt_be(&y, &BN254_FQ_MODULUS), ZkVerifierError::InvalidPoint);
     let mut borrow = 0i16;
     for i in (0..32).rev() {
         let d = BN254_FQ_MODULUS[i] as i16 - y[i] as i16 - borrow;
@@ -94,6 +107,21 @@ pub fn verify_groth16_bn254(
         public_inputs.len() + 1 == vk.ic.len(),
         ZkVerifierError::PublicInputsLength
     );
+
+    for point in [
+        proof_a.as_slice(),
+        proof_b.as_slice(),
+        proof_c.as_slice(),
+        vk.alpha_g1.as_slice(),
+        vk.beta_g2.as_slice(),
+        vk.gamma_g2.as_slice(),
+        vk.delta_g2.as_slice(),
+    ]
+    .into_iter()
+    .chain(vk.ic.iter().map(|point| point.as_slice()))
+    {
+        validate_coordinates(point)?;
+    }
 
     // vk_x = IC[0] + Σ input_i · IC[i+1]
     let mut vk_x = vk.ic[0];

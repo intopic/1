@@ -17,7 +17,7 @@ repository = "https://github.com/intopic/1"
 rust-version = "1.89"
 
 [workspace.dependencies]
-triad-core = { path = "crates/triad-core" }
+triad-core = { path = "crates/triad-core", default-features = false }
 zktls-prover = { path = "crates/zktls-prover" }
 subtle = { version = "2.6", default-features = false }
 sha2 = { version = "0.10", default-features = false }
@@ -36,7 +36,6 @@ ark-snark = "0.5"
 ark-serialize = "0.5"
 light-poseidon = "0.3"
 rand = "0.8"
-rsa = { version = "0.9", features = ["sha2"] }
 num-bigint = "0.4"
 bs58 = "0.5"
 clap = { version = "4", features = ["derive", "env"] }

@@ -57,10 +57,27 @@ where
         assert!(n > 0);
         req.extend_from_slice(&buf[..n]);
     }
+    let head_end = req.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let head = String::from_utf8(req[..head_end].to_vec()).unwrap();
+    let length = head
+        .lines()
+        .filter_map(|l| l.split_once(':'))
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+        .map(|(_, v)| v.trim().parse::<usize>().unwrap())
+        .unwrap_or(0);
+    while req.len() < head_end + length {
+        let n = tls.read(&mut buf).await.unwrap();
+        assert!(n > 0);
+        req.extend_from_slice(&buf[..n]);
+    }
     let req = String::from_utf8(req).unwrap();
+    if req.starts_with("POST ") {
+        assert!(req.ends_with(r#"{"query":"current"}"#));
+    }
     assert!(req
         .to_ascii_lowercase()
         .contains("accept-encoding: identity\r\n"));
+    assert!(!req.to_ascii_lowercase().contains("x-zktls-wallet"));
     let ok = req.contains(&format!("authorization: {TOKEN}"))
         || req.contains(&format!("Authorization: {TOKEN}"));
     let body = if ok {
@@ -88,6 +105,8 @@ fn bridge() -> Bridge {
         policy: Policy {
             notary_keys: vec![notary::public_key_hex(&NOTARY_KEY).unwrap()],
             sources: vec![Source {
+                method: "GET".into(),
+                request_body: None,
                 server: SERVER_DOMAIN.into(),
                 path_prefix: "/v1/accounts/".into(),
                 target_key: "balance".into(),
@@ -112,6 +131,10 @@ fn bridge() -> Bridge {
 
 /// Sesion i plotë MPC-TLS: kthen prezantimin (base64).
 async fn session(balance: u64, path: &str) -> String {
+    session_with_request(balance, path, "GET", vec![]).await
+}
+
+async fn session_with_request(balance: u64, path: &str, method: &str, body: Vec<u8>) -> String {
     let (notary_io, prover_io) = tokio::io::duplex(1 << 23);
     let (bank_io, client_io) = tokio::io::duplex(1 << 16);
     let n = tokio::spawn(async move { notary::run(notary_io, &NOTARY_KEY, roots()).await });
@@ -119,8 +142,13 @@ async fn session(balance: u64, path: &str) -> String {
     let req = FetchRequest {
         server_name: SERVER_DOMAIN.into(),
         path: path.into(),
-        headers: vec![("Authorization".into(), TOKEN.into())],
+        headers: vec![
+            ("Authorization".into(), TOKEN.into()),
+            ("Content-Type".into(), "application/json".into()),
+        ],
         wallet: WALLET.into(),
+        method: method.into(),
+        body,
     };
     let (att, secrets) = notarize(prover_io, client_io, &req, roots()).await.unwrap();
     n.await.unwrap().unwrap();
@@ -276,4 +304,35 @@ async fn rejects_path_outside_policy() {
         )
         .unwrap_err();
     assert!(format!("{e:#}").contains("burim i palejuar"), "{e:#}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn authenticates_post_body_without_custom_bank_header() {
+    let body = r#"{"query":"current"}"#;
+    let b64 =
+        session_with_request(15200, "/v1/accounts/me", "POST", body.as_bytes().to_vec()).await;
+    let request = AttestRequest {
+        presentation: b64,
+        wallet: WALLET.into(),
+    };
+    let mut br = bridge();
+    assert!(br
+        .attest(&request, zktls_bridge::bridge::unix_now())
+        .is_err());
+    br.policy.sources[0].method = "POST".into();
+    br.policy.sources[0].request_body = Some(body.into());
+    br.policy.validate().unwrap();
+    assert_eq!(
+        br.attest(&request, zktls_bridge::bridge::unix_now())
+            .unwrap()
+            .verify(10000)
+            .unwrap()
+            .message
+            .value,
+        15200
+    );
+    br.policy.sources[0].request_body = Some(r#"{"query":"historical"}"#.into());
+    assert!(br
+        .attest(&request, zktls_bridge::bridge::unix_now())
+        .is_err());
 }

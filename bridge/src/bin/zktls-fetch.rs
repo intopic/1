@@ -36,6 +36,12 @@ struct Args {
     connect: Option<String>,
     #[arg(long)]
     wallet: String,
+    /// Read-only API request method. POST requires a matching bridge source policy.
+    #[arg(long, default_value = "GET", value_parser = ["GET", "POST"])]
+    method: String,
+    /// Exact request body from a local file; avoid secrets in command-line arguments.
+    #[arg(long)]
+    body_file: Option<std::path::PathBuf>,
     /// Ura: `https://host[:port]`, ose `host:port` (HTTP, vetëm localhost). Pa të, shkruhet vetëm prezantimi (base64).
     #[arg(long)]
     bridge: Option<String>,
@@ -163,6 +169,12 @@ async fn main() -> Result<()> {
         path,
         headers,
         wallet: a.wallet.clone(),
+        method: a.method,
+        body: a
+            .body_file
+            .map(std::fs::read)
+            .transpose()?
+            .unwrap_or_default(),
     };
     let (att, secrets) = notarize(notary, server, &req, roots).await?;
     let pres = present(&att, &secrets)?;

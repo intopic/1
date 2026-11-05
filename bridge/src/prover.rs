@@ -5,7 +5,7 @@ use std::future::IntoFuture;
 
 use anyhow::{bail, Context, Result};
 use futures::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use http_body_util::{BodyExt, Empty};
+use http_body_util::BodyExt;
 use hyper::{body::Bytes, Request};
 use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -40,14 +40,27 @@ pub struct FetchRequest {
     pub path: String,
     /// Header-a shtesë (p.sh. `Authorization`). Vlerat e [`SECRET_HEADERS`] fshihen në prezantim.
     pub headers: Vec<(String, String)>,
-    /// Portofoli Solana (base58): dërgohet si [`WALLET_HEADER`] brenda sesionit TLS,
-    /// që atestimi të mos mund të kërkohet për një portofol tjetër.
+    /// Wallet is bound in a notary-signed extension, never sent to the bank.
     pub wallet: String,
+    pub method: String,
+    pub body: Vec<u8>,
 }
 
 /// Reserved headers are protocol bindings, not caller-supplied metadata.
-fn build_request(req: &FetchRequest) -> Result<Request<Empty<Bytes>>> {
-    let mut builder = Request::builder().uri(&req.path);
+fn build_request(req: &FetchRequest) -> Result<Request<http_body_util::Full<Bytes>>> {
+    crate::wallet_extension(&req.wallet)?;
+    if req.method != "GET" && req.method != "POST" {
+        bail!("only GET and POST are supported");
+    }
+    if req.method == "GET" && !req.body.is_empty() {
+        bail!("GET request cannot have a body");
+    }
+    if req.body.len() > MAX_SENT_DATA / 2 {
+        bail!("request body exceeds MPC-TLS budget");
+    }
+    let mut builder = Request::builder()
+        .method(req.method.as_str())
+        .uri(&req.path);
     for (k, v) in &req.headers {
         let name = hyper::header::HeaderName::from_bytes(k.as_bytes())?;
         if [
@@ -70,8 +83,7 @@ fn build_request(req: &FetchRequest) -> Result<Request<Empty<Bytes>>> {
         .header("Accept", "application/json")
         .header("Accept-Encoding", "identity")
         .header("Connection", "close")
-        .header(WALLET_HEADER, &req.wallet)
-        .body(Empty::<Bytes>::new())?)
+        .body(http_body_util::Full::new(Bytes::from(req.body.clone())))?)
 }
 
 /// Kryen kërkesën HTTPS me noterin si palë MPC dhe kthen atestimin + sekretet.
@@ -132,6 +144,7 @@ where
     let transcript_commit = commit.build()?;
 
     let mut rc = RequestConfig::builder();
+    rc.extension(crate::wallet_extension(&req.wallet)?);
     rc.transcript_commit(transcript_commit);
     let request_config = rc.build()?;
 
@@ -198,6 +211,12 @@ pub fn present(attestation: &Attestation, secrets: &Secrets) -> Result<Presentat
         }
     }
     b.reveal_recv(&transcript.responses[0])?;
+    let sent = secrets.transcript().sent();
+    if let Some(end) = sent.windows(4).position(|w| w == b"\r\n\r\n") {
+        if end + 4 < sent.len() {
+            b.reveal_sent(&(end + 4..sent.len()))?;
+        }
+    }
     let proof = b.build()?;
 
     let provider = CryptoProvider::default();
@@ -216,12 +235,15 @@ mod request_tests {
             server_name: "api.test".into(),
             path: "/".into(),
             headers: vec![("Authorization".into(), "Bearer test".into())],
-            wallet: "wallet".into(),
+            wallet: "11111111111111111111111111111111".into(),
+            method: "GET".into(),
+            body: vec![],
         };
         let http = build_request(&req).unwrap();
         assert_eq!(http.headers()["accept-encoding"], "identity");
         assert_eq!(http.headers().get_all("accept-encoding").iter().count(), 1);
         assert_eq!(http.headers()["authorization"], "Bearer test");
+        assert!(!http.headers().contains_key(WALLET_HEADER));
         for name in [
             "Accept-Encoding",
             "aCcEpT-EnCoDiNg",

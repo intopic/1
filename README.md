@@ -334,8 +334,8 @@ nënshkrimi EdDSA verifikohet natively jashtë provës, pra kushdo me çelësin 
    (intervalet e maskimit në bufer fiks, hash-i në rrjedhë).
 3. **Privatësia**: vetëm zotimi, pragu, koha, ID e çelësit, hash-i i bankës dhe portofoli janë publikë.
 4. **Whitelist**: `verify_and_attest` refuzon çdo provë me `bank_key_hash` jashtë listës së autoritetit.
-5. **Portofoli i lidhur me TLS**: prover-i dërgon `x-zktls-wallet` brenda sesionit me bankën
-   (pjesë e transkriptit të autentikuar); ura refuzon një portofol tjetër në kërkesën JSON.
+5. **Portofoli i lidhur me atestimin**: noteri nënshkruan extension-in `intopic.zktls.wallet/v1`
+   bashkë me atestimin TLSNotary; banka nuk merr header portofoli. Ura refuzon ri-lidhjen.
 6. **Nullifier i fshehtë**: `account_tag = HMAC(BRIDGE_TAG_KEY, issuer ‖ id)`. Pa çelësin
    nuk provohen ID të hamendësueshme, dhe e njëjta ID te dy banka jep nullifier-ë të ndryshëm.
    Sekreti është i ndarë nga çelësi EdDSA dhe `issuer` nga domeni, ndaj rrotullimi i çelësit

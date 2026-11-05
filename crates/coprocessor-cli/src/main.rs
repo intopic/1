@@ -382,10 +382,39 @@ struct AccessArgs {
     /// Kërkesa POST maksimale për IP (IPv6: për /64) në minutë; 0 = pa kufi.
     #[arg(long, env = "PROVER_RATE_LIMIT", default_value_t = 0)]
     rate_limit_per_min: u32,
-    /// Header-i me IP-në reale kur serveri është pas një proxy (p.sh. `fly-client-ip`).
+    /// Header-i me IP-në reale: fly-client-ip ose cf-connecting-ip. X-Forwarded-For nuk pranohet.
     /// Vendoseni VETËM kur proxy-ja e mbishkruan gjithmonë; përndryshe klienti e falsifikon.
-    #[arg(long, env = "PROVER_CLIENT_IP_HEADER")]
-    client_ip_header: Option<String>,
+    #[arg(long, env = "PROVER_CLIENT_IP_HEADER", value_enum)]
+    client_ip_header: Option<ClientIpHeader>,
+}
+
+/// Single-address header set by a trusted ingress. Prevent public origin bypass.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ClientIpHeader {
+    FlyClientIp,
+    CfConnectingIp,
+}
+
+impl ClientIpHeader {
+    fn name(self) -> &'static str {
+        match self {
+            Self::FlyClientIp => "fly-client-ip",
+            Self::CfConnectingIp => "cf-connecting-ip",
+        }
+    }
+}
+
+fn read_client_ip(slot: &mut Option<std::net::IpAddr>, value: &str) -> Result<()> {
+    if slot.is_some() {
+        bail!("duplicate trusted client IP header");
+    }
+    *slot = Some(
+        value
+            .trim()
+            .parse()
+            .context("trusted client IP must be a single IP address")?,
+    );
+    Ok(())
 }
 
 fn now() -> u64 {
@@ -589,7 +618,7 @@ fn main() -> Result<()> {
                     pc,
                     api_keys,
                     limiter,
-                    ip_header: access.client_ip_header.map(|h| h.to_ascii_lowercase()),
+                    ip_header: access.client_ip_header,
                 },
             )?
         }
@@ -818,7 +847,7 @@ struct Ctx {
     pc: Option<chain::Precheck>,
     api_keys: Vec<String>,
     limiter: Option<RateLimiter>,
-    ip_header: Option<String>,
+    ip_header: Option<ClientIpHeader>,
 }
 
 /// Klienti e ka mbyllur lidhjen (p.sh. mbylli faqen) gjatë kohës në radhë: prova
@@ -936,9 +965,8 @@ fn handle(ctx: &Ctx, stream: &mut TcpStream) -> Result<()> {
             let name = name.trim().to_ascii_lowercase();
             if name == "x-api-key" {
                 api_key = Some(value.trim().to_string());
-            } else if ctx.ip_header.as_deref() == Some(name.as_str()) {
-                // proxy-t e shtojnë në fund; i pari është klienti
-                fwd_ip = value.split(',').next().and_then(|v| v.trim().parse().ok());
+            } else if ctx.ip_header.map(ClientIpHeader::name) == Some(name.as_str()) {
+                read_client_ip(&mut fwd_ip, value)?;
             }
         }
     }
@@ -951,6 +979,13 @@ fn handle(ctx: &Ctx, stream: &mut TcpStream) -> Result<()> {
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body)?;
     if method == "POST" && matches!(path, "/prove" | "/mock-session") {
+        if ctx.ip_header.is_some() && fwd_ip.is_none() {
+            return respond(
+                stream,
+                400,
+                r#"{"error":"missing trusted client IP header"}"#,
+            );
+        }
         if !ctx.api_keys.is_empty() {
             let ok = api_key.as_deref().is_some_and(|k| {
                 ctx.api_keys
@@ -1151,6 +1186,28 @@ mod tests {
         assert!(ct_eq(b"abcdefghijklmnop", b"abcdefghijklmnop"));
         assert!(!ct_eq(b"abcdefghijklmnop", b"abcdefghijklmnoq"));
         assert!(!ct_eq(b"abc", b"abcd"));
+    }
+
+    #[test]
+    fn client_ip_headers_reject_forwarded_chains_duplicates_and_invalid_values() {
+        assert!(Cli::try_parse_from([
+            "coprocessor",
+            "serve",
+            "--client-ip-header",
+            "x-forwarded-for"
+        ])
+        .is_err());
+        for header in ["fly-client-ip", "cf-connecting-ip"] {
+            assert!(
+                Cli::try_parse_from(["coprocessor", "serve", "--client-ip-header", header]).is_ok()
+            );
+        }
+        for value in ["1.1.1.1, 2.2.2.2", "unknown", "", "1.2.3.4:80"] {
+            assert!(read_client_ip(&mut None, value).is_err());
+        }
+        let mut slot = None;
+        read_client_ip(&mut slot, " 2001:db8::1 ").unwrap();
+        assert!(read_client_ip(&mut slot, "2001:db8::2").is_err());
     }
 
     #[test]

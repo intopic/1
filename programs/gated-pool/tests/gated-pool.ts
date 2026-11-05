@@ -7,6 +7,7 @@ import { readFileSync } from "fs";
 import { createHash } from "crypto";
 import { expect } from "chai";
 import BN from "bn.js";
+import { prefund } from "../../solana-zk-verifier/tests/prefund";
 
 const ROOT = process.cwd();
 // seed-i: claim_key_id si u64 little-endian (si argumentet u64 të Anchor)
@@ -84,6 +85,7 @@ describe("gated-pool (integrimi i një DEX-i)", () => {
     strictPool = await newPool(20_000, 0);
     agePool = await newPool(0, 18);
     bothPool = await newPool(5_000, 18);
+    await prefund(provider,[positionPda(balancePool,user)]);
   });
 
   const BAL = () => attestation(user, "balance");

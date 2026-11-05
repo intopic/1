@@ -7,12 +7,13 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-default = ["std"]
+default = ["std", "arithmetic"]
 # `std` aktivizon zbulimin e CPU-së në kohë ekzekutimi (AVX-512 IFMA).
 std = []
+arithmetic = ["dep:subtle"]
 
 [dependencies]
-subtle = { workspace = true }
+subtle = { workspace = true, optional = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
@@ -23,3 +24,4 @@ rand = { workspace = true }
 name = "montgomery_bench"
 path = "../../tests/benchmarks/montgomery_bench.rs"
 harness = false
+required-features = ["arithmetic"]

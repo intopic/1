@@ -8,6 +8,7 @@ import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import { expect } from "chai";
 import BN from "bn.js";
+import { prefund } from "../../solana-zk-verifier/tests/prefund";
 
 describe("business admission and independent access grants", () => {
   const provider = anchor.AnchorProvider.env();
@@ -47,6 +48,7 @@ describe("business admission and independent access grants", () => {
     const id = sequence++;
     const policy = address(v.programId, Buffer.from("access_policy"), user.toBuffer(), numberSeed(id));
     const pool = address(p.programId, Buffer.from("access_pool"), user.toBuffer(), numberSeed(id));
+    if (id === 100) { await prefund(provider,[policy,pool,grantFor(policy),positionFor(pool)]); }
     await v.methods.createAccessPolicy(new BN(id), config(overrides)).accountsPartial({ authority: user, policy }).rpc();
     await p.methods.createAccessPool(new BN(id)).accountsPartial({ authority: user, policy, pool }).rpc();
     return { policy, pool, grant: grantFor(policy) };

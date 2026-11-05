@@ -25,6 +25,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo build -p triad-core --no-default-features
+      - run: cargo build -p triad-core --no-default-features --features arithmetic
       - name: Testet native të programit Anchor
         run: |
           cargo fmt --manifest-path programs/solana-zk-verifier/Cargo.toml -- --check
@@ -86,6 +87,9 @@ jobs:
             c=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "x-api-key: $K" localhost:8787/mock-session -d '{}')
             [ "$c" = 429 ] && n=$((n+1)); done
           echo "429: $n"; test "$n" -gt 0
+
+      - name: IP-header spoofing and trusted-ingress regressions
+        run: python3 scripts/test_ip_headers.py target/release/coprocessor artifacts/demo/dev_pk.bin
 
   # Noteri real TLSNotary (MPC-TLS) + ura drejt atestimit EdDSA-Poseidon: sesion i plotë
   # me një bankë testuese TLS, prezantim, urë, provë Groth16.
