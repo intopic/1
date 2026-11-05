@@ -60,6 +60,7 @@ for conc in LEVELS:
     with cf.ThreadPoolExecutor(conc) as ex: res = list(ex.map(one, clients))
     dt, dc = time.perf_counter() - t0, cpu() - c0
     lat = sorted(r[0] * 1000 for r in res)
+    p95 = lat[(95 * N + 99) // 100 - 1]  # nearest-rank percentile, including small batches
     bad = 0
     for _, w, acct, p in res:  # izolimi: çdo provë i përket klientit të vet
         if p.get("wallet") != w or not owns(p, w): bad += 1
@@ -73,8 +74,8 @@ for conc in LEVELS:
                 if subprocess.run([os.environ.get("BIN", "coprocessor"), "verify", "--proof", f.name, "--vk", os.environ["VK"]],
                                   capture_output=True).returncode: bad += 1
     failed += bad
-    print(f"| {conc} | {N} | {statistics.median(lat):.0f} | {lat[int(.95*N)-1]:.0f} | {N/dt:.2f} | {dc/N:.2f} | {bad} |") if os.environ.get("MD") else \
-    print(f"{conc:>8} {N:>8} {statistics.median(lat):>8.0f} {lat[int(.95*N)-1]:>8.0f} {N/dt:>8.1f} {dc/N:>11.3f} {bad:>7}")
-print(f"\nRSS maksimale e daemon-it (pa procesin rapidsnark, ~316 MB/provë): {rss()} MB")
+    print(f"| {conc} | {N} | {statistics.median(lat):.0f} | {p95:.0f} | {N/dt:.2f} | {dc/N:.2f} | {bad} |") if os.environ.get("MD") else \
+    print(f"{conc:>8} {N:>8} {statistics.median(lat):>8.0f} {p95:>8.0f} {N/dt:>8.1f} {dc/N:>11.3f} {bad:>7}")
+print(f"\nRSS maksimale e daemon-it (pa nënproceset witness/prover): {rss()} MiB")
 if failed:
     sys.exit(f"GABIM: {failed} prova të përziera/dublikuara")

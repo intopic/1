@@ -1,0 +1,129 @@
+{
+  "source_commit": "e79a9df6225dac35b05a715c444c7c763605f3d3",
+  "run_url": "https://github.com/intopic/1/actions/runs/42068803426",
+  "circuit_job_url": "https://github.com/intopic/1/actions/runs/42068803426/job/127390546231",
+  "program_job_url": "https://github.com/intopic/1/actions/runs/42068803426/job/127390869345",
+  "measured_at_utc": "2026-11-05T16:55:16Z",
+  "os": "Ubuntu 26.04.1 LTS",
+  "runner_image": "ubuntu-26.04 20261101.186.1",
+  "logical_cpus": 4,
+  "circom": "2.1.9",
+  "circomlib": "2.0.5",
+  "snarkjs": "0.7.6",
+  "rapidsnark": "v0.0.8",
+  "constraints": 6582,
+  "ptau_power": 13,
+  "samples_per_backend": 1,
+  "backends": [
+    {
+      "name": "snarkjs",
+      "witness_included_in_prove": true,
+      "prove_ms": 1148,
+      "wall_ms_rounded": 1150,
+      "max_rss_kib": 295672,
+      "cpu_percent": 249
+    },
+    {
+      "name": "rapidsnark + WASM witness",
+      "witness_ms": 212,
+      "prove_ms": 101,
+      "wall_ms_rounded": 310,
+      "max_rss_kib": 87060,
+      "cpu_percent": 191
+    },
+    {
+      "name": "rapidsnark + C++ witness",
+      "witness_ms": 10,
+      "prove_ms": 101,
+      "wall_ms_rounded": 110,
+      "max_rss_kib": 10928,
+      "cpu_percent": 321
+    }
+  ],
+  "daemon_load": [
+    {
+      "clients": 1,
+      "requests": 16,
+      "p50_ms": 115,
+      "proofs_per_second": 8.52,
+      "cpu_seconds_per_proof": 0.37,
+      "mixed_results": 0,
+      "legacy_tail_statistic_ms": 127
+    },
+    {
+      "clients": 4,
+      "requests": 16,
+      "p50_ms": 456,
+      "proofs_per_second": 8.75,
+      "cpu_seconds_per_proof": 0.37,
+      "mixed_results": 0,
+      "legacy_tail_statistic_ms": 458
+    },
+    {
+      "clients": 16,
+      "requests": 16,
+      "p50_ms": 969,
+      "proofs_per_second": 8.75,
+      "cpu_seconds_per_proof": 0.37,
+      "mixed_results": 0,
+      "legacy_tail_statistic_ms": 1709
+    }
+  ],
+  "localnet": {
+    "typescript_tests_passed": 21,
+    "verify_and_attest_cu": 145414,
+    "proof_backend": "dev-arkworks",
+    "public_inputs": 10,
+    "full_circom_proof_verified_in_native_program_test": true
+  },
+  "notes": [
+    "All timing commands verified their generated proof.",
+    "GNU time peak RSS is not total container memory.",
+    "The snarkjs prove timer includes witness generation.",
+    "The localnet CU sample used the dev proof with the same 10-input verifier; a full-circuit transaction CU was not separately measured.",
+    "Not a 50 ms claim or a mobile-browser benchmark.",
+    "The original script labelled floor(0.95*N)-th order statistic as p95. Those legacy numbers are retained as legacy_tail_statistic_ms; the script now uses nearest rank ceil(0.95*N). No corrected p95 samples are claimed here."
+  ],
+  "docker": {
+    "job_url": "https://github.com/intopic/1/actions/runs/42068803426/job/127393707903",
+    "image_id": "207ca8ee677e",
+    "disk_usage_mb": 415,
+    "content_size_mb": 106,
+    "idle_memory_mib_after_load": 8.473,
+    "load": [
+      {
+        "clients": 1,
+        "requests": 8,
+        "p50_ms": 116,
+        "proofs_per_second": 6.57,
+        "mixed_results": 0
+      },
+      {
+        "clients": 8,
+        "requests": 8,
+        "p50_ms": 514,
+        "proofs_per_second": 8.65,
+        "mixed_results": 0
+      }
+    ],
+    "bridge_health": "passed",
+    "notary_tcp_accept": "passed",
+    "note": "Memory snapshot is after load, not peak memory during proving."
+  },
+  "validation": {
+    "code_commit": "e79a9df6225dac35b05a715c444c7c763605f3d3",
+    "windows_rust_tests_passed": 68,
+    "windows_bridge_tests_passed": 15,
+    "windows_clippy_workspace_bridge_gated_pool": "passed",
+    "github_completed_success": [
+      "rust",
+      "web-demo",
+      "Circom and Rapidsnark",
+      "Anchor localnet",
+      "Docker"
+    ],
+    "github_tlsnotary_bridge_status": "queued_without_runner",
+    "status_observed_at_utc": "2026-11-05T17:13:40Z",
+    "github_ci_url": "https://github.com/intopic/1/actions/runs/42068449067"
+  }
+}

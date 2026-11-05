@@ -68,7 +68,8 @@ Përdoruesi duhet t'u besojë operatorëve; ZK-ja fsheh vlerën nga Solana, jo n
 `session.tls.json` ruan përgjigjen lokalisht dhe duhet trajtuar si të dhënë private.
 
 **v3 i matur:** 6,582 kufizime (42.1× më pak se 277,321 e RSA), PPoT `2^13`.
-Shih [migrimin dhe matjet](docs/V3.md). Koha 50 ms dhe `zkey <2 MB` nuk janë premtime.
+Në CI Linux, Rapidsnark + C++ mori ~110 ms gjithsej (një mostër); daemon-i arriti
+8.75 prova/s. Shih [migrimin dhe matjet](docs/V3.md). Koha 50 ms dhe `zkey <2 MB` nuk janë premtime.
 
 ### Hyrjet publike (10)
 
@@ -284,7 +285,7 @@ Programi Anchor: `initialize(vk, max_age)`, `set_verifying_key(vk)`, `add_bank_k
 | Prapavija **dev** (arkworks Groth16, 10 hyrje) | ✅ | ✅ e2e + verifikim me ekuacionin on-chain |
 | Prapavija **snarkjs** (qarku i plotë) | ✅ | ✅ qarku v3; matjet në [docs/V3.md](docs/V3.md) |
 | Qarqet Circom v3 (6 582 kufizime) | ✅ `circomlib`, EdDSA-Poseidon | ✅ vektor i pavarur circomlibjs + 142 witness-e negative; PPoT 2^13 |
-| Programi Anchor | ✅ | ✅ `build-sbf` + localnet + 5 teste TypeScript në CI (përfshirë anti-Sybil dhe `app_id`); prova e qarkut të plotë verifikohet me kodin e programit |
+| Programi Anchor | ✅ | ✅ `build-sbf` + localnet + 21 teste TypeScript në CI (përfshirë anti-Sybil dhe `app_id`); prova e qarkut të plotë verifikohet me kodin e programit |
 | Demo web `app/` (Vite + React + wallet-adapter) | ✅ me noter të simuluar | ✅ build + rrjedha HTTP e daemon-it në CI; rrjedha në browser e testuar me një portofol testues |
 
 **Prapavija dev nuk është e sigurt për prodhim**: ajo provon vetëm diapazonin, zotimin dhe nullifier-in;
@@ -307,8 +308,8 @@ nënshkrimi EdDSA verifikohet natively jashtë provës, pra kushdo me çelësin 
 2. Banka autentikohet nga TLSNotary; ura nënshkruan atestimin, jo certifikata e bankës.
 3. Vlera, timestamp-i, lloji, portofoli, payload digest-i dhe account tag-u lidhen të gjitha
    me nënshkrimin. Vektori Rust/Circom/circomlibjs kontrollon përputhshmërinë.
-4. **CU**: ~82k mbulon vetëm pairing-un; me 7 hyrje publike `verify_and_attest` konsumonte
-   **118 261 CU** (e matur në localnet në CI); me 10 hyrje dhe PDA-në e nullifier-it rritet pak.
+4. **CU**: `verify_and_attest` konsumoi **145 414 CU** në localnet me 10 hyrje publike
+   dhe provën DEV. Prova e plotë Circom u verifikua veçmas nga kodi vendas i programit.
 5. **Madhësia e provës**: 128 B është forma e kompresuar; syscall-i kërkon formën e pakompresuar
    (256 B: A 64 + B 128 + C 64). Programi e mohon vetë `A`.
 6. **AVX-512 përdoret brenda `exp`**, jo në `mul`, sepse domeni Montgomery radix-2^52 (`R' = 2^2080`)

@@ -162,7 +162,7 @@ enum MockKind {
 }
 
 /// Kontrolli i hershëm i nullifier-it on-chain (opsional): pa të, një IBAN i
-/// përdorur nga portofol tjetër do të provohej kot (~8 s CPU) dhe refuzohej on-chain.
+/// përdorur nga portofol tjetër do të provohej kot dhe refuzohej on-chain.
 #[derive(clap::Args, Clone, Default)]
 struct PrecheckArgs {
     /// RPC i Solana-s, p.sh. https://api.devnet.solana.com
