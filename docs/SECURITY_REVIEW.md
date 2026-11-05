@@ -4,6 +4,14 @@ The report mixes current issues, integration limitations and findings against th
 removed RSA design. Severity is assessed against the current implementation rather
 than assumed from the report. Tests are run in the normal CI and ZK E2E workflows.
 
+Validated source: `bfaa3dcac45ca2c5a3c004d90b0ba5d3e160024f`.
+[CI](https://github.com/intopic/1/actions/runs/42112627181) and
+[ZK E2E](https://github.com/intopic/1/actions/runs/42112627194) both passed, including
+the Docker proof test. The independently downloaded localnet JSON artifact contains
+31 passes, zero failures and zero pending tests across three suites. Native verifier
+tests passed 23 cases; bridge validation passed 14 unit and 3 real MPC-TLS cases.
+See the [structured validation record](measurements/security-review-ci.json).
+
 ## VULN-01: prefunded PDA initialization
 
 The reported permanent one-lamport DoS does not match Anchor's initialization code.

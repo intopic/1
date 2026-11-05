@@ -1,0 +1,226 @@
+{
+  "source_commit": "bfaa3dcac45ca2c5a3c004d90b0ba5d3e160024f",
+  "reviewed_report": "User-provided VULN-01 through VULN-04 and architecture recommendations",
+  "ci": {
+    "url": "https://github.com/intopic/1/actions/runs/42112627181",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 127543851593,
+        "name": "rust",
+        "conclusion": "success"
+      },
+      {
+        "id": 127543851746,
+        "name": "tlsnotary-bridge",
+        "conclusion": "success"
+      },
+      {
+        "id": 127543851793,
+        "name": "web-demo",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "zk_e2e": {
+    "url": "https://github.com/intopic/1/actions/runs/42112627194",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 127543851882,
+        "name": "Circom → Groth16 → verifikim",
+        "conclusion": "success"
+      },
+      {
+        "id": 127543852388,
+        "name": "Anchor → localnet → testet TypeScript",
+        "conclusion": "success"
+      },
+      {
+        "id": 127548181001,
+        "name": "Imazhi fly.io (build + provë reale në kontejner)",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "localnet": {
+    "stats": {
+      "suites": 3,
+      "tests": 31,
+      "passes": 31,
+      "pending": 0,
+      "failures": 0,
+      "start": "2026-11-05T21:28:50.690Z",
+      "end": "2026-11-05T21:30:32.036Z",
+      "duration": 101346
+    },
+    "cases": [
+      {
+        "name": "solana-zk-verifier refuzon inicializimin nga dikush që s'është upgrade authority",
+        "duration_ms": 415
+      },
+      {
+        "name": "solana-zk-verifier third-party prefunding does not block verifier, attestation or nullifier initialization",
+        "duration_ms": 1604
+      },
+      {
+        "name": "solana-zk-verifier inicializon VK dhe whitelist-ën",
+        "duration_ms": 1233
+      },
+      {
+        "name": "solana-zk-verifier refuzon hyrje publike të ndryshuara",
+        "duration_ms": 24
+      },
+      {
+        "name": "solana-zk-verifier verifikon provën dhe ruan atestatin",
+        "duration_ms": 425
+      },
+      {
+        "name": "solana-zk-verifier refuzon të njëjtën llogari bankare nga një portofol tjetër (anti-Sybil)",
+        "duration_ms": 424
+      },
+      {
+        "name": "solana-zk-verifier refuzon herët (pa provë) një nullifier të zënë nga portofol tjetër",
+        "duration_ms": 476
+      },
+      {
+        "name": "solana-zk-verifier refuzon provë për një app_id tjetër",
+        "duration_ms": 501
+      },
+      {
+        "name": "solana-zk-verifier refuzon një provë moshe në një aplikacion që pranon vetëm bilanc",
+        "duration_ms": 499
+      },
+      {
+        "name": "solana-zk-verifier bilanci dhe mosha janë atestime të pavarura (njëra nuk fshin tjetrën)",
+        "duration_ms": 855
+      },
+      {
+        "name": "business admission and independent access grants creates immutable business terms: 24h balance freshness and 30-day access",
+        "duration_ms": 2951
+      },
+      {
+        "name": "business admission and independent access grants requires every configured condition, correct claim, threshold and source",
+        "duration_ms": 3333
+      },
+      {
+        "name": "business admission and independent access grants pins business policy and wallet; a weaker policy cannot bypass the gate",
+        "duration_ms": 1691
+      },
+      {
+        "name": "business admission and independent access grants only the business authority can pause or revoke; users cannot readmit around revocation",
+        "duration_ms": 2484
+      },
+      {
+        "name": "business admission and independent access grants access survives evidence freshness expiry; new admission still needs fresh evidence",
+        "duration_ms": 13876
+      },
+      {
+        "name": "business admission and independent access grants supports age-only and indefinite grants without repeatedly checking stable DOB",
+        "duration_ms": 1692
+      },
+      {
+        "name": "business admission and independent access grants expiry blocks new actions, not withdrawals; renewal requires a newer balance observation",
+        "duration_ms": 5492
+      },
+      {
+        "name": "business admission and independent access grants periodic refresh requires new evidence and preserves the original access expiry",
+        "duration_ms": 5489
+      },
+      {
+        "name": "business admission and independent access grants issuer and verifier security revocations also stop independent access grants",
+        "duration_ms": 2237
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) pool vetëm-bilanc: mjafton atestimi i bilancit (mosha nuk kërkohet)",
+        "duration_ms": 394
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) pool vetëm-moshë: mjafton atestimi i moshës (bilanci nuk kërkohet)",
+        "duration_ms": 418
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) pool me të dyja: kërkon të dyja atestimet",
+        "duration_ms": 419
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) refuzon atestimin e moshës në vend të bilancit (dhe anasjelltas)",
+        "duration_ms": 20
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) refuzon portofolin pa atestim",
+        "duration_ms": 450
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) refuzon kur prova vërtetoi një prag më të ulët (10 000 < 20 000)",
+        "duration_ms": 10
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) refuzon atestimin e një portofoli tjetër",
+        "duration_ms": 405
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) refuzon pool bilanci pa afat freskie (bilanci i vjetër s'vlen përgjithmonë)",
+        "duration_ms": 433
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) refuzon atestimin nga një çelës banke i hequr nga whitelist-a",
+        "duration_ms": 1200
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) lejon tërheqjen e parave të veta",
+        "duration_ms": 421
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) transferon autoritetin në dy hapa (propozim + pranim me nënshkrim)",
+        "duration_ms": 1669
+      },
+      {
+        "name": "gated-pool (integrimi i një DEX-i) revokimi masiv (bump_policy_epoch) refuzon atestimet ekzistuese",
+        "duration_ms": 1252
+      }
+    ]
+  },
+  "validation": {
+    "verifier_native_tests_passed": 23,
+    "bridge_unit_tests_passed": 14,
+    "bridge_mpc_tls_e2e_tests_passed": 3,
+    "cli_ip_header_http_regressions": "passed",
+    "test_report_negative_tests_passed": 3,
+    "normalizer_only_production_build": "passed; arithmetic feature absent from coprocessor dependency feature tree",
+    "no_std_normalizer_build": "passed",
+    "no_std_arithmetic_build": "passed",
+    "clippy": "workspace, verifier, pool and bridge passed",
+    "localnet_proof_backend": "DEV; full Circom proof verification tested separately",
+    "prefunded_pda_types": [
+      "verifier state",
+      "attestation",
+      "nullifier",
+      "legacy position",
+      "access policy",
+      "access pool",
+      "access grant",
+      "access position"
+    ]
+  },
+  "artifact": {
+    "name": "access-localnet",
+    "id": 13453743452,
+    "downloaded_sha256": "1e072c727a5dc27fc7a6a6ff8688482a898f32d94a6b7bc69fdcda3de60695c7",
+    "digest_verified": true
+  },
+  "findings": {
+    "VULN_01": "Not reproduced with persistent third-party prefunding; retain Anchor initialization",
+    "VULN_02": "Reject unsafe forwarded-chain configuration and ambiguous selected headers; trusted-ingress isolation remains required",
+    "VULN_03": "Signed wallet extension and exact-policy POST supported; no universal bank compatibility claim",
+    "VULN_04": "Canonical coordinate validation and zero-y negation fixed; no forged-proof bypass demonstrated",
+    "additional_ci_finding": "Masked Mocha failures fixed with pipefail and a validated fresh JSON report"
+  },
+  "unchanged": {
+    "circuit": "v3 EdDSA-Poseidon; no circuit/zkey migration",
+    "public_inputs": 10,
+    "single_public_digest_proposal": "Not implemented; on-chain binding and CU benefits need design/measurement"
+  },
+  "migration": "Upgrade notary, fetch and bridge together; regenerate header-only TLSNotary presentations",
+  "deployment": "No devnet/mainnet or Fly deployment performed"
+}
