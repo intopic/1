@@ -67,13 +67,15 @@ pub fn lt_be(a: &[u8; 32], m: &[u8; 32]) -> bool {
 
 /// Range checks supplement the native curve-membership/subgroup validation.
 pub fn validate_coordinates(point: &[u8]) -> Result<()> {
-    for coord in point.chunks_exact(32) {
-        let value: &[u8; 32] = coord.try_into().unwrap();
+    let mut remaining = point;
+    while let Some((value, tail)) = remaining.split_first_chunk::<32>() {
         require!(
             lt_be(value, &BN254_FQ_MODULUS),
             ZkVerifierError::InvalidPoint
         );
+        remaining = tail;
     }
+    require!(remaining.is_empty(), ZkVerifierError::InvalidPoint);
     Ok(())
 }
 
