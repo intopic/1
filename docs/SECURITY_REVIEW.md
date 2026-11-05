@@ -14,7 +14,8 @@ necessary to address this scenario and would remove legitimate refresh behavior.
 Localnet regressions send funds from a separate wallet before initializing verifier
 state, attestation, nullifier, legacy position, business policy, access pool, grant
 and access position. A one-lamport transfer is attempted; if runtime rent rules
-reject it, the attacker funds the empty-account rent minimum instead. Subsequent
+reject or reclaim it, the attacker funds the empty-account rent minimum instead.
+Transfers are confirmed before checking the persistent account. Subsequent
 normal initialization and use must succeed. Grant revocation and nullifier ownership
 remain enforced after initialization; the code exposes no user-controlled close path.
 
@@ -103,6 +104,13 @@ already delegated malformed points to those syscalls; the report does not demons
 an accepted forged proof. This is input-validation hardening and a negation edge-case fix.
 
 ## Architecture recommendations
+
+An additional CI issue was found during reproduction: piping `anchor test` through
+`tee` without `pipefail` could mark a job successful despite Mocha failures. The
+localnet step now enables `set -euo pipefail`, and a Node runner validates a fresh
+Mocha JSON report with no failures/skips and all three required suites. Regression
+tests deliberately supply failing, empty, skipped and incomplete reports. Both
+human-readable logs and the JSON report are uploaded as artifacts.
 
 * **RSA in the ZK circuit:** already removed before this report. Current measured v3
   has 6,582 constraints and a roughly 4.12 MiB zkey, not 277,321 constraints. Phone

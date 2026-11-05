@@ -318,7 +318,9 @@ jobs:
           # programi është workspace më vete; artefaktet duhet të dalin në target/deploy të rrënjës
           CARGO_TARGET_DIR: ${{ github.workspace }}/target
         run: |
+          set -euo pipefail
           npm ci
+          node --test scripts/test-program-results.mjs
           node scripts/sync-program-ids.mjs
           anchor keys sync
           anchor build
@@ -336,6 +338,7 @@ jobs:
           name: access-localnet
           path: |
             artifacts/access-localnet.log
+            artifacts/localnet-results.json
             target/idl/solana_zk_verifier.json
             target/idl/gated_pool.json
       - name: Log-u i validatorit

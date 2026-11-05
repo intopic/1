@@ -18,7 +18,7 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 1000000 programs/solana-zk-verifier/tests/**/*.ts programs/gated-pool/tests/**/*.ts"
+test = "node scripts/run-program-tests.mjs"
 
 [test]
 startup_wait = 60000
