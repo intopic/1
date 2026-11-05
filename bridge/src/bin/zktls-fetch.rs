@@ -7,7 +7,7 @@
 //!     --bridge https://<app>.fly.dev:8790 --out session.tls.json
 //! ```
 //!
-//! `--bridge` pranon `https://host[:port]`, `http://host:port` ose `host:port` (HTTP, lokal).
+//! `--bridge` pranon `https://host[:port]`, ose `http://host:port` / `host:port` vetëm për localhost.
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
@@ -36,7 +36,7 @@ struct Args {
     connect: Option<String>,
     #[arg(long)]
     wallet: String,
-    /// Ura: `https://host[:port]` ose `host:port` (HTTP). Pa të, shkruhet vetëm prezantimi (base64).
+    /// Ura: `https://host[:port]`, ose `host:port` (HTTP, vetëm localhost). Pa të, shkruhet vetëm prezantimi (base64).
     #[arg(long)]
     bridge: Option<String>,
     #[arg(long, default_value = "session.tls.json")]
@@ -92,6 +92,15 @@ async fn post_json(bridge: &str, path: &str, body: String) -> Result<String> {
         .rsplit_once(':')
         .map_or(hostport, |(h, _)| h)
         .to_string();
+    // HTTP i pakriptuar vetëm brenda makinës: prezantimi mban përgjigjen e bankës
+    let loopback = host == "localhost"
+        || host
+            .trim_matches(|c| c == '[' || c == ']')
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    if !tls && !loopback {
+        bail!("ura `{bridge}` pa TLS: përdorni https:// (HTTP lejohet vetëm për localhost)");
+    }
     let addr = if hostport.contains(':') {
         hostport.to_string()
     } else {
