@@ -196,6 +196,25 @@ describe("solana-zk-verifier", () => {
     expect(err).to.contain("NullifierAlreadyUsed");
   });
 
+  it("refuzon herët (pa provë) një nullifier të zënë nga portofol tjetër", async () => {
+    const run = (args: string) => execSync(`${CLI} ${args}`, { cwd: ROOT, stdio: "pipe" }).toString().trim();
+    const pid = program.programId.toBase58();
+    // PDA-ja e llogaritur në Rust (daemon-i) = ajo e web3.js
+    expect(run(`nullifier-pda --program ${pid} --nullifier ${proof.nullifier}`)).to.eq(nullifierPda(proof).toBase58());
+    const pc = `--rpc-url ${provider.connection.rpcEndpoint} --verifier-program ${pid}`;
+    let err = "";
+    const t0 = Date.now();
+    try {
+      run(`prove --input ${TMP}/sybil.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/sybil2.json ${pc}`);
+    } catch (e: any) {
+      err = String(e.stderr ?? e);
+    }
+    console.log("      refuzimi i hershëm:", Date.now() - t0, "ms");
+    expect(err).to.contain("NullifierAlreadyUsed");
+    // pronari i vërtetë (rifreskim i atestimit) nuk bllokohet
+    run(`prove --input ${TMP}/session.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/again.json ${pc}`);
+  });
+
   it("refuzon provë për një app_id tjetër", async () => {
     const other = Keypair.generate();
     const run = (args: string) => execSync(`${CLI} ${args}`, { cwd: ROOT, stdio: "pipe" }).toString().trim();

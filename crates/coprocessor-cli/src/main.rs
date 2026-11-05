@@ -13,6 +13,8 @@
 //! coprocessor serve --addr 127.0.0.1:8787 --mock-notary-key tests/fixtures/mock_notary_key.pem
 //! ```
 
+mod chain;
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -162,6 +164,52 @@ enum MockKind {
     Age,
 }
 
+/// Kontrolli i hershëm i nullifier-it on-chain (opsional): pa të, një IBAN i
+/// përdorur nga portofol tjetër do të provohej kot (~8 s CPU) dhe refuzohej on-chain.
+#[derive(clap::Args, Clone, Default)]
+struct PrecheckArgs {
+    /// RPC i Solana-s, p.sh. https://api.devnet.solana.com
+    #[arg(long, requires = "verifier_program")]
+    rpc_url: Option<String>,
+    /// Adresa e programit `solana-zk-verifier`
+    #[arg(long, requires = "rpc_url")]
+    verifier_program: Option<String>,
+}
+
+impl PrecheckArgs {
+    fn load(&self) -> Result<Option<chain::Precheck>> {
+        match (&self.rpc_url, &self.verifier_program) {
+            (Some(r), Some(p)) => Ok(Some(chain::Precheck::new(r, p)?)),
+            _ => Ok(None),
+        }
+    }
+}
+
+/// Mesazhi kur nullifier-i është i zënë (i njëjti emër si gabimi i programit).
+const NULLIFIER_USED: &str = "NullifierAlreadyUsed";
+
+/// `Ok(())` nëse prova ia vlen të bëhet. Gabim i RPC-së → vazhdo (programi vendos).
+fn precheck(
+    p: Option<&chain::Precheck>,
+    session: &NotarizedSession,
+    claim: &ClaimArgs,
+) -> Result<()> {
+    let Some(p) = p else { return Ok(()) };
+    let w = witness_for(session, claim)?;
+    let nullifier = zktls_prover::solana::fr_to_be(&w.nullifier());
+    match p.nullifier_state(&nullifier, &w.wallet) {
+        Ok(chain::NullifierState::Free) => Ok(()),
+        Ok(chain::NullifierState::UsedBy(owner)) => bail!(
+            "{NULLIFIER_USED}: kjo llogari burimore është përdorur tashmë për këtë aplikacion nga portofoli {}",
+            bs58::encode(owner).into_string()
+        ),
+        Err(e) => {
+            eprintln!("kontrolli i nullifier-it dështoi ({e:#}); vazhdohet me provën");
+            Ok(())
+        }
+    }
+}
+
 /// Çfarë pretendohet: `--min/--max` për vlera, ose `--min-age` për moshë.
 #[derive(clap::Args, Clone, Deserialize)]
 struct ClaimArgs {
@@ -267,6 +315,8 @@ enum Cmd {
         /// Ruaj edhe input.json për Circom
         #[arg(long)]
         witness_out: Option<PathBuf>,
+        #[command(flatten)]
+        precheck: PrecheckArgs,
         #[arg(long, default_value = "proof.json")]
         out: PathBuf,
     },
@@ -309,6 +359,16 @@ enum Cmd {
         mock_notary_key: Option<PathBuf>,
         #[arg(long)]
         mock_notary_cert: Option<PathBuf>,
+        #[command(flatten)]
+        precheck: PrecheckArgs,
+    },
+    /// PDA-ja `["nullifier", nullifier]` (base58), për kontroll me klientët JS
+    NullifierPda {
+        #[arg(long)]
+        program: String,
+        /// hex, 32 bajte
+        #[arg(long)]
+        nullifier: String,
     },
 }
 
@@ -399,9 +459,11 @@ fn main() -> Result<()> {
             engine,
             keep_files,
             witness_out,
+            precheck: pc,
             out,
         } => {
             let session = read_session(&input)?;
+            precheck(pc.load()?.as_ref(), &session, &claim)?;
             let t0 = std::time::Instant::now();
             let (bundle, w, t) = Engine::load(&engine, keep_files)?.prove(&session, &claim)?;
             eprintln!(
@@ -464,7 +526,12 @@ fn main() -> Result<()> {
             parallel,
             mock_notary_key,
             mock_notary_cert,
+            precheck: pc,
         } => {
+            let pc = pc.load()?;
+            if let Some(p) = &pc {
+                eprintln!("kontrolli i nullifier-it: {} ", p.rpc_url);
+            }
             let notary = mock_notary_key
                 .map(|k| load_notary(&k, mock_notary_cert.as_deref()))
                 .transpose()?;
@@ -477,7 +544,20 @@ fn main() -> Result<()> {
             } else {
                 parallel
             };
-            serve(&addr, engine, parallel, notary)?
+            serve(&addr, engine, parallel, notary, pc)?
+        }
+        Cmd::NullifierPda { program, nullifier } => {
+            let program: [u8; 32] = bs58::decode(&program)
+                .into_vec()?
+                .try_into()
+                .map_err(|_| anyhow!("program i pavlefshëm"))?;
+            let n: [u8; 32] = hex::decode(&nullifier)?
+                .try_into()
+                .map_err(|_| anyhow!("nullifier duhet 32 bajte"))?;
+            println!(
+                "{}",
+                bs58::encode(chain::nullifier_pda(&program, &n)).into_string()
+            );
         }
     }
     Ok(())
@@ -585,7 +665,13 @@ impl ProveGate {
 /// Afati i leximit/shkrimit: një klient i ngadaltë nuk e bllokon serverin.
 const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-fn serve(addr: &str, engine: Engine, parallel: usize, notary: Option<MockNotary>) -> Result<()> {
+fn serve(
+    addr: &str,
+    engine: Engine,
+    parallel: usize,
+    notary: Option<MockNotary>,
+    precheck: Option<chain::Precheck>,
+) -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -593,6 +679,7 @@ fn serve(addr: &str, engine: Engine, parallel: usize, notary: Option<MockNotary>
     println!("backend {}, {parallel} prova njëkohësisht", engine.name());
     let prover = Arc::new(engine);
     let notary = Arc::new(notary);
+    let pc = Arc::new(precheck);
     let active = Arc::new(AtomicUsize::new(0));
     let listener = TcpListener::bind(addr)?;
     println!("coprocessor po dëgjon në http://{addr}");
@@ -607,6 +694,7 @@ fn serve(addr: &str, engine: Engine, parallel: usize, notary: Option<MockNotary>
         }
         let (prover, notary, active, gate) =
             (prover.clone(), notary.clone(), active.clone(), gate.clone());
+        let pc = pc.clone();
         // një thread për lidhje: një kërkesë e ngadaltë ose e gabuar nuk ndal të tjerat
         std::thread::spawn(move || {
             // zbret numëruesin edhe nëse trajtimi bën panik
@@ -617,7 +705,13 @@ fn serve(addr: &str, engine: Engine, parallel: usize, notary: Option<MockNotary>
                 }
             }
             let _slot = Slot(active);
-            if let Err(e) = handle(&prover, &gate, notary.as_ref().as_ref(), &mut stream) {
+            if let Err(e) = handle(
+                &prover,
+                &gate,
+                notary.as_ref().as_ref(),
+                pc.as_ref().as_ref(),
+                &mut stream,
+            ) {
                 let _ = respond(
                     &mut stream,
                     400,
@@ -633,6 +727,7 @@ fn handle(
     prover: &Engine,
     gate: &ProveGate,
     notary: Option<&MockNotary>,
+    pc: Option<&chain::Precheck>,
     stream: &mut TcpStream,
 ) -> Result<()> {
     // Rreshti i kërkesës + header-at: gjithsej ≤ 16 KiB (pa kufi, një klient mund të
@@ -690,6 +785,19 @@ fn handle(
         }
         ("POST", "/prove") => {
             let req: ProveRequest = serde_json::from_slice(&body)?;
+            // para radhës: një nullifier i zënë refuzohet në milisekonda, pa zënë CPU
+            if let Err(e) = precheck(pc, &req.session, &req.claim) {
+                let code = if e.to_string().starts_with(NULLIFIER_USED) {
+                    409
+                } else {
+                    400
+                };
+                return respond(
+                    stream,
+                    code,
+                    &serde_json::json!({ "error": e.to_string() }).to_string(),
+                );
+            }
             let (bundle, _, _) = gate.run(|| prover.prove(&req.session, &req.claim))?;
             respond(stream, 200, &serde_json::to_string(&bundle)?)
         }
@@ -701,6 +809,7 @@ fn respond(stream: &mut TcpStream, code: u16, body: &str) -> Result<()> {
     let reason = match code {
         200 => "OK",
         204 => "No Content",
+        409 => "Conflict",
         503 => "Service Unavailable",
         404 => "Not Found",
         _ => "Bad Request",

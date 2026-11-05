@@ -37,6 +37,10 @@ curl https://<emri-juaj>.fly.dev/health   # {"status":"ok","backend":"circom-rap
 
 - **prover**: `performance-2x` / 4 GB, rreth 2.3 s për provë, ~0.4 prova/s për makinë.
   Për më shumë: `fly scale count prover=3` ose `fly scale vm performance-4x`.
+- `VERIFIER_PROGRAM` (+ `SOLANA_RPC_URL`): daemon-i llogarit nullifier-in para provës dhe,
+  nëse llogaria është përdorur nga një portofol tjetër, kthen **409** në milisekonda, pa
+  shpenzuar ~8 s CPU. Pas deploy-it në devnet: `fly secrets set VERIFIER_PROGRAM=<adresa>`
+  (ose te `[env]`).
 - `DEMO_MOCK_NOTARY=1` aktivizon `/mock-session` me çelësin testues **publik** të depos.
   Vetëm devnet. Në prodhim vendoseni `0` dhe mos e shtoni atë çelës në whitelist.
 - Politika e urës: çdo burim bilanci duhet të ketë `"currency"` (p.sh. `"EUR"`), që

@@ -16,6 +16,10 @@ primary_region = "fra"
   DEMO_MOCK_NOTARY = "1"
   # 0 = automatikisht (bërthamat / 3 për rapidsnark)
   PROVER_PARALLEL = "0"
+  # Refuzim i hershëm i IBAN-ve të përdorur nga portofol tjetër (409, pa provë).
+  # Vendosni adresën e programit pas `scripts/deploy-devnet.sh`.
+  SOLANA_RPC_URL = "https://api.devnet.solana.com"
+  # VERIFIER_PROGRAM = "<adresa e solana-zk-verifier>"
 
 [processes]
   prover = "prover"

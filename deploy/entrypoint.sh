@@ -12,6 +12,10 @@ case "$role" in
       # dhe çelësi i tij nuk duhet shtuar kurrë në whitelist-ën e mainnet-it.
       args+=(--mock-notary-key /app/demo/mock_notary_key.pem --mock-notary-cert /app/demo/mock_notary_cert.pem)
     fi
+    if [ -n "${SOLANA_RPC_URL:-}" ] && [ -n "${VERIFIER_PROGRAM:-}" ]; then
+      # refuzim i hershëm i nullifier-ave të zënë (pa shpenzuar CPU për provën)
+      args+=(--rpc-url "$SOLANA_RPC_URL" --verifier-program "$VERIFIER_PROGRAM")
+    fi
     exec coprocessor "${args[@]}"
     ;;
   bridge)
