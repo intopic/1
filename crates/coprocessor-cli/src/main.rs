@@ -361,6 +361,8 @@ enum Cmd {
         mock_notary_cert: Option<PathBuf>,
         #[command(flatten)]
         precheck: PrecheckArgs,
+        #[command(flatten)]
+        access: AccessArgs,
     },
     /// PDA-ja `["nullifier", nullifier]` (base58), për kontroll me klientët JS
     NullifierPda {
@@ -370,6 +372,27 @@ enum Cmd {
         #[arg(long)]
         nullifier: String,
     },
+}
+
+/// Kontrolli i aksesit të daemon-it.
+#[derive(clap::Args)]
+struct AccessArgs {
+    /// Çelësat API të lejuar, të ndarë me presje (≥ 16 karaktere secili). Kur jepen,
+    /// POST /prove dhe /mock-session kërkojnë header-in `x-api-key`.
+    #[arg(
+        long,
+        env = "PROVER_API_KEYS",
+        hide_env_values = true,
+        value_delimiter = ','
+    )]
+    api_keys: Vec<String>,
+    /// Kërkesa POST maksimale për IP (IPv6: për /64) në minutë; 0 = pa kufi.
+    #[arg(long, env = "PROVER_RATE_LIMIT", default_value_t = 0)]
+    rate_limit_per_min: u32,
+    /// Header-i me IP-në reale kur serveri është pas një proxy (p.sh. `fly-client-ip`).
+    /// Vendoseni VETËM kur proxy-ja e mbishkruan gjithmonë; përndryshe klienti e falsifikon.
+    #[arg(long, env = "PROVER_CLIENT_IP_HEADER")]
+    client_ip_header: Option<String>,
 }
 
 fn now() -> u64 {
@@ -527,6 +550,7 @@ fn main() -> Result<()> {
             mock_notary_key,
             mock_notary_cert,
             precheck: pc,
+            access,
         } => {
             let pc = pc.load()?;
             if let Some(p) = &pc {
@@ -544,7 +568,35 @@ fn main() -> Result<()> {
             } else {
                 parallel
             };
-            serve(&addr, engine, parallel, notary, pc)?
+            let api_keys: Vec<String> = access
+                .api_keys
+                .iter()
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty())
+                .collect();
+            if let Some(k) = api_keys.iter().find(|k| k.len() < 16) {
+                bail!("çelës API shumë i shkurtër ({} < 16 karaktere)", k.len());
+            }
+            if api_keys.is_empty() && access.rate_limit_per_min == 0 {
+                eprintln!(
+                    "KUJDES: pa PROVER_API_KEYS dhe pa PROVER_RATE_LIMIT, /prove është i hapur"
+                );
+            }
+            let limiter = (access.rate_limit_per_min > 0)
+                .then(|| RateLimiter::new(access.rate_limit_per_min));
+            serve(
+                &addr,
+                Ctx {
+                    prover: engine,
+                    gate: ProveGate::new(parallel),
+                    parallel,
+                    notary,
+                    pc,
+                    api_keys,
+                    limiter,
+                    ip_header: access.client_ip_header.map(|h| h.to_ascii_lowercase()),
+                },
+            )?
         }
         Cmd::NullifierPda { program, nullifier } => {
             let program: [u8; 32] = bs58::decode(&program)
@@ -567,6 +619,7 @@ fn load_notary(key: &Path, cert: Option<&Path>) -> Result<MockNotary> {
     Ok(MockNotary {
         key: load_private_key_pem(&std::fs::read_to_string(key)?)?,
         certificate_pem: cert.map(std::fs::read_to_string).transpose()?,
+        tag_secret: None,
     })
 }
 
@@ -623,8 +676,8 @@ struct ProveRequest {
     claim: ClaimArgs,
 }
 
-/// Server HTTP/1.1 minimal, një kërkesë njëherësh. Pa TLS dhe pa autentikim –
-/// vendoseni pas një reverse proxy.
+/// Server HTTP/1.1 minimal, një kërkesë për lidhje. Pa TLS: vendoseni pas një
+/// reverse proxy (Fly e bën vetë).
 /// Lidhje të njëkohshme maksimale; të tjerat marrin 503.
 const MAX_CONNECTIONS: usize = 128;
 
@@ -712,21 +765,103 @@ impl Read for DeadlineReader {
     }
 }
 
-fn serve(
-    addr: &str,
-    engine: Engine,
+/// Kufi kërkesash për IP me dritare fikse prej një minute.
+struct RateLimiter {
+    per_min: u32,
+    m: std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (u64, u32)>>,
+}
+
+impl RateLimiter {
+    fn new(per_min: u32) -> Self {
+        RateLimiter {
+            per_min,
+            m: Default::default(),
+        }
+    }
+
+    /// IPv4 ashtu siç është; IPv6 sipas /64 (një klient zakonisht ka gjithë /64-ën,
+    /// ndaj kufiri për adresë të vetme do të ishte i pakuptimtë).
+    fn bucket(ip: std::net::IpAddr) -> std::net::IpAddr {
+        match ip.to_canonical() {
+            std::net::IpAddr::V6(v6) => {
+                let s = v6.segments();
+                std::net::IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+            }
+            v4 => v4,
+        }
+    }
+
+    /// `Err(sekonda deri në dritaren tjetër)` kur kufiri është kaluar.
+    fn check(&self, ip: std::net::IpAddr, now_secs: u64) -> std::result::Result<(), u64> {
+        let win = now_secs / 60;
+        let mut m = self.m.lock().unwrap();
+        if m.len() > 100_000 {
+            m.retain(|_, (w, _)| *w == win);
+        }
+        let e = m.entry(Self::bucket(ip)).or_insert((win, 0));
+        if e.0 != win {
+            *e = (win, 0);
+        }
+        if e.1 >= self.per_min {
+            return Err(60 - now_secs % 60);
+        }
+        e.1 += 1;
+        Ok(())
+    }
+}
+
+/// Krahasim në kohë konstante (për çelësat API).
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Gjithçka që i duhet daemon-it për një kërkesë.
+struct Ctx {
+    prover: Engine,
+    gate: ProveGate,
     parallel: usize,
     notary: Option<MockNotary>,
-    precheck: Option<chain::Precheck>,
-) -> Result<()> {
+    pc: Option<chain::Precheck>,
+    api_keys: Vec<String>,
+    limiter: Option<RateLimiter>,
+    ip_header: Option<String>,
+}
+
+/// Klienti e ka mbyllur lidhjen (p.sh. mbylli faqen) gjatë kohës në radhë: prova
+/// nuk do t'i arrinte askujt, ndaj nuk ia vlen ta zemë CPU-në 2 s.
+fn client_gone(s: &TcpStream) -> bool {
+    if s.set_nonblocking(true).is_err() {
+        return false;
+    }
+    let mut b = [0u8; 1];
+    let gone = match s.peek(&mut b) {
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(e) => e.kind() != std::io::ErrorKind::WouldBlock,
+    };
+    let _ = s.set_nonblocking(false);
+    gone
+}
+
+fn serve(addr: &str, ctx: Ctx) -> Result<()> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    let gate = Arc::new(ProveGate::new(parallel));
-    println!("backend {}, {parallel} prova njëkohësisht", engine.name());
-    let prover = Arc::new(engine);
-    let notary = Arc::new(notary);
-    let pc = Arc::new(precheck);
+    println!(
+        "backend {}, {} prova njëkohësisht{}{}",
+        ctx.prover.name(),
+        ctx.parallel,
+        if ctx.api_keys.is_empty() {
+            ""
+        } else {
+            ", me çelës API"
+        },
+        match &ctx.limiter {
+            Some(l) => format!(", ≤ {}/min për IP", l.per_min),
+            None => String::new(),
+        }
+    );
+    let ctx = Arc::new(ctx);
     let active = Arc::new(AtomicUsize::new(0));
     let listener = TcpListener::bind(addr)?;
     println!("coprocessor po dëgjon në http://{addr}");
@@ -739,9 +874,7 @@ fn serve(
             let _ = respond(&mut stream, 503, r#"{"error":"server i zënë"}"#);
             continue;
         }
-        let (prover, notary, active, gate) =
-            (prover.clone(), notary.clone(), active.clone(), gate.clone());
-        let pc = pc.clone();
+        let (ctx, active) = (ctx.clone(), active.clone());
         // një thread për lidhje: një kërkesë e ngadaltë ose e gabuar nuk ndal të tjerat
         std::thread::spawn(move || {
             // zbret numëruesin edhe nëse trajtimi bën panik
@@ -752,13 +885,7 @@ fn serve(
                 }
             }
             let _slot = Slot(active);
-            if let Err(e) = handle(
-                &prover,
-                &gate,
-                notary.as_ref().as_ref(),
-                pc.as_ref().as_ref(),
-                &mut stream,
-            ) {
+            if let Err(e) = handle(&ctx, &mut stream) {
                 let _ = respond(
                     &mut stream,
                     400,
@@ -770,13 +897,8 @@ fn serve(
     Ok(())
 }
 
-fn handle(
-    prover: &Engine,
-    gate: &ProveGate,
-    notary: Option<&MockNotary>,
-    pc: Option<&chain::Precheck>,
-    stream: &mut TcpStream,
-) -> Result<()> {
+fn handle(ctx: &Ctx, stream: &mut TcpStream) -> Result<()> {
+    let (prover, gate, notary, pc) = (&ctx.prover, &ctx.gate, ctx.notary.as_ref(), ctx.pc.as_ref());
     // Rreshti i kërkesës + header-at: gjithsej ≤ 16 KiB (pa kufi, një klient mund të
     // dërgonte header-a me madhësi arbitrare dhe të mbushte memorien).
     const MAX_HEAD: u64 = 16 * 1024;
@@ -795,6 +917,8 @@ fn handle(
     let mut parts = line.split_whitespace();
     let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
     let mut len: Option<usize> = None;
+    let mut api_key: Option<String> = None;
+    let mut fwd_ip: Option<std::net::IpAddr> = None;
     loop {
         let mut h = String::new();
         reader.read_line(&mut h)?;
@@ -814,6 +938,15 @@ fn handle(
         if lower.starts_with("transfer-encoding:") {
             bail!("Transfer-Encoding nuk mbështetet; përdorni Content-Length");
         }
+        if let Some((name, value)) = h.split_once(':') {
+            let name = name.trim().to_ascii_lowercase();
+            if name == "x-api-key" {
+                api_key = Some(value.trim().to_string());
+            } else if ctx.ip_header.as_deref() == Some(name.as_str()) {
+                // proxy-t e shtojnë në fund; i pari është klienti
+                fwd_ip = value.split(',').next().and_then(|v| v.trim().parse().ok());
+            }
+        }
     }
     let len = len.unwrap_or(0);
     if len > 1 << 20 {
@@ -823,6 +956,39 @@ fn handle(
     reader.get_mut().set_limit(len as u64);
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body)?;
+    if method == "POST" && matches!(path, "/prove" | "/mock-session") {
+        if !ctx.api_keys.is_empty() {
+            let ok = api_key.as_deref().is_some_and(|k| {
+                ctx.api_keys
+                    .iter()
+                    .fold(false, |hit, a| hit | ct_eq(a.as_bytes(), k.as_bytes()))
+            });
+            if !ok {
+                return respond(
+                    stream,
+                    401,
+                    r#"{"error":"mungon ose është i gabuar x-api-key"}"#,
+                );
+            }
+        }
+        if let Some(l) = &ctx.limiter {
+            let ip = match fwd_ip {
+                Some(ip) => ip,
+                None => stream.peer_addr()?.ip(),
+            };
+            if let Err(wait) = l.check(ip, now()) {
+                return respond_with(
+                    stream,
+                    429,
+                    &serde_json::json!({
+                        "error": format!("shumë kërkesa; provo pas {wait} s")
+                    })
+                    .to_string(),
+                    Some(wait),
+                );
+            }
+        }
+    }
     match (method, path) {
         ("OPTIONS", _) => respond(stream, 204, ""),
         ("GET", "/health") => respond(
@@ -859,13 +1025,16 @@ fn handle(
                     &serde_json::json!({ "error": e.to_string() }).to_string(),
                 );
             }
-            let Some(res) = gate.run(|| prover.prove(&req.session, &req.claim)) else {
+            let run = || (!client_gone(stream)).then(|| prover.prove(&req.session, &req.claim));
+            let Some(res) = gate.run(run) else {
                 return respond(
                     stream,
                     503,
                     r#"{"error":"radha e provave është plot, provo pas pak sekondash"}"#,
                 );
             };
+            // klienti u largua ndërkohë: s'ka kujt t'i përgjigjemi
+            let Some(res) = res else { return Ok(()) };
             let (bundle, _, _) = res?;
             respond(stream, 200, &serde_json::to_string(&bundle)?)
         }
@@ -874,25 +1043,35 @@ fn handle(
 }
 
 fn respond(stream: &mut TcpStream, code: u16, body: &str) -> Result<()> {
+    // 503 = i zënë: klienti mund të provojë sërish pas pak
+    respond_with(stream, code, body, (code == 503).then_some(5))
+}
+
+fn respond_with(
+    stream: &mut TcpStream,
+    code: u16,
+    body: &str,
+    retry_after: Option<u64>,
+) -> Result<()> {
     let reason = match code {
         200 => "OK",
         204 => "No Content",
+        401 => "Unauthorized",
         409 => "Conflict",
+        429 => "Too Many Requests",
         503 => "Service Unavailable",
         404 => "Not Found",
         _ => "Bad Request",
     };
-    // 503 = i zënë: klienti mund të provojë sërish pas pak
-    let retry = if code == 503 {
-        "Retry-After: 5\r\n"
-    } else {
-        ""
-    };
+    let retry = retry_after
+        .map(|s| format!("Retry-After: {s}\r\n"))
+        .unwrap_or_default();
     write!(
         stream,
         "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\n{retry}\
          Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\
-         Access-Control-Allow-Headers: content-type\r\n\
+         Access-Control-Allow-Headers: content-type, x-api-key\r\n\
+         Access-Control-Expose-Headers: retry-after\r\n\
          Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )?;
@@ -938,5 +1117,46 @@ mod tests {
         assert_eq!(g.run(|| 5), Some(5));
         let st = g.st.lock().unwrap();
         assert_eq!((st.free, st.waiting), (1, 0));
+    }
+
+    #[test]
+    fn rate_limit_per_ip_and_v6_prefix() {
+        let l = RateLimiter::new(2);
+        let a: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+        let t = 6_000_030; // 30 s brenda dritares
+        assert!(l.check(a, t).is_ok());
+        assert!(l.check(a, t).is_ok());
+        assert_eq!(l.check(a, t), Err(30));
+        assert!(l.check("1.2.3.5".parse().unwrap(), t).is_ok());
+        assert!(l.check(a, t + 30).is_ok()); // dritare e re
+                                             // e njëjta /64 = i njëjti klient; IPv4 i mapuar = IPv4
+        let v6 = |s: &str| s.parse::<std::net::IpAddr>().unwrap();
+        assert!(l.check(v6("2001:db8::1"), t).is_ok());
+        assert!(l.check(v6("2001:db8::ffff:1"), t).is_ok());
+        assert!(l.check(v6("2001:db8::2"), t).is_err());
+        assert!(l.check(v6("::ffff:1.2.3.5"), t).is_ok());
+        assert!(l.check("1.2.3.5".parse().unwrap(), t).is_err());
+    }
+
+    #[test]
+    fn api_key_compare() {
+        assert!(ct_eq(b"abcdefghijklmnop", b"abcdefghijklmnop"));
+        assert!(!ct_eq(b"abcdefghijklmnop", b"abcdefghijklmnoq"));
+        assert!(!ct_eq(b"abc", b"abcd"));
+    }
+
+    #[test]
+    fn detects_closed_client() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let c = TcpStream::connect(l.local_addr().unwrap()).unwrap();
+        let (s, _) = l.accept().unwrap();
+        assert!(!client_gone(&s));
+        drop(c);
+        // mbyllja mbërrin pas pak
+        let t0 = std::time::Instant::now();
+        while !client_gone(&s) {
+            assert!(t0.elapsed() < std::time::Duration::from_secs(5));
+            std::thread::yield_now();
+        }
     }
 }

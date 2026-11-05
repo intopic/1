@@ -44,6 +44,9 @@ pub struct NotarizedSession {
     pub target_key: String,
     /// Përgjigja HTTP e plotë (headers + trup) e deshifruar nga TLS.
     pub http_response: String,
+    /// Shkalla dhjetore e vlerës (politika e burimit): 2 = vlera në centë.
+    #[serde(default)]
+    pub decimals: u8,
     pub notary: NotaryKey,
     pub attestation: SignedAttestation,
 }
@@ -91,10 +94,11 @@ impl NotarizedSession {
         key.verify_pkcs1v15_sha256(&message_bytes_vec, &signature)?;
         let message = AttestationMessage::from_bytes(&message_bytes_vec)?;
         // 2. Normalizimi (MED-01) i transkriptit
-        let claim = AlgebraicNormalizer::normalize_and_mask(
+        let claim = AlgebraicNormalizer::normalize_and_mask_scaled(
             self.http_response.as_bytes(),
             &self.target_key,
             threshold,
+            self.decimals,
         )?;
         // 3. Integriteti: atestimi i referohet saktësisht këtij transkripti
         if claim.payload_digest != message.payload_digest {

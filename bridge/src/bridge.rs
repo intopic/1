@@ -40,6 +40,23 @@ pub struct Source {
     /// ose `?account=...` mund të ndryshonte kuptimin e përgjigjes pa ndryshuar rrugën.
     #[serde(default)]
     pub allow_query: bool,
+    /// JSON Pointer (RFC 6901) i vlerës, p.sh. `/account/balance`. Pa të, çelësi
+    /// pranohet kudo në JSON (vetëm një herë); me të, duhet të jetë pikërisht aty, që
+    /// p.sh. një `loan.balance` i vetëm të mos lexohet si bilanc.
+    #[serde(default)]
+    pub target_pointer: Option<String>,
+    /// JSON Pointer i identifikuesit të llogarisë, p.sh. `/account/iban`.
+    #[serde(default)]
+    pub account_pointer: Option<String>,
+    /// Shkalla dhjetore e vlerës: 0 = njësi të plota (`15200.99` refuzohet), 2 = centë
+    /// (`15200.99` → `1520099`). Pragjet on-chain janë në të njëjtën njësi.
+    #[serde(default)]
+    pub decimals: u8,
+    /// Identiteti i qëndrueshëm i lëshuesit për nullifier-in (p.sh. `"banka-x"`): i
+    /// njëjtë për të gjitha domenet e bankës dhe pas ndërrimit të domenit. Pa të,
+    /// përdoret domeni TLS.
+    #[serde(default)]
+    pub issuer: Option<String>,
 }
 
 fn default_currency_key() -> String {
@@ -103,6 +120,30 @@ impl Policy {
                 "burimi {} ka target_key/account_key bosh",
                 s.server
             );
+            ensure!(
+                s.decimals <= triad_core::MAX_DECIMALS,
+                "decimals > {}",
+                triad_core::MAX_DECIMALS
+            );
+            ensure!(
+                s.decimals == 0
+                    || !zktls_prover::witness::BIRTH_DATE_KEYS.contains(&s.target_key.as_str()),
+                "një datë lindjeje nuk ka decimale"
+            );
+            if let Some(i) = &s.issuer {
+                ensure!(!i.trim().is_empty(), "issuer bosh te {}", s.server);
+            }
+            for (ptr, key) in [
+                (&s.target_pointer, &s.target_key),
+                (&s.account_pointer, &s.account_key),
+            ] {
+                if let Some(p) = ptr {
+                    ensure!(
+                        p.starts_with('/') && pointer_last(p).as_deref() == Some(key.as_str()),
+                        "pointer `{p}` duhet të fillojë me / dhe të mbarojë me `{key}`"
+                    );
+                }
+            }
             let cur = |x: &Source| x.currency.as_deref().map(str::to_ascii_uppercase);
             for o in self.sources.iter().filter(|o| o.target_key == s.target_key) {
                 ensure!(
@@ -113,6 +154,13 @@ impl Policy {
                     s.server,
                     o.currency,
                     o.server
+                );
+                ensure!(
+                    o.decimals == s.decimals,
+                    "burimet e `{}` kanë shkallë dhjetore të ndryshme ({} dhe {})",
+                    s.target_key,
+                    s.decimals,
+                    o.decimals
                 );
             }
         }
@@ -209,6 +257,70 @@ fn bound_wallet(sent: &[u8], unauthed: &[std::ops::Range<usize>]) -> Result<Stri
     Ok(found.remove(0))
 }
 
+/// Segmenti i fundit i një JSON Pointer-i (me `~1` → `/`, `~0` → `~`).
+fn pointer_last(p: &str) -> Option<String> {
+    let seg = p.rsplit('/').next()?;
+    Some(seg.replace("~1", "/").replace("~0", "~"))
+}
+
+/// Çelësi unik ndodhet pikërisht te `pointer` (nëse politika e jep).
+fn check_pointer(body: &str, pointer: Option<&str>, key: &str) -> Result<()> {
+    let Some(p) = pointer else { return Ok(()) };
+    let v: serde_json::Value = serde_json::from_str(body).context("trupi nuk është JSON")?;
+    ensure!(
+        v.pointer(p).is_some(),
+        "`{key}` nuk është te {p} (struktura e përgjigjes nuk është ajo e pritura)"
+    );
+    Ok(())
+}
+
+/// Madhësia maksimale e transkriptit (secili drejtim) që pranon ura. Klienti ynë
+/// kufizohet në 4 KiB / 16 KiB; kufiri këtu mbron memorien.
+pub const MAX_TRANSCRIPT_BYTES: usize = 1 << 20;
+
+/// Gjatësitë (dërguar, marrë) që deklaron transkripti i prezantimit, të lexuara PA
+/// deserializimin e plotë: `PartialTranscript` alokon `vec![0; sent_total]` dhe
+/// `vec![0; recv_total]` me vlera që i jep klienti, pra 1 MiB kërkesë mund të kërkonte
+/// terabajtë memorie para se të kontrollohet nënshkrimi i noterit. Struktura hije ka
+/// të njëjtën renditje fushash si `Presentation` (bincode nuk ka emra fushash), por
+/// pa alokimin.
+pub fn declared_transcript_sizes(bytes: &[u8]) -> Result<Option<(usize, usize)>> {
+    use tlsn::rangeset::set::RangeSet;
+    #[derive(Deserialize)]
+    struct Compressed {
+        _sent_authed: Vec<u8>,
+        _received_authed: Vec<u8>,
+        _sent_idx: RangeSet<usize>,
+        _recv_idx: RangeSet<usize>,
+        sent_total: usize,
+        recv_total: usize,
+    }
+    #[derive(Deserialize)]
+    struct TranscriptProof {
+        transcript: Compressed,
+        _hash_secrets: Vec<tlsn::transcript::hash::PlaintextHashSecret>,
+    }
+    #[derive(Deserialize)]
+    struct Shadow {
+        _attestation: tlsn::attestation::AttestationProof,
+        _identity: Option<tlsn::attestation::connection::ServerIdentityProof>,
+        transcript: Option<TranscriptProof>,
+    }
+    let s: Shadow = bincode::deserialize(bytes).context("prezantim i pavlefshëm")?;
+    Ok(s.transcript
+        .map(|t| (t.transcript.sent_total, t.transcript.recv_total)))
+}
+
+fn check_transcript_sizes(bytes: &[u8]) -> Result<()> {
+    if let Some((sent, recv)) = declared_transcript_sizes(bytes)? {
+        ensure!(
+            sent <= MAX_TRANSCRIPT_BYTES && recv <= MAX_TRANSCRIPT_BYTES,
+            "transkripti deklaron {sent} / {recv} bajte (> {MAX_TRANSCRIPT_BYTES} B)"
+        );
+    }
+    Ok(())
+}
+
 /// Vlera (string ose numër) e një çelësi JSON që shfaqet saktësisht një herë.
 fn unique_json_value(body: &str, key: &str) -> Result<String> {
     let v: serde_json::Value = serde_json::from_str(body).context("trupi nuk është JSON")?;
@@ -259,6 +371,7 @@ impl Bridge {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&req.presentation)
             .context("prezantimi nuk është base64")?;
+        check_transcript_sizes(&bytes)?;
         let presentation: Presentation =
             bincode::deserialize(&bytes).context("prezantim i pavlefshëm")?;
         self.attest_presentation(presentation, &req.wallet, now)
@@ -371,6 +484,8 @@ impl Bridge {
             );
         }
         let account_id = unique_json_value(body, &source.account_key)?;
+        check_pointer(body, source.target_pointer.as_deref(), &source.target_key)?;
+        check_pointer(body, source.account_pointer.as_deref(), &source.account_key)?;
         if let Some(expected) = &source.currency {
             let got = unique_json_value(body, &source.currency_key)
                 .with_context(|| format!("mungon monedha (`{}`)", source.currency_key))?;
@@ -382,14 +497,18 @@ impl Bridge {
 
         // 6. nënshkruaj mesazhin kanonik (normalizuesi refuzon dublikatat/escape)
         let wallet: [u8; 32] = bs58_decode(wallet)?;
-        Ok(self.signer.notarize(
-            &server,
-            response,
-            &source.target_key,
-            &account_id,
-            wallet,
-            t,
-        )?)
+        Ok(self
+            .signer
+            .notarize_with(&zktls_prover::mock::NotarizeRequest {
+                server_name: &server,
+                issuer: source.issuer.as_deref(),
+                http_response: response,
+                target_key: &source.target_key,
+                account_id: &account_id,
+                wallet,
+                timestamp: t,
+                decimals: source.decimals,
+            })?)
     }
 }
 
@@ -473,7 +592,33 @@ mod tests {
             currency: Some("EUR".into()),
             currency_key: "currency".into(),
             allow_query: false,
+            target_pointer: None,
+            account_pointer: None,
+            decimals: 0,
+            issuer: None,
         }
+    }
+
+    #[test]
+    fn example_policy_is_valid() {
+        let p: Policy =
+            serde_json::from_str(include_str!("../bridge-policy.example.json")).unwrap();
+        p.validate().unwrap();
+    }
+
+    #[test]
+    fn json_pointer() {
+        let b = r#"{"account":{"iban":"AL35","balance":15200},"loan":{"amount":5}}"#;
+        assert!(check_pointer(b, Some("/account/balance"), "balance").is_ok());
+        let loan = r#"{"account":{"iban":"AL35"},"loan":{"balance":50000}}"#;
+        assert!(check_pointer(loan, Some("/account/balance"), "balance").is_err());
+        assert!(check_pointer(loan, None, "balance").is_ok());
+        assert_eq!(pointer_last("/a/b~1c").as_deref(), Some("b/c"));
+    }
+
+    #[test]
+    fn rejects_huge_declared_transcript_before_allocating() {
+        assert!(check_transcript_sizes(b"\x00\x01").is_err()); // jo prezantim
     }
 
     #[test]
@@ -505,6 +650,12 @@ mod tests {
         all.currency = Some("eur".into());
         assert!(p(vec![src("/v1/accounts/"), all]).validate().is_ok());
         assert!(p(vec![src("/v1/../x/")]).validate().is_err());
+        let mut cents = src("/v2/accounts/");
+        cents.decimals = 2;
+        assert!(p(vec![src("/v1/accounts/"), cents]).validate().is_err());
+        let mut ptr = src("/v1/accounts/");
+        ptr.target_pointer = Some("/account/amount".into());
+        assert!(p(vec![ptr]).validate().is_err());
         assert!(p(vec![]).validate().is_err());
     }
 

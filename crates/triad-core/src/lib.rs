@@ -31,4 +31,6 @@ pub mod simd;
 
 pub use euclid::EuclidCore;
 pub use montgomery::MontgomeryEngine;
-pub use normalizer::{AlgebraicNormalizer, CanonicalClaim, NormalizerError};
+pub use normalizer::{
+    is_calendar_date, AlgebraicNormalizer, CanonicalClaim, NormalizerError, MAX_DECIMALS,
+};

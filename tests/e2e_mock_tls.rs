@@ -29,6 +29,7 @@ fn notary() -> MockNotary {
     MockNotary {
         key: load_private_key_pem(KEY_PEM).unwrap(),
         certificate_pem: Some(CERT_PEM.into()),
+        tag_secret: None,
     }
 }
 

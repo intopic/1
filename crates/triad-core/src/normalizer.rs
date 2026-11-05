@@ -50,8 +50,11 @@ pub enum NormalizerError {
     KeyNotFound,
     /// Çelësi i synuar shfaqet më shumë se një herë (paqartësi → refuzim).
     DuplicateKey,
-    /// Vlera nuk është numër i plotë jo-negativ (lejohet pjesë dhjetore, hidhet).
+    /// Vlera nuk është numër jo-negativ i vlefshëm.
     InvalidNumber,
+    /// Vlera ka më shumë shifra dhjetore jo-zero se ç'lejon shkalla e burimit
+    /// (p.sh. `15200.99` me `decimals = 0`): prerja do ta ndryshonte kuptimin e "≤".
+    Precision,
     /// Vlera nuk nxë në u64.
     Overflow,
     /// Çelësi i synuar është bosh ose përmban `"`/`\`.
@@ -140,10 +143,25 @@ impl AlgebraicNormalizer {
         target_key: &str,
         threshold: u64,
     ) -> Result<CanonicalClaim, NormalizerError> {
+        Self::normalize_and_mask_scaled(raw_payload, target_key, threshold, 0)
+    }
+
+    /// Si [`Self::normalize_and_mask`], me vlerën në njësi të vogla: me `decimals = 2`,
+    /// `15200.99` → `1520099` (centë). Asnjë shifër jo-zero nuk hidhet në heshtje:
+    /// më shumë shifra se `decimals` → [`NormalizerError::Precision`].
+    pub fn normalize_and_mask_scaled(
+        raw_payload: &[u8],
+        target_key: &str,
+        threshold: u64,
+        decimals: u8,
+    ) -> Result<CanonicalClaim, NormalizerError> {
         validate_key(target_key)?;
+        if decimals > MAX_DECIMALS {
+            return Err(NormalizerError::Precision);
+        }
         let (_, body_off) = split_http(raw_payload)?;
         // 1. Gjen çelësin me zero-copy parsing
-        let target_value = find_unique_json_u64(&raw_payload[body_off..], target_key)?;
+        let target_value = find_unique_json_u64(&raw_payload[body_off..], target_key, decimals)?;
         // 2. Balancon shprehjen: (value − threshold ≥ 0), pa degëzim
         let (_, borrow) = target_value.overflowing_sub(threshold);
         let ge = u8::conditional_select(&1, &0, (borrow as u8).ct_eq(&1));
@@ -408,6 +426,27 @@ fn next_json_key(s: &[u8], from: usize) -> Option<((usize, usize), usize)> {
     None
 }
 
+/// Shkalla maksimale dhjetore (10^18 < 2^64).
+pub const MAX_DECIMALS: u8 = 18;
+
+/// `YYYYMMDD` është datë reale e kalendarit (p.sh. jo `20010230`, jo `0`).
+pub fn is_calendar_date(yyyymmdd: u64) -> bool {
+    let (y, m, d) = (yyyymmdd / 10_000, (yyyymmdd / 100) % 100, yyyymmdd % 100);
+    (1..=9999).contains(&y) && calendar_ok(y, m, d)
+}
+
+fn calendar_ok(y: u64, m: u64, d: u64) -> bool {
+    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
+    let days = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    y != 0 && (1..=days).contains(&d)
+}
+
 /// `"YYYY-MM-DD"` (pa thonjëzën hapëse) -> `YYYYMMDD`. Kontrollon kalendarin
 /// (ditët e muajit dhe vitet e brishtë).
 fn parse_iso_date(s: &[u8]) -> Option<u64> {
@@ -425,22 +464,14 @@ fn parse_iso_date(s: &[u8]) -> Option<u64> {
         Some(v)
     };
     let (y, m, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
-    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
-    let days = match m {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => return None,
-    };
-    if y == 0 || !(1..=days).contains(&d) {
+    if !calendar_ok(y, m, d) {
         return None;
     }
     Some(y * 10_000 + m * 100 + d)
 }
 
 /// Gjen vlerën numerike të çelësit; refuzon dublikatat.
-fn find_unique_json_u64(body: &[u8], key: &str) -> Result<u64, NormalizerError> {
+fn find_unique_json_u64(body: &[u8], key: &str, decimals: u8) -> Result<u64, NormalizerError> {
     reject_escaped_keys(body)?;
     let mut found: Option<u64> = None;
     let mut i = 0;
@@ -475,15 +506,30 @@ fn find_unique_json_u64(body: &[u8], key: &str) -> Result<u64, NormalizerError> 
         if p == start {
             return Err(NormalizerError::InvalidNumber);
         }
+        // shkalla: v · 10^decimals + shifrat dhjetore (pa humbje)
+        let mut frac_digits = 0u8;
         if p < body.len() && body[p] == b'.' {
             p += 1;
             let fs = p;
             while p < body.len() && body[p].is_ascii_digit() {
+                let digit = (body[p] - b'0') as u64;
+                if frac_digits < decimals {
+                    v = v
+                        .checked_mul(10)
+                        .and_then(|x| x.checked_add(digit))
+                        .ok_or(NormalizerError::Overflow)?;
+                    frac_digits += 1;
+                } else if digit != 0 {
+                    return Err(NormalizerError::Precision);
+                }
                 p += 1;
             }
             if p == fs {
                 return Err(NormalizerError::InvalidNumber);
             }
+        }
+        for _ in frac_digits..decimals {
+            v = v.checked_mul(10).ok_or(NormalizerError::Overflow)?;
         }
         if p < body.len() && matches!(body[p], b'e' | b'E') {
             return Err(NormalizerError::InvalidNumber);
@@ -646,13 +692,36 @@ mod tests {
 
     #[test]
     fn decimals_and_quoted() {
-        let c = AlgebraicNormalizer::normalize_and_mask(
-            b"{\"balance\": \"15200.99\"}",
-            "balance",
-            15_200,
-        )
-        .unwrap();
-        assert_eq!(c.target_value, 15_200);
+        let n = |body: &[u8], d: u8| {
+            AlgebraicNormalizer::normalize_and_mask_scaled(body, "balance", 0, d)
+                .map(|c| c.target_value)
+        };
+        // pa shkallë: zerot dhjetore lejohen, shifrat jo-zero jo (prerja do të gënjente te "≤")
+        assert_eq!(n(b"{\"balance\": \"15200.00\"}", 0), Ok(15_200));
+        assert_eq!(
+            n(b"{\"balance\": \"15200.99\"}", 0),
+            Err(NormalizerError::Precision)
+        );
+        // me shkallë 2: centë, pa humbje
+        assert_eq!(n(b"{\"balance\": 15200.99}", 2), Ok(1_520_099));
+        assert_eq!(n(b"{\"balance\": 15200.5}", 2), Ok(1_520_050));
+        assert_eq!(n(b"{\"balance\": 15200}", 2), Ok(1_520_000));
+        assert_eq!(n(b"{\"balance\": 1.010}", 2), Ok(101));
+        assert_eq!(
+            n(b"{\"balance\": 1.001}", 2),
+            Err(NormalizerError::Precision)
+        );
+        assert_eq!(
+            n(b"{\"balance\": 18446744073709551615}", 1),
+            Err(NormalizerError::Overflow)
+        );
+        assert_eq!(n(b"{\"balance\": 1}", 19), Err(NormalizerError::Precision));
+        let c = AlgebraicNormalizer::normalize_and_mask(b"{\"balance\": 15200}", "balance", 15_200)
+            .unwrap();
         assert!(c.is_greater_or_equal);
+        // datat kalendarike
+        assert!(is_calendar_date(20000229) && is_calendar_date(20010517));
+        assert!(!is_calendar_date(20010230) && !is_calendar_date(19000229));
+        assert!(!is_calendar_date(0) && !is_calendar_date(20011301) && !is_calendar_date(99999999));
     }
 }

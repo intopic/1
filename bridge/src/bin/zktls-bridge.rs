@@ -26,6 +26,10 @@ struct Args {
     rsa_key: std::path::PathBuf,
     #[arg(long)]
     rsa_cert: Option<std::path::PathBuf>,
+    /// Sekreti (32 bajte hex) për `account_tag`. Pa të, etiketa varet nga çelësi RSA dhe
+    /// ndërrimi i çelësit do të ndërronte nullifier-at (një llogari = dy portofole).
+    #[arg(long, env = "BRIDGE_TAG_KEY", hide_env_values = true)]
+    tag_key: Option<String>,
     /// VETËM PËR TESTE: certifikatë rrënjë shtesë (DER)
     #[arg(long)]
     test_root_der: Option<std::path::PathBuf>,
@@ -84,6 +88,22 @@ async fn main() -> Result<()> {
     let a = Args::parse();
     let policy: Policy = serde_json::from_slice(&std::fs::read(&a.policy)?)?;
     policy.validate()?;
+    let tag_secret = match a.tag_key.as_deref().map(str::trim) {
+        Some(h) if !h.is_empty() => {
+            let v = hex::decode(h).map_err(|e| anyhow::anyhow!("BRIDGE_TAG_KEY: {e}"))?;
+            Some(
+                <[u8; 32]>::try_from(v.as_slice())
+                    .map_err(|_| anyhow::anyhow!("BRIDGE_TAG_KEY duhet 32 bajte (64 hex)"))?,
+            )
+        }
+        _ => {
+            eprintln!(
+                "KUJDES: pa BRIDGE_TAG_KEY etiketa e llogarisë varet nga çelësi RSA; \
+                 rrotullimi i çelësit lejon të njëjtën llogari me portofol të ri"
+            );
+            None
+        }
+    };
     let roots = match &a.test_root_der {
         Some(p) => RootCertStore {
             roots: vec![CertificateDer(std::fs::read(p)?)],
@@ -99,6 +119,7 @@ async fn main() -> Result<()> {
                 .as_ref()
                 .map(std::fs::read_to_string)
                 .transpose()?,
+            tag_secret,
         },
         roots,
     });

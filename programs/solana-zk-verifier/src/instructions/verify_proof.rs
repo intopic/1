@@ -250,6 +250,7 @@ pub fn verify_and_attest_handler(
     record.attested_at = attested_at;
     record.timestamp = now;
     record.bump = ctx.bumps.attestation_record;
+    record.policy_epoch = state.policy_epoch;
 
     emit!(AttestationVerified {
         user,

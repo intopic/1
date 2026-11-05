@@ -33,6 +33,10 @@ const hex = (s) => Array.from(Buffer.from(s, "hex"));
 // claim_key_id = SHA-256(çelësi JSON)[0..8] (u64 BE). Demoja pranon bilanc dhe datëlindje.
 const claimKeyId = (k) => new anchor.BN(createHash("sha256").update(k).digest().subarray(0, 8));
 const CLAIMS = (process.env.CLAIMS ?? "balance,date_of_birth").split(",");
+// Afati global i atestimit (s): sa i vjetër mund të jetë sesioni TLS kur verifikohet
+// prova. 0 = pa afat global (vetëm afatet e aplikacioneve). Devnet: 3600.
+const MAX_ATT_AGE = BigInt(process.env.MAX_ATTESTATION_AGE_SECS ?? "0");
+if (MAX_ATT_AGE < 0n) throw new Error("MAX_ATTESTATION_AGE_SECS < 0");
 
 if (!existsSync(IDL)) throw new Error(`mungon ${IDL}: ekzekutoni \`anchor build\` nga rrënja`);
 mkdirSync(join(ROOT, "app/public"), { recursive: true });
@@ -87,7 +91,7 @@ const [statePda] = PublicKey.findProgramAddressSync([Buffer.from("verifier_state
 const existing = await program.account.verifierState.fetchNullable(statePda);
 if (!existing) {
   await program.methods
-    .initialize(vkHead, hex(appId), CLAIMS.map(claimKeyId), new anchor.BN(0))
+    .initialize(vkHead, hex(appId), CLAIMS.map(claimKeyId), new anchor.BN(MAX_ATT_AGE.toString()))
     // vetëm upgrade authority i programit mund të inicializojë
     .accountsPartial({
       authority: authority.publicKey,
@@ -98,7 +102,7 @@ if (!existing) {
     })
     .rpc();
   await extendIc();
-  console.log("u inicializua me app_id", APP_LABEL, appId, "· pretendimet:", CLAIMS.join(", "));
+  console.log("u inicializua me app_id", APP_LABEL, appId, "· pretendimet:", CLAIMS.join(", "), "· afati global:", `${MAX_ATT_AGE} s`);
 } else {
   if (Buffer.from(existing.appId).toString("hex") !== appId)
     throw new Error(`programi është inicializuar me një app_id tjetër; rinisni validator-in ose përdorni APP_LABEL të njëjtë`);
@@ -107,7 +111,14 @@ if (!existing) {
     .accounts({ authority: authority.publicKey })
     .rpc();
   await extendIc();
-  console.log("gjendja ekzistonte; VK u rifreskua");
+  console.log("gjendja ekzistonte; VK u rifreskua (epoka e politikës u rrit: atestimet e vjetra duhen rinovuar)");
+  if (process.env.MAX_ATTESTATION_AGE_SECS !== undefined && BigInt(existing.maxAttestationAgeSecs.toString()) !== MAX_ATT_AGE) {
+    await program.methods
+      .setMaxAttestationAge(new anchor.BN(MAX_ATT_AGE.toString()))
+      .accounts({ authority: authority.publicKey })
+      .rpc();
+    console.log("afati global u ndryshua në", `${MAX_ATT_AGE} s`);
+  }
 }
 // noteri i simuluar (demo) dhe, me BRIDGE_SESSION=<session.tls.json nga ura>, çelësi RSA i urës reale
 const keys = [[bankKeyHash, "noteri i simuluar"]];

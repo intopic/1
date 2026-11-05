@@ -53,4 +53,6 @@ pub enum ZkVerifierError {
     GateSourceRevoked,
     #[msg("Llogaria nuk është gjendja (verifier_state) e programit verifikues")]
     GateWrongState,
+    #[msg("Atestimi është nga një epokë e revokuar e politikës (VK e re ose revokim masiv)")]
+    GateEpochRevoked,
 }

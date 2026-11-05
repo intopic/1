@@ -59,6 +59,8 @@ RUN set -eu; mkdir -p /tmp/rs /out; cd /tmp/rs; \
 # ---- imazhi final ----
 FROM ubuntu:24.04
 ARG ZKEY_URL=""
+# sha256 i zkey-t (nga SHA256SUMS e release-it); i detyrueshëm me ZKEY_URL
+ARG ZKEY_SHA256=""
 RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
       ca-certificates curl libgmp10 libsodium23 libomp5 \
  && rm -rf /var/lib/apt/lists/* \
@@ -68,9 +70,14 @@ COPY --from=rust /out/ /app/bin/
 COPY --from=rapidsnark /out/prover /app/bin/prover
 COPY --from=circuit /out/ /app/circuit/
 COPY deploy/keys/ /app/keys/
-RUN set -eu; if [ ! -f /app/keys/main_final.zkey ] && [ -n "$ZKEY_URL" ]; then \
-      curl -fL --retry 3 -o /app/keys/main_final.zkey "$ZKEY_URL"; fi; \
-    test -s /app/keys/main_final.zkey || { echo "mungon deploy/keys/main_final.zkey (ose ZKEY_URL)"; exit 1; }
+RUN set -eu; cd /app/keys; \
+    if [ ! -f main_final.zkey ] && [ -n "$ZKEY_URL" ]; then \
+      [ -n "$ZKEY_SHA256" ] || { echo "ZKEY_URL kërkon edhe ZKEY_SHA256"; exit 1; }; \
+      curl -fL --retry 3 -o main_final.zkey "$ZKEY_URL"; fi; \
+    test -s main_final.zkey || { echo "mungon deploy/keys/main_final.zkey (ose ZKEY_URL)"; exit 1; }; \
+    if [ -n "$ZKEY_SHA256" ]; then echo "$ZKEY_SHA256  main_final.zkey" | sha256sum -c -; fi; \
+    if [ -f SHA256SUMS ]; then \
+      grep -E '[ */]main_final\.zkey$' SHA256SUMS | awk '{print $1"  main_final.zkey"}' | sha256sum -c -; fi
 # VETËM PËR DEMO: çelësi i noterit të simuluar (publik në depo!) për /mock-session
 COPY tests/fixtures/mock_notary_key.pem tests/fixtures/mock_notary_cert.pem /app/demo/
 COPY bridge/bridge-policy.example.json /app/bridge-policy.json

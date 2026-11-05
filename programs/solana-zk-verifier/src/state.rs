@@ -53,6 +53,13 @@ pub struct VerifierState {
     /// 0 = pa kufi moshe për atestimin.
     pub max_attestation_age_secs: i64,
     pub bump: u8,
+    /// Epoka e politikës: rritet me çdo `set_verifying_key` dhe me `bump_policy_epoch`.
+    /// Atestimet e një epoke të vjetër nuk kalojnë te `gate::require_attested_current`
+    /// (p.sh. kalimi nga VK-ja dev te ajo e ceremonisë, ose një incident).
+    pub policy_epoch: u64,
+    /// Autoriteti i propozuar (`propose_authority`); bëhet autoritet vetëm kur
+    /// nënshkruan `accept_authority`. `Pubkey::default()` = asnjë propozim.
+    pub pending_authority: Pubkey,
 }
 
 #[account]
@@ -70,6 +77,8 @@ pub struct AttestationRecord {
     pub attested_at: i64,
     pub timestamp: i64,
     pub bump: u8,
+    /// `VerifierState::policy_epoch` në momentin e verifikimit.
+    pub policy_epoch: u64,
 }
 
 /// PDA `["nullifier", nullifier]`: një llogari burimore (IBAN, user-id) mund të

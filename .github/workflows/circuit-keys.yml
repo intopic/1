@@ -56,7 +56,8 @@ jobs:
         run: |
           cargo run -q --release -p coprocessor-cli -- export-vk \
             --snarkjs-vk circuits/build/verification_key.json --out circuits/build/vk.json
-          sha256sum circuits/build/main_final.zkey circuits/build/verification_key.json | tee circuits/build/SHA256SUMS
+          # emrat pa rrugë: `sha256sum -c SHA256SUMS` punon pas `gh release download -D <dir>`
+          (cd circuits/build && sha256sum main_final.zkey verification_key.json vk.json | tee SHA256SUMS)
       - name: Publiko release-in
         env:
           GH_TOKEN: ${{ github.token }}

@@ -261,16 +261,95 @@ pub struct ProveTimings {
     pub prove_ms: u64,
 }
 
-fn run_cmd(bin: &str, args: &[&std::ffi::OsStr]) -> Result<(), ProverError> {
-    let out = Command::new(bin)
-        .args(args)
-        .output()
-        .map_err(|e| ProverError::Snarkjs(format!("nuk u nis `{bin}`: {e}")))?;
-    if !out.status.success() {
-        return Err(ProverError::Snarkjs(format!(
-            "`{bin}` dështoi: {}{}",
-            String::from_utf8_lossy(&out.stderr),
-            String::from_utf8_lossy(&out.stdout)
+/// Koha maksimale për një proces të jashtëm (dëshmitar ose provë). Një provë normale
+/// zgjat 1–3 s me rapidsnark dhe < 60 s me snarkjs; një proces i ngecur vritet që të
+/// mos e mbajë vendin në radhë përgjithmonë.
+pub const CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Ndryshoret e mjedisit që i kalohen procesit të jashtëm; çdo gjë tjetër (p.sh.
+/// sekretet e roleve të tjera) hiqet.
+const ENV_KEEP: &[&str] = &[
+    "PATH",
+    "HOME",
+    "LANG",
+    "TMPDIR",
+    "NODE_OPTIONS",
+    "LD_LIBRARY_PATH",
+    "OMP_NUM_THREADS",
+];
+
+/// Krijon një skedar vetëm për pronarin (0600): input.json mban të dhëna personale.
+fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    o.open(path)?.write_all(data)
+}
+
+/// Krijon drejtorinë e provës vetëm për pronarin (0700). Nëse ekziston (vetëm me
+/// `keep_files`), mbetet ashtu siç është.
+fn create_private_dir(dir: &Path, may_exist: bool) -> std::io::Result<()> {
+    let mut b = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+    match b.create(dir) {
+        Err(e) if may_exist && e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        r => r,
+    }
+}
+
+/// Nis `bin` me afat; dalja shkon te `log` (jo në pipe, që një proces llafazan të mos
+/// bllokohet) dhe lexohet vetëm në gabim.
+fn run_cmd(bin: &str, args: &[&std::ffi::OsStr], log: &Path) -> Result<(), ProverError> {
+    run_cmd_within(bin, args, log, CMD_TIMEOUT)
+}
+
+fn run_cmd_within(
+    bin: &str,
+    args: &[&std::ffi::OsStr],
+    log: &Path,
+    timeout: std::time::Duration,
+) -> Result<(), ProverError> {
+    let err = |m: String| ProverError::Snarkjs(m);
+    let out = std::fs::File::create(log)?;
+    let mut cmd = Command::new(bin);
+    cmd.args(args)
+        .env_clear()
+        .envs(
+            ENV_KEEP
+                .iter()
+                .filter_map(|k| std::env::var_os(k).map(|v| (k, v))),
+        )
+        .stdin(std::process::Stdio::null())
+        .stdout(out.try_clone()?)
+        .stderr(out);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| err(format!("nuk u nis `{bin}`: {e}")))?;
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        if let Some(s) = child.try_wait()? {
+            break s;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(err(format!(
+                "`{bin}` nuk mbaroi brenda {} ms",
+                timeout.as_millis()
+            )));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    if !status.success() {
+        let mut tail = std::fs::read(log).unwrap_or_default();
+        let cut = tail.len().saturating_sub(4096);
+        tail.drain(..cut);
+        return Err(err(format!(
+            "`{bin}` dështoi ({status}): {}",
+            String::from_utf8_lossy(&tail)
         )));
     }
     Ok(())
@@ -300,7 +379,8 @@ impl SnarkjsProver {
                 rand::random::<u64>()
             ))
         };
-        std::fs::create_dir_all(&dir)?;
+        std::fs::create_dir_all(&self.work_dir)?;
+        create_private_dir(&dir, self.keep_files)?;
         let _guard = TempDir(dir.clone(), self.keep_files);
         if self.keep_files {
             eprintln!("skedarët e provës mbahen në {}", dir.display());
@@ -309,7 +389,11 @@ impl SnarkjsProver {
         let wtns = dir.join("witness.wtns");
         let proof_p = dir.join("proof.json");
         let public_p = dir.join("public.json");
-        std::fs::write(&input, serde_json::to_vec_pretty(&w.to_circom_input())?)?;
+        let log = dir.join("cmd.log");
+        if self.keep_files {
+            let _ = std::fs::remove_file(&input);
+        }
+        write_private(&input, &serde_json::to_vec_pretty(&w.to_circom_input())?)?;
         let mut t = ProveTimings::default();
         match &self.rapidsnark {
             None => {
@@ -325,13 +409,14 @@ impl SnarkjsProver {
                         proof_p.as_os_str(),
                         public_p.as_os_str(),
                     ],
+                    &log,
                 )?;
                 t.prove_ms = t0.elapsed().as_millis() as u64;
             }
             Some(rs) => {
                 let t0 = std::time::Instant::now();
                 match &self.witness_bin {
-                    Some(bin) => run_cmd(bin, &[input.as_os_str(), wtns.as_os_str()])?,
+                    Some(bin) => run_cmd(bin, &[input.as_os_str(), wtns.as_os_str()], &log)?,
                     None => run_cmd(
                         &self.snarkjs_bin,
                         &[
@@ -341,6 +426,7 @@ impl SnarkjsProver {
                             input.as_os_str(),
                             wtns.as_os_str(),
                         ],
+                        &log,
                     )?,
                 }
                 t.witness_ms = t0.elapsed().as_millis() as u64;
@@ -353,6 +439,7 @@ impl SnarkjsProver {
                         proof_p.as_os_str(),
                         public_p.as_os_str(),
                     ],
+                    &log,
                 )?;
                 t.prove_ms = t1.elapsed().as_millis() as u64;
             }
@@ -371,4 +458,69 @@ impl SnarkjsProver {
 /// Konverton `Fr` në dhjetor (si në JSON-in e snarkjs).
 pub fn fr_to_decimal(x: &Fr) -> String {
     num_bigint::BigUint::from_bytes_le(&x.into_bigint().to_bytes_le()).to_string()
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("zkp-test-{name}-{}", rand::random::<u64>()));
+        create_private_dir(&d, false).unwrap();
+        d
+    }
+
+    #[test]
+    fn hung_process_is_killed() {
+        let d = tmp("hang");
+        let t0 = Instant::now();
+        let e = run_cmd_within(
+            "sleep",
+            &["30".as_ref()],
+            &d.join("l"),
+            Duration::from_millis(200),
+        );
+        assert!(format!("{}", e.unwrap_err()).contains("nuk mbaroi"));
+        assert!(t0.elapsed() < Duration::from_secs(5));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn failure_reports_output_and_env_is_cleared() {
+        let d = tmp("fail");
+        let log = d.join("l");
+        // CARGO_PKG_NAME ekziston në mjedisin e testit, por nuk i kalohet fëmijës
+        let e = run_cmd_within(
+            "sh",
+            &[
+                "-c".as_ref(),
+                "echo \"x${CARGO_PKG_NAME}y\"; exit 3".as_ref(),
+            ],
+            &log,
+            Duration::from_secs(10),
+        );
+        let m = format!("{}", e.unwrap_err());
+        assert!(m.contains("xy"), "{m}");
+        assert!(run_cmd_within("true", &[], &log, Duration::from_secs(10)).is_ok());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn private_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tmp("perm");
+        assert_eq!(
+            std::fs::metadata(&d).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        let f = d.join("input.json");
+        write_private(&f, b"{}").unwrap();
+        assert_eq!(
+            std::fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(write_private(&f, b"{}").is_err()); // create_new
+        std::fs::remove_dir_all(d).unwrap();
+    }
 }

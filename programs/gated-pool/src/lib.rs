@@ -11,7 +11,8 @@
 //!
 //! Bilanci kërkon gjithmonë afat freskie (`max_age_secs > 0`): pa të, një bilanc
 //! i vërtetuar një herë do të vlente përgjithmonë, edhe pasi paratë janë tërhequr.
-//! Mosha nuk skadon (data e lindjes nuk ndryshon), ndaj afati nuk zbatohet atje.
+//! Afati i pool-it zbatohet për të gjitha atestimet (edhe moshën); një pool vetëm-moshë
+//! mund ta lërë 0.
 
 // Makrot e Anchor 0.31 gjenerojnë thirrje te `AccountInfo::realloc` (e vjetëruar).
 #![allow(deprecated)]
@@ -83,7 +84,7 @@ pub mod gated_pool {
                 att,
                 state,
                 &user,
-                &Requirement::min_age(pool.min_age as u64, now),
+                &Requirement::min_age(pool.min_age as u64, now).fresh_within(pool.max_age_secs),
             )?;
         }
 

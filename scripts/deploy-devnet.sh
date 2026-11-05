@@ -31,7 +31,10 @@ mkdir -p artifacts/devnet
 cargo run -q --release -p coprocessor-cli -- export-vk \
   --snarkjs-vk "$KEYS/verification_key.json" --out artifacts/devnet/vk.json
 ( cd app && npm ci --no-audit --no-fund )
+# afati global: një sesion TLS më i vjetër se 1 orë nuk pranohet (ndryshohet me
+# MAX_ATTESTATION_AGE_SECS=...; 0 = pa afat global)
 RPC_URL="$RPC_URL" APP_LABEL="$APP_LABEL" VK_JSON=artifacts/devnet/vk.json \
+  MAX_ATTESTATION_AGE_SECS="${MAX_ATTESTATION_AGE_SECS:-3600}" \
   ANCHOR_WALLET="$WALLET" PROVER_URL="${PROVER_URL:-}" node app/scripts/init-localnet.mjs
 
 echo

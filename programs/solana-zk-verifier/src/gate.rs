@@ -187,8 +187,9 @@ pub fn require_attested(
 }
 
 /// Si [`require_attested`], plus: burimi që lëshoi atestimin është ende në
-/// whitelist-ën e `verifier_state`. Kur administratori heq një çelës banke/ure
-/// (`remove_bank_key`), atestimet e vjetra prej tij nuk kalojnë më.
+/// whitelist-ën e `verifier_state` dhe atestimi është i epokës aktuale të politikës.
+/// Kur administratori heq një çelës banke/ure (`remove_bank_key`), ndërron VK-në
+/// ose bën `bump_policy_epoch`, atestimet e vjetra nuk kalojnë më.
 pub fn require_attested_current(
     attestation: &Account<AttestationRecord>,
     state: &Account<VerifierState>,
@@ -198,11 +199,22 @@ pub fn require_attested_current(
     let expected = Pubkey::create_program_address(&[b"verifier_state", &[state.bump]], &crate::ID)
         .map_err(|_| error!(ZkVerifierError::GateWrongState))?;
     require_keys_eq!(state.key(), expected, ZkVerifierError::GateWrongState);
+    check_current(attestation, state)?;
+    require_attested(attestation, user, req)
+}
+
+/// Atestimi është ende i vlefshëm sipas politikës aktuale: burimi në whitelist dhe
+/// epoka e njëjtë.
+pub fn check_current(record: &AttestationRecord, state: &VerifierState) -> Result<()> {
     require!(
-        is_current_source(attestation, state),
+        is_current_source(record, state),
         ZkVerifierError::GateSourceRevoked
     );
-    require_attested(attestation, user, req)
+    require!(
+        record.policy_epoch == state.policy_epoch,
+        ZkVerifierError::GateEpochRevoked
+    );
+    Ok(())
 }
 
 /// Çelësi që lëshoi atestimin është ende i autorizuar.
@@ -227,6 +239,7 @@ mod tests {
             attested_at: at,
             timestamp: at,
             bump: 255,
+            policy_epoch: 0,
         }
     }
 
@@ -298,10 +311,15 @@ mod tests {
             allowed_claim_keys: vec![BALANCE],
             max_attestation_age_secs: 0,
             bump: 255,
+            policy_epoch: 0,
+            pending_authority: Pubkey::default(),
         };
-        assert!(is_current_source(&r, &st));
+        assert!(check_current(&r, &st).is_ok());
+        st.policy_epoch = 1; // set_verifying_key / bump_policy_epoch
+        assert!(code(check_current(&r, &st)).contains("GateEpochRevoked"));
+        st.policy_epoch = 0;
         st.bank_key_whitelist.clear(); // remove_bank_key
-        assert!(!is_current_source(&r, &st));
+        assert!(code(check_current(&r, &st)).contains("GateSourceRevoked"));
     }
 
     #[test]

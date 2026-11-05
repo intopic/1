@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as anchor from "@coral-xyz/anchor";
 import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { APP_LABEL, MIN_AGE, MIN_BALANCE, POOL_AUTHORITY, PROVER_URL, RPC_URL } from "./config";
+import { APP_LABEL, MIN_AGE, MIN_BALANCE, POOL_AUTHORITY, PROVER_API_KEY, PROVER_URL, RPC_URL } from "./config";
 import {
   Attestation,
   ProofBundle,
@@ -19,13 +19,19 @@ import {
 type Kind = "balance" | "age";
 
 async function post<T>(path: string, body: unknown): Promise<T> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (PROVER_API_KEY) headers["x-api-key"] = PROVER_API_KEY;
   // 503 = radha e provave është plot: prit pak dhe provo sërish (deri në ~1 min)
   for (let attempt = 0; ; attempt++) {
     const r = await fetch(`${PROVER_URL}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     });
+    if (r.status === 429) {
+      const s = r.headers.get("retry-after");
+      throw new Error(`Shumë kërkesa nga kjo adresë; provo sërish pas ${s ?? "pak"} sekondash.`);
+    }
     if (r.status === 503 && attempt < 12) {
       await new Promise((ok) => setTimeout(ok, 5000));
       continue;
@@ -77,6 +83,24 @@ export function App() {
   const [atts, setAtts] = useState<Attestation[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  // Brezi i gjendjes: rritet kur ndryshon portofoli ose zgjedhja. Një përgjigje async
+  // (sesion, provë, atestime) që mbërrin pas ndryshimit i përket gjendjes së vjetër
+  // dhe hidhet, që të mos shfaqet "i verifikuar" për portofolin e gabuar.
+  const gen = useRef(0);
+  const fresh = () => {
+    const g = gen.current;
+    return () => g === gen.current;
+  };
+  const [deposited, setDeposited] = useState<bigint | null>(null);
+  const [poolSig, setPoolSig] = useState("");
+  // portofol tjetër: edhe atestimet dhe pozicioni i të parit hiqen nga ekrani. I pari
+  // nga efektet, që leximet e reja (atestimet, pozicioni) të nisin pas rritjes së brezit.
+  useEffect(() => {
+    reset();
+    setAtts([]);
+    setPoolSig("");
+    setDeposited(null);
+  }, [publicKey]);
 
   // Programi nga IDL-ja (`npm run init-localnet` e kopjon te public/idl.json)
   useEffect(() => {
@@ -96,8 +120,6 @@ export function App() {
 
   // Shembulli i DEX-it (opsional): `npm run init-localnet` kopjon public/pool-idl.json
   const [poolProgram, setPoolProgram] = useState<anchor.Program<any> | null>(null);
-  const [deposited, setDeposited] = useState<bigint | null>(null);
-  const [poolSig, setPoolSig] = useState("");
   useEffect(() => {
     if (!wallet || !POOL_AUTHORITY) return setPoolProgram(null);
     fetch("/pool-idl.json")
@@ -111,15 +133,16 @@ export function App() {
   }, [connection, wallet]);
   const refreshPosition = useCallback(async () => {
     if (!poolProgram || !publicKey) return setDeposited(null);
+    const ok = fresh();
     const p = poolPda(poolProgram.programId, new PublicKey(POOL_AUTHORITY));
     const pos = await (poolProgram.account as any).position.fetchNullable(positionPda(poolProgram.programId, p, publicKey));
-    setDeposited(pos ? BigInt(pos.amount.toString()) : 0n);
+    if (ok()) setDeposited(pos ? BigInt(pos.amount.toString()) : 0n);
   }, [poolProgram, publicKey]);
   useEffect(() => {
     refreshPosition().catch(() => setDeposited(null));
   }, [refreshPosition]);
   const deposit = () =>
-    run("Pool-i po kontrollon atestimin…", async () => {
+    run("Pool-i po kontrollon atestimin…", async (ok) => {
       const s = await depositToPool(
         poolProgram!,
         program!.programId,
@@ -127,17 +150,19 @@ export function App() {
         publicKey!,
         0.1 * LAMPORTS_PER_SOL
       );
+      if (!ok()) return;
       setPoolSig(s);
       await refreshPosition();
     });
 
   const refresh = useCallback(async () => {
-    if (!program || !publicKey) return;
+    if (!program || !publicKey) return setAtts([]);
+    const ok = fresh();
     // atestime të pavarura: bilanci dhe mosha
     const all = await Promise.all(
       ["balance", "date_of_birth"].map((k) => fetchAttestation(program, publicKey, k).catch(() => null))
     );
-    setAtts(all.filter((a): a is Attestation => a !== null));
+    if (ok()) setAtts(all.filter((a): a is Attestation => a !== null));
   }, [program, publicKey]);
   useEffect(() => {
     refresh();
@@ -145,32 +170,34 @@ export function App() {
 
   // ndryshimi i zgjedhjes fshin hapat pasardhës
   const reset = () => {
+    gen.current++;
     setSession(null);
     setProof(null);
     setSig("");
     setError("");
   };
-  useEffect(reset, [publicKey]);
   const choose = (k: Kind) => {
+    if (k === kind) return;
     setKind(k);
     reset();
   };
   useEffect(() => setAccountId(kind === "balance" ? "AL35202111090000000001234567" : "J01234567A"), [kind]);
 
-  const run = async (label: string, f: () => Promise<void>) => {
+  const run = async (label: string, f: (ok: () => boolean) => Promise<void>) => {
+    const ok = fresh();
     setBusy(label);
     setError("");
     try {
-      await f();
+      await f(ok);
     } catch (e) {
-      setError(explainError(e));
+      if (ok()) setError(explainError(e));
     } finally {
       setBusy("");
     }
   };
 
   const connectSource = () =>
-    run("Noteri po e dëshmon lidhjen…", async () => {
+    run("Noteri po e dëshmon lidhjen…", async (ok) => {
       const s = await post("/mock-session", {
         kind,
         balance: Number(balance),
@@ -178,6 +205,7 @@ export function App() {
         account_id: accountId,
         wallet: publicKey!.toBase58(),
       });
+      if (!ok()) return;
       setSession(s);
       setProof(null);
       setSig("");
@@ -186,9 +214,10 @@ export function App() {
   // Sesion real nga noteri TLSNotary + ura (`zktls-fetch --bridge ... --out session.tls.json`)
   const uploadSession = (f: File | undefined) =>
     f &&
-    run("Po lexohet sesioni…", async () => {
+    run("Po lexohet sesioni…", async (ok) => {
       const s = JSON.parse(await f.text());
       if (!s.attestation || !s.http_response) throw new Error("Skedari nuk është session.tls.json");
+      if (!ok()) return;
       setKind(["date_of_birth", "birth_date", "birthdate", "dob"].includes(s.target_key) ? "age" : "balance");
       setProof(null);
       setSig("");
@@ -196,10 +225,11 @@ export function App() {
     });
 
   const prove = () =>
-    run("Po gjenerohet prova ZK…", async () => {
+    run("Po gjenerohet prova ZK…", async (ok) => {
       const t0 = performance.now();
       const claim = kind === "balance" ? { min: MIN_BALANCE } : { min_age: MIN_AGE };
       const p = await post<ProofBundle>("/prove", { session, app: APP_LABEL, ...claim });
+      if (!ok()) return;
       if (p.wallet !== publicKey!.toBase58())
         throw new Error(`Sesioni është lidhur me portofolin ${short(p.wallet)}; lidhni atë portofol ose krijoni sesion të ri.`);
       setProofMs(Math.round(performance.now() - t0));
@@ -207,9 +237,11 @@ export function App() {
     });
 
   const submit = () =>
-    run("Po pritet nënshkrimi dhe konfirmimi…", async () => {
+    run("Po pritet nënshkrimi dhe konfirmimi…", async (ok) => {
       if (!program) throw new Error(setupError || "programi nuk u ngarkua");
-      setSig(await verifyAndAttest(program, publicKey!, proof!));
+      const s = await verifyAndAttest(program, publicKey!, proof!);
+      if (!ok()) return;
+      setSig(s);
       await refresh();
     });
 
@@ -298,7 +330,8 @@ export function App() {
               {kind === "balance" ? "Lidhu me bankën (simulim)" : "Lidhu me regjistrin (simulim)"}
             </button>
             <label className="upload">
-              ose ngarko <code>session.tls.json</code> nga noteri real (<code>zktls-fetch</code>)
+              ose ngarko <code>session.tls.json</code> nga noteri real (<code>zktls-fetch</code>; ura e sheh
+              përgjigjen e bankës për ta vërtetuar, pa e ruajtur)
               <input type="file" accept="application/json,.json" onChange={(e) => uploadSession(e.target.files?.[0])} />
             </label>
           </div>
@@ -308,8 +341,10 @@ export function App() {
       <Step n={3} title="Gjenero provën" done={step > 3} active={step === 3}>
         {session && (
           <p className="muted">
-            Noteri dëshmoi përgjigjen nga <code>{session.server_name}</code>. Të dhënat mbeten te ti dhe nuk dalin
-            on-chain.
+            Noteri dëshmoi përgjigjen nga <code>{session.server_name}</code>. Për provën, sesioni (përfshirë vlerën
+            dhe {kind === "balance" ? "IBAN-in" : "nr. personal"}) dërgohet te serveri i provës, përpunohet në
+            memorie për disa sekonda dhe fshihet: nuk ruhet dhe nuk regjistrohet. On-chain del vetëm kushti, një
+            nullifier anonim dhe koha.
           </p>
         )}
         {step === 3 ? (

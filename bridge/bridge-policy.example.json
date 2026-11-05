@@ -6,7 +6,11 @@
       "path_prefix": "/v1/accounts/",
       "target_key": "balance",
       "account_key": "iban",
-      "currency": "EUR"
+      "target_pointer": "/balance",
+      "account_pointer": "/iban",
+      "currency": "EUR",
+      "decimals": 0,
+      "issuer": "test-bank"
     }
   ],
   "max_age_secs": 600

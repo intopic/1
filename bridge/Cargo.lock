@@ -4068,6 +4068,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util",
+ "triad-core",
  "webpki-roots",
  "zktls-prover",
 ]

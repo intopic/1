@@ -54,7 +54,7 @@ mesazh kanonik 128-bajtësh:
 | 24..32  | claim_key_id   | SHA-256(`"balance"`)[0..8]                |
 | 32..64  | wallet         | çelësi publik Solana i përdoruesit        |
 | 64..96  | payload_digest | SHA-256 i përgjigjes HTTP pas maskimit    |
-| 96..128 | account_tag    | `0x00 ‖ SHA-256("zktls/account-tag/v1" ‖ IBAN/user-id)[1..]` |
+| 96..128 | account_tag    | `0x00 ‖ HMAC(tag_key, "zktls/account-tag/v2" ‖ issuer ‖ id)[1..]` |
 
 Qarku llogarit SHA-256 të këtij mesazhi **brenda provës**, kështu bilanci është i lidhur me
 nënshkrimin. Protokolli MPC-TLS që e prodhon transkriptin nga një lidhje e gjallë **nuk** është pjesë
@@ -228,7 +228,8 @@ një bankë/urë të caktuar.
 
 Gabimet: `GateWrongAccount` (atestim i portofolit/llojit tjetër), `GateWrongUser`,
 `GateClaimMismatch`, `GateThresholdNotMet`, `GateExpired`, `GateSourceRevoked` (banka u
-hoq nga whitelist-a), `GateWrongSource`; pa atestim fare, Anchor kthen `AccountNotInitialized`. Në front-end: `depositToPool` te `app/src/sdk.ts` dhe
+hoq nga whitelist-a), `GateEpochRevoked` (autoriteti i revokoi të gjitha atestimet e vjetra
+me `bump_policy_epoch` ose VK të re), `GateWrongSource`; pa atestim fare, Anchor kthen `AccountNotInitialized`. Në front-end: `depositToPool` te `app/src/sdk.ts` dhe
 hapi 5 i demos.
 
 ## Deploy (fly.io + devnet)
@@ -318,13 +319,21 @@ nënshkrimi RSA verifikohet natively jashtë provës, pra kushdo me çelësin e 
 4. **Whitelist**: `verify_and_attest` refuzon çdo provë me `bank_key_hash` jashtë listës së autoritetit.
 5. **Portofoli i lidhur me TLS**: prover-i dërgon `x-zktls-wallet` brenda sesionit me bankën
    (pjesë e transkriptit të autentikuar); ura refuzon një portofol tjetër në kërkesën JSON.
-6. **Nullifier i fshehtë**: `account_tag = HMAC(çelësi i noterit, domeni ‖ id)`. Pa çelësin
+6. **Nullifier i fshehtë**: `account_tag = HMAC(BRIDGE_TAG_KEY, issuer ‖ id)`. Pa çelësin
    nuk provohen ID të hamendësueshme, dhe e njëjta ID te dy banka jep nullifier-ë të ndryshëm.
-   Operatori i noterit/urës e ka çelësin: ai mund ta lidhë nullifier-in me llogarinë.
+   Sekreti është i ndarë nga çelësi RSA dhe `issuer` nga domeni, ndaj rrotullimi i çelësit
+   ose ndërrimi i domenit nuk e lejon të njëjtën llogari me portofol të dytë. Operatori i
+   urës e ka sekretin: ai mund ta lidhë nullifier-in me llogarinë.
 7. **Datëlindja**: prova e moshës vërteton `1900-01-01 ≤ datëlindja ≤ kufiri`; `min_age`
    on-chain e kërkon këtë kufi të poshtëm dhe freskinë e pool-it.
-8. **Ura**: rruga pa `..`/`%`/`//`, monedha e detyrueshme për bilancet. **Daemon-i**:
-   header-at ≤ 16 KiB, trupi ≤ 1 MiB, ≤ 128 lidhje.
+8. **Ura**: rruga pa `..`/`%`/`//`, monedha e detyrueshme për bilancet, JSON Pointer opsional
+   për vendin e vlerës, decimalet pa prerje të heshtur (`15200.99` me `decimals: 0` refuzohet),
+   datëlindje vetëm data kalendarike reale, transkript ≤ 1 MiB i kontrolluar para alokimit.
+   **Daemon-i**: header-at ≤ 16 KiB, trupi ≤ 1 MiB, ≤ 128 lidhje, `x-api-key` dhe kufi për IP
+   opsionalë, procesi i provës vritet pas 300 s, skedarët e përkohshëm `0700`/`0600`.
+9. **Administrimi**: authority ndërrohet në dy hapa (`propose_authority` → `accept_authority`),
+   që një adresë e gabuar të mos e bllokojë programin përgjithmonë. `bump_policy_epoch`
+   revokon menjëherë çdo atestim të mëparshëm te `require_attested_current`.
 
 ## Plani (milestones)
 

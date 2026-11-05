@@ -47,6 +47,26 @@ pub mod solana_zk_verifier {
         instructions::set_verifying_key_handler(ctx, verifying_key)
     }
 
+    /// Revokim masiv i atestimeve ekzistuese (rrit `policy_epoch`).
+    pub fn bump_policy_epoch(ctx: Context<AdminUpdate>) -> Result<()> {
+        instructions::bump_policy_epoch_handler(ctx)
+    }
+
+    /// Afati global i freskisë së sesionit TLS (sekonda, 0 = pa kufi).
+    pub fn set_max_attestation_age(ctx: Context<AdminUpdate>, secs: i64) -> Result<()> {
+        instructions::set_max_attestation_age_handler(ctx, secs)
+    }
+
+    /// Propozon autoritetin e ri të konfigurimit (hapi 1 nga 2).
+    pub fn propose_authority(ctx: Context<AdminUpdate>, new_authority: Pubkey) -> Result<()> {
+        instructions::propose_authority_handler(ctx, new_authority)
+    }
+
+    /// Autoriteti i propozuar e pranon (hapi 2 nga 2).
+    pub fn accept_authority(ctx: Context<AcceptAuthority>) -> Result<()> {
+        instructions::accept_authority_handler(ctx)
+    }
+
     /// Shton pikat e mbetura IC të VK-së (VK-ja e plotë nuk nxë në një transaksion).
     pub fn extend_vk_ic(ctx: Context<AdminUpdate>, points: Vec<[u8; 64]>) -> Result<()> {
         instructions::extend_vk_ic_handler(ctx, points)
@@ -222,7 +242,7 @@ mod tests {
         const { assert!(8 + VerifierState::INIT_SPACE < 10_240) };
         assert_eq!(
             8 + AttestationRecord::INIT_SPACE,
-            8 + 32 + 1 + 8 + 8 + 32 + 32 + 32 + 8 + 8 + 8 + 1
+            8 + 32 + 1 + 8 + 8 + 32 + 32 + 32 + 8 + 8 + 8 + 1 + 8
         );
         assert_eq!(8 + NullifierRecord::INIT_SPACE, 8 + 32 + 8 + 1);
     }

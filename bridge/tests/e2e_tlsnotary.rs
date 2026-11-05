@@ -92,12 +92,17 @@ fn bridge() -> Bridge {
                 currency: Some("EUR".into()),
                 currency_key: "currency".into(),
                 allow_query: false,
+                target_pointer: Some("/balance".into()),
+                account_pointer: Some("/iban".into()),
+                decimals: 0,
+                issuer: Some("test-bank".into()),
             }],
             max_age_secs: 600,
         },
         signer: MockNotary {
             key: load_private_key_pem(RSA_PEM).unwrap(),
             certificate_pem: None,
+            tag_secret: None,
         },
         roots: roots(),
     }
@@ -227,6 +232,33 @@ async fn tlsnotary_to_groth16() {
             now
         )
         .is_err());
+
+    // gjatësi gënjeshtare e transkriptit: refuzohet para çdo alokimi të madh
+    let (sent, recv) = zktls_bridge::bridge::declared_transcript_sizes(&raw)
+        .unwrap()
+        .expect("prezantimi ka transkript");
+    assert!(
+        sent > 0 && sent < 4096 && recv > 0 && recv < 1 << 16,
+        "{sent} {recv}"
+    );
+    let pat: Vec<u8> = [sent as u64, recv as u64]
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    let at: Vec<usize> = (0..raw.len() - 16)
+        .filter(|&i| raw[i..i + 16] == pat[..])
+        .collect();
+    assert_eq!(at.len(), 1);
+    let mut huge = raw.clone();
+    huge[at[0] + 8..at[0] + 16].copy_from_slice(&(1u64 << 42).to_le_bytes());
+    let e = br.attest(
+        &AttestRequest {
+            presentation: base64::engine::general_purpose::STANDARD.encode(huge),
+            wallet: WALLET.into(),
+        },
+        now,
+    );
+    assert!(format!("{:#}", e.unwrap_err()).contains("transkripti deklaron"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

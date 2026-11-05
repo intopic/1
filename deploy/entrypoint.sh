@@ -2,8 +2,15 @@
 # Rolet: prover | bridge | notary   (fly.toml → [processes])
 set -euo pipefail
 role="${1:-prover}"
+# skedarët që krijojmë (çelësa, politika, input-e prove) i lexon vetëm pronari
+umask 077
+# Çdo rol sheh vetëm sekretet e veta: nëse dikush e kompromenton një proces, nuk
+# merr çelësat e roleve të tjera nga mjedisi. Rekomandimi për prodhim mbetet tre
+# aplikacione Fly të ndara (docs/DEPLOY.md), secili me sekretet e veta.
+drop() { for v in "$@"; do unset "$v"; done; }
 case "$role" in
   prover)
+    drop BRIDGE_RSA_KEY_PEM BRIDGE_TAG_KEY BRIDGE_POLICY_JSON NOTARY_KEY
     args=(serve --addr 0.0.0.0:8787 --backend rapidsnark --rapidsnark /app/bin/prover
           --witness-bin /app/circuit/main_c --wasm /app/circuit/main.wasm
           --zkey /app/keys/main_final.zkey --parallel "${PROVER_PARALLEL:-0}")
@@ -19,14 +26,18 @@ case "$role" in
     exec coprocessor "${args[@]}"
     ;;
   bridge)
+    drop NOTARY_KEY PROVER_API_KEYS
     : "${BRIDGE_RSA_KEY_PEM:?vendosni sekretin BRIDGE_RSA_KEY_PEM (fly secrets set)}"
-    umask 077
+    [ -n "${BRIDGE_TAG_KEY:-}" ] || echo "KUJDES: pa BRIDGE_TAG_KEY nullifier-at varen nga çelësi RSA" >&2
     key="$(mktemp)"; printf '%s\n' "$BRIDGE_RSA_KEY_PEM" > "$key"
     policy=/app/bridge-policy.json
     if [ -n "${BRIDGE_POLICY_JSON:-}" ]; then policy="$(mktemp)"; printf '%s' "$BRIDGE_POLICY_JSON" > "$policy"; fi
+    # çelësi tani është në skedar 0600; nuk i duhet më mjedisit (BRIDGE_TAG_KEY lexohet nga ura)
+    drop BRIDGE_RSA_KEY_PEM BRIDGE_POLICY_JSON
     exec zktls-bridge --addr 0.0.0.0:8790 --policy "$policy" --rsa-key "$key"
     ;;
   notary)
+    drop BRIDGE_RSA_KEY_PEM BRIDGE_TAG_KEY BRIDGE_POLICY_JSON PROVER_API_KEYS
     : "${NOTARY_KEY:?vendosni sekretin NOTARY_KEY (32 bajte hex)}"
     exec zktls-notary --addr 0.0.0.0:7047
     ;;

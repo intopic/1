@@ -56,23 +56,33 @@ jobs:
           cargo build -q --release -p coprocessor-cli
           B=target/release/coprocessor
           $B setup --out-dir artifacts/demo
+          K=ci-key-0123456789abcdef
+          PROVER_API_KEYS=$K PROVER_RATE_LIMIT=30 \
           $B serve --addr 127.0.0.1:8787 --pk artifacts/demo/dev_pk.bin \
             --mock-notary-key tests/fixtures/mock_notary_key.pem \
             --mock-notary-cert tests/fixtures/mock_notary_cert.pem &
           for i in $(seq 30); do curl -sf localhost:8787/health && break; sleep 1; done
           W=4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw
-          curl -sf -X POST localhost:8787/mock-session \
+          # pa çelës -> 401
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8787/mock-session -d '{}')
+          test "$code" = 401
+          curl -sf -X POST -H "x-api-key: $K" localhost:8787/mock-session \
             -d "{\"kind\":\"age\",\"dob\":\"2001-05-17\",\"account_id\":\"J1\",\"wallet\":\"$W\"}" > s.json
           jq -n --slurpfile s s.json '{session: $s[0], min_age: 18, app: "demo"}' \
-            | curl -sf -X POST localhost:8787/prove -d @- > p.json
+            | curl -sf -X POST -H "x-api-key: $K" localhost:8787/prove -d @- > p.json
           jq -e '.public_inputs | length == 10' p.json
           $B verify --proof p.json --vk artifacts/demo/vk.json
           # i mitur -> 400
-          curl -sf -X POST localhost:8787/mock-session \
+          curl -sf -X POST -H "x-api-key: $K" localhost:8787/mock-session \
             -d "{\"kind\":\"age\",\"dob\":\"2012-01-01\",\"account_id\":\"J2\",\"wallet\":\"$W\"}" > m.json
           code=$(jq -n --slurpfile s m.json '{session: $s[0], min_age: 18, app: "demo"}' \
-            | curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8787/prove -d @-)
+            | curl -s -o /dev/null -w '%{http_code}' -X POST -H "x-api-key: $K" localhost:8787/prove -d @-)
           test "$code" = 400
+          # kufiri për IP: 61 kërkesa (mbi 2 dritare) -> të paktën një 429
+          n=0; for i in $(seq 61); do
+            c=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "x-api-key: $K" localhost:8787/mock-session -d '{}')
+            [ "$c" = 429 ] && n=$((n+1)); done
+          echo "429: $n"; test "$n" -gt 0
 
   # Noteri real TLSNotary (MPC-TLS) + ura drejt atestimit RSA: sesion i plotë
   # me një bankë testuese TLS, prezantim, urë, provë Groth16.

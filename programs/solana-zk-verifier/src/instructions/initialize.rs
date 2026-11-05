@@ -67,6 +67,8 @@ pub fn initialize_handler(
     state.allowed_claim_keys = allowed_claim_keys;
     state.max_attestation_age_secs = max_attestation_age_secs.max(0);
     state.bump = ctx.bumps.verifier_state;
+    state.policy_epoch = 0;
+    state.pending_authority = Pubkey::default();
     Ok(())
 }
 
@@ -78,7 +80,60 @@ pub fn set_verifying_key_handler(
         !verifying_key.ic.is_empty() && verifying_key.ic.len() <= MAX_IC,
         ZkVerifierError::VerifyingKeyTooLarge
     );
-    ctx.accounts.verifier_state.verifying_key = verifying_key;
+    let state = &mut ctx.accounts.verifier_state;
+    state.verifying_key = verifying_key;
+    // atestimet e bëra me VK-në e vjetër (p.sh. qarku dev) nuk vlejnë më te gate-i
+    state.policy_epoch = state
+        .policy_epoch
+        .checked_add(1)
+        .ok_or(ZkVerifierError::VerifyingKeyTooLarge)?;
+    Ok(())
+}
+
+/// Revokim masiv: të gjitha atestimet ekzistuese refuzohen nga
+/// `gate::require_attested_current` (p.sh. pas komprometimit të një ure).
+/// Paratë në pool-e mbeten të tërheqshme; vetëm hyrjet e reja kërkojnë provë të re.
+pub fn bump_policy_epoch_handler(ctx: Context<AdminUpdate>) -> Result<()> {
+    let state = &mut ctx.accounts.verifier_state;
+    state.policy_epoch = state
+        .policy_epoch
+        .checked_add(1)
+        .ok_or(ZkVerifierError::VerifyingKeyTooLarge)?;
+    Ok(())
+}
+
+/// Afati global i freskisë së sesionit TLS në momentin e verifikimit (0 = pa kufi).
+pub fn set_max_attestation_age_handler(ctx: Context<AdminUpdate>, secs: i64) -> Result<()> {
+    require!(secs >= 0, ZkVerifierError::StaleAttestation);
+    ctx.accounts.verifier_state.max_attestation_age_secs = secs;
+    Ok(())
+}
+
+/// Hapi 1 i transferimit të autoritetit (p.sh. te një multisig Squads).
+/// `Pubkey::default()` anulon një propozim.
+pub fn propose_authority_handler(ctx: Context<AdminUpdate>, new_authority: Pubkey) -> Result<()> {
+    ctx.accounts.verifier_state.pending_authority = new_authority;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct AcceptAuthority<'info> {
+    pub new_authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"verifier_state"],
+        bump = verifier_state.bump,
+        constraint = verifier_state.pending_authority == new_authority.key() @ ZkVerifierError::Unauthorized,
+    )]
+    pub verifier_state: Box<Account<'info, VerifierState>>,
+}
+
+/// Hapi 2: autoriteti i ri e pranon me nënshkrimin e vet (kështu një adresë e
+/// gabuar nuk e bllokon administrimin përgjithmonë).
+pub fn accept_authority_handler(ctx: Context<AcceptAuthority>) -> Result<()> {
+    let state = &mut ctx.accounts.verifier_state;
+    state.authority = ctx.accounts.new_authority.key();
+    state.pending_authority = Pubkey::default();
     Ok(())
 }
 

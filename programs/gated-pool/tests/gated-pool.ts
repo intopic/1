@@ -165,4 +165,43 @@ describe("gated-pool (integrimi i një DEX-i)", () => {
     expect(pos.amount.toNumber()).to.eq(had - 4_000);
     expect(before - (await provider.connection.getBalance(balancePool))).to.eq(4_000);
   });
+
+  it("transferon autoritetin në dy hapa (propozim + pranim me nënshkrim)", async () => {
+    const next = Keypair.generate();
+    const stranger = Keypair.generate();
+    const state = () => vprog.account.verifierState.fetch(verifierState);
+    await vprog.methods.proposeAuthority(next.publicKey).accounts({ authority: user }).rpc();
+    // vetëm i propozuari mund ta pranojë
+    expect(
+      await error(() =>
+        vprog.methods.acceptAuthority().accounts({ newAuthority: stranger.publicKey }).signers([stranger]).rpc()
+      )
+    ).to.contain("Unauthorized");
+    await vprog.methods.acceptAuthority().accounts({ newAuthority: next.publicKey }).signers([next]).rpc();
+    expect((await state()).authority.toBase58()).to.eq(next.publicKey.toBase58());
+    // autoriteti i vjetër nuk administron më
+    expect(await error(() => vprog.methods.bumpPolicyEpoch().accounts({ authority: user }).rpc())).to.match(
+      /ConstraintHasOne|2001/
+    );
+    // kthimi te portofoli i testeve
+    await vprog.methods
+      .proposeAuthority(user)
+      .accounts({ authority: next.publicKey })
+      .signers([next])
+      .rpc();
+    await vprog.methods.acceptAuthority().accounts({ newAuthority: user }).rpc();
+    expect((await state()).authority.toBase58()).to.eq(user.toBase58());
+  });
+
+  // i fundit: pas revokimit masiv asnjë atestim ekzistues nuk kalon më
+  it("revokimi masiv (bump_policy_epoch) refuzon atestimet ekzistuese", async () => {
+    await deposit(balancePool, user, { balance: BAL() });
+    await vprog.methods.bumpPolicyEpoch().accounts({ authority: user }).rpc();
+    expect(await error(() => deposit(balancePool, user, { balance: BAL() }))).to.contain("GateEpochRevoked");
+    // tërheqja e parave të veta mbetet e lirë
+    await pool.methods
+      .withdraw(new BN(1_000))
+      .accountsPartial({ user, pool: balancePool, position: positionPda(balancePool, user) })
+      .rpc();
+  });
 });
