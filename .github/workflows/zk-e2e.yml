@@ -162,6 +162,16 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
           kill $PID
 
+      - name: Paralelizmi real (1, 2, 4 workers; bankë, moshë, të përziera)
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_parallel_benchmark.py'
+          python3 scripts/benchmark_parallel.py \
+            --bin target/release/coprocessor --prover ~/rapidsnark/prover \
+            --witness-bin circuits/build/cpp/main_c_cpp/main_c \
+            --zkey circuits/build/main_final.zkey --vk artifacts/vk.json \
+            --out artifacts/parallel/results.json
+          cat artifacts/parallel/results.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Testet negative
         run: |
           B=target/release/coprocessor

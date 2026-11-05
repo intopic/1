@@ -86,6 +86,9 @@ curl https://<emri-juaj>.fly.dev/health   # {"status":"ok","backend":"circom-rap
 
 ## 3. Solana devnet
 
+Për testet me 1/2/4 prova aktive dhe një pool deri në 10 prover-a Fly, shih
+[paralelizmin dhe autoscale](SCALING.md). Autostart kërkon makina të krijuara më parë.
+
 ```bash
 solana-keygen new                       # nëse s'keni portofol
 solana airdrop 2 -u devnet              # ose https://faucet.solana.com (duhen ~6 SOL)

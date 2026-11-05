@@ -13,3 +13,4 @@ artifacts/
 app/dist/
 app/.env.local
 app/public/idl.json
+__pycache__/
