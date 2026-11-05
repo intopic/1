@@ -6,8 +6,12 @@ skip-lint = false
 members = ["programs/solana-zk-verifier", "programs/gated-pool"]
 
 [programs.localnet]
-solana_zk_verifier = "ZkTLSCoprocessor111111111111111111111111111"
-gated_pool = "GatedPoo11111111111111111111111111111111111"
+solana_zk_verifier = "4LK4V8o74xbsG8oYYzrJmoPuBnaMCbdu7J7AfpAAjUtg"
+gated_pool = "HQGnwqNbvNX2Z43ZUjTQWPw1WZXPbba7bZqTsVbjoVcX"
+
+[programs.devnet]
+solana_zk_verifier = "4LK4V8o74xbsG8oYYzrJmoPuBnaMCbdu7J7AfpAAjUtg"
+gated_pool = "HQGnwqNbvNX2Z43ZUjTQWPw1WZXPbba7bZqTsVbjoVcX"
 
 [provider]
 cluster = "localnet"

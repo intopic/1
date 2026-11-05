@@ -51,8 +51,11 @@ const provider = new anchor.AnchorProvider(new Connection(RPC_URL, "confirmed"),
 const program = new anchor.Program(idl, provider);
 console.log("programi:", program.programId.toBase58(), "· autoriteti:", authority.publicKey.toBase58());
 
-// Qarku DEV (RSA jashtë provës) dhe noteri i simuluar (çelësi privat është në repo) lejojnë
+// Qarku DEV (EdDSA jashtë provës) dhe noteri i simuluar (çelësi privat është në repo) lejojnë
 // kujtdo të falsifikojë prova: nuk lejohen kurrë në mainnet.
+const rpcHost = new URL(RPC_URL).hostname;
+if (!["127.0.0.1", "localhost", "[::1]"].includes(rpcHost) && !process.env.VK_JSON)
+  throw new Error("remote clusters (including devnet) require VK_JSON from the full Circom circuit");
 const MAINNET_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 if ((await provider.connection.getGenesisHash()) === MAINNET_GENESIS) {
   if (!process.env.VK_JSON || process.env.SKIP_MOCK_KEY !== "1")
@@ -75,8 +78,7 @@ const appId = cli("app-id", "--app", APP_LABEL);
 const tmp = join(tmpdir(), `zktls-init-${process.pid}.json`);
 cli(
   "mock-session",
-  "--key", "tests/fixtures/mock_notary_key.pem",
-  "--cert", "tests/fixtures/mock_notary_cert.pem",
+  "--key", "tests/fixtures/mock_notary_seed.hex",
   "--wallet", authority.publicKey.toBase58(),
   "--out", tmp
 );
@@ -150,9 +152,11 @@ if (existsSync(POOL_IDL)) {
 }
 if (process.env.PROVER_URL) env += `VITE_PROVER_URL=${process.env.PROVER_URL}\n`;
 writeFileSync(join(ROOT, "app/.env.local"), env);
+const serveCommand = process.env.VK_JSON
+  ? "target/release/coprocessor serve --backend rapidsnark --witness-bin circuits/build/cpp/main_c_cpp/main_c --zkey deploy/keys/main_final.zkey"
+  : `target/release/coprocessor serve --backend dev --pk ${OUT}/dev_pk.bin --mock-notary-key tests/fixtures/mock_notary_seed.hex`;
 console.log(`
 Gati. Tani:
-  target/release/coprocessor serve --pk ${OUT}/dev_pk.bin \\
-      --mock-notary-key tests/fixtures/mock_notary_key.pem --mock-notary-cert tests/fixtures/mock_notary_cert.pem
-  cd app && npm run dev     # http://localhost:5173
+  ${serveCommand}
+  cd app && npm run dev
 `);

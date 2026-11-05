@@ -1,4 +1,4 @@
-//! Noteri real TLSNotary dhe ura drejt atestimit RSA të qarkut zkTLS.
+//! Noteri real TLSNotary dhe ura drejt atestimit EdDSA të qarkut zkTLS.
 //!
 //! Rrjedha:
 //!
@@ -9,7 +9,7 @@
 //!        └──────────────────────────► ura (`bridge::Bridge::attest`)
 //!                                        │ verifikon noterin, domenin, rrugën, freskinë
 //!                                        ▼
-//!                           NotarizedSession (mesazh 128 B + RSA) → prova Groth16
+//!                           NotarizedSession (mesazh 128 B + EdDSA) → prova Groth16
 //! ```
 //!
 //! Noteri nuk e sheh kurrë fjalëkalimin/cookie-n: TLS-ja kryhet me MPC. Prezantimi

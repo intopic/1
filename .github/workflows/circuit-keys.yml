@@ -39,7 +39,7 @@ jobs:
       - run: npm install -g "snarkjs@$SNARKJS_VERSION"
       - name: Kompilo qarkun
         working-directory: circuits
-        run: npm install && bash scripts/compile.sh
+        run: npm ci && bash scripts/compile.sh
       - name: Cache ptau
         uses: actions/cache@v4
         with:

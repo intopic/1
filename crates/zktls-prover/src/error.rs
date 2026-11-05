@@ -10,8 +10,6 @@ pub enum ProverError {
     Io(#[from] std::io::Error),
     #[error("certifikatë/çelës i pavlefshëm: {0}")]
     Key(String),
-    #[error("RSA: {0}")]
-    Rsa(#[from] triad_core::rsa::RsaError),
     #[error("normalizer: {0}")]
     Normalizer(#[from] triad_core::NormalizerError),
     #[error("atestim i pavlefshëm: {0}")]

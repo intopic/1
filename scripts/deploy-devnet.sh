@@ -20,6 +20,11 @@ echo "portofoli: $(solana address -k "$WALLET")  bilanci: $(solana balance -u "$
 
 # 1. ID-të e programeve nga çelësat në target/deploy (krijohen herën e parë)
 export CARGO_TARGET_DIR="$PWD/target"
+mkdir -p target/deploy
+for program in solana_zk_verifier gated_pool; do
+  key="target/deploy/${program}-keypair.json"
+  [ -f "$key" ] || solana-keygen new --no-bip39-passphrase --silent --outfile "$key"
+done
 anchor keys sync
 anchor build
 

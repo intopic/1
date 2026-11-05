@@ -1,5 +1,5 @@
 //! Testi i plotë End-to-End me të dhëna testuese:
-//! noter i simuluar → sesion JSON → verifikim RSA (triad-core) → normalizim →
+//! noter i simuluar → sesion JSON → verifikim EdDSA (zktls-prover) → normalizim →
 //! dëshmitar Circom → provë Groth16 (qarku dev) → kodim Solana → verifikim
 //! me ekuacionin e programit on-chain.
 //!
@@ -7,16 +7,13 @@
 //! rishkruan `tests/fixtures/dev_proof_fixture.json` (përdoret nga testet e programit Anchor).
 
 use rand::SeedableRng;
-use zktls_prover::mock::{
-    load_private_key_pem, sample_bank_response, sample_identity_response, MockNotary,
-};
+use zktls_prover::mock::{sample_bank_response, sample_identity_response, MockNotary};
 use zktls_prover::prover::{verify_ark, DevGroth16Prover};
 use zktls_prover::solana::{self, verify_reference, SolanaVerifyingKey};
 use zktls_prover::witness::{app_id_from_label, birth_cutoff, ValueRange, ZkWebProofWitness};
 use zktls_prover::{public_layout as L, NotarizedSession, ProverError};
 
-const KEY_PEM: &str = include_str!("fixtures/mock_notary_key.pem");
-const CERT_PEM: &str = include_str!("fixtures/mock_notary_cert.pem");
+const SEED: &str = include_str!("fixtures/mock_notary_seed.hex");
 const WALLET: [u8; 32] = [
     0x0b, 0x6a, 0x3f, 0x11, 0x92, 0x7e, 0x01, 0xcd, 0x55, 0x10, 0xaa, 0x04, 0x9e, 0x3d, 0x71, 0x28,
     0xf0, 0x0d, 0x6c, 0x45, 0x83, 0x2b, 0x19, 0xe7, 0x60, 0x33, 0x8a, 0xbc, 0x04, 0x5f, 0x9d, 0x21,
@@ -27,8 +24,7 @@ const OTHER_WALLET: [u8; 32] = [0x42; 32];
 
 fn notary() -> MockNotary {
     MockNotary {
-        key: load_private_key_pem(KEY_PEM).unwrap(),
-        certificate_pem: Some(CERT_PEM.into()),
+        key: zktls_prover::eddsa::SigningKey::from_hex(SEED).unwrap(),
         tag_secret: None,
     }
 }
@@ -54,11 +50,11 @@ fn full_pipeline_dev_backend() {
     let s = session(15_200);
     assert!(!s.http_response.is_empty());
 
-    // 1-3: RSA + normalizim + integritet
+    // 1-3: EdDSA + normalizim + integritet
     let vs = s.verify(10_000).unwrap();
     assert_eq!(vs.message.value, 15_200);
     assert!(vs.claim.is_greater_or_equal);
-    assert_eq!(vs.notary_key.size_bytes(), 256);
+    assert!(vs.notary_key.coordinates().is_ok());
 
     // dëshmitari Circom
     let mut rng = rand::rngs::StdRng::seed_from_u64(2026);
@@ -71,8 +67,8 @@ fn full_pipeline_dev_backend() {
     .unwrap();
     let input = w.to_circom_input();
     assert_eq!(input["attestation_msg"].as_array().unwrap().len(), 128);
-    assert_eq!(input["rsa_signature"].as_array().unwrap().len(), 17);
-    assert_eq!(input["rsa_modulus"].as_array().unwrap().len(), 17);
+    assert_eq!(input["signature_r8"].as_array().unwrap().len(), 2);
+    assert_eq!(input["notary_pubkey"].as_array().unwrap().len(), 2);
     assert_eq!(w.expected_public_json().as_array().unwrap().len(), L::COUNT);
 
     // provë Groth16
@@ -133,39 +129,32 @@ fn rejects_tampering_and_unmet_threshold() {
     s.http_response = s.http_response.replace("15200", "95200");
     assert!(matches!(s.verify(0), Err(ProverError::Attestation(_))));
 
-    // nënshkrim i ndryshuar → RSA dështon
+    // nënshkrim i ndryshuar → EdDSA dështon
     let mut s = session(15_200);
-    let mut sig = hex::decode(&s.attestation.signature_hex).unwrap();
-    sig[100] ^= 0x01;
-    s.attestation.signature_hex = hex::encode(sig);
-    assert!(matches!(s.verify(0), Err(ProverError::Rsa(_))));
+    s.attestation.signature.s = "1".into();
+    assert!(s.verify(0).is_err());
 
-    // mesazh i ndryshuar (vlera) → RSA dështon
+    // mesazh i ndryshuar (vlera) → EdDSA dështon
     let mut s = session(15_200);
     let mut msg = hex::decode(&s.attestation.message_hex).unwrap();
     msg[15] ^= 0x01;
     s.attestation.message_hex = hex::encode(msg);
-    assert!(matches!(s.verify(0), Err(ProverError::Rsa(_))));
+    assert!(matches!(s.verify(0), Err(ProverError::Attestation(_))));
 
-    // çelës tjetër noteri (moduli hex i ndryshuar) → RSA dështon ose çelës i pavlefshëm
+    // çelës tjetër noteri → nënshkrimi refuzohet
     let mut s = session(15_200);
-    s.notary.certificate_pem = None;
-    let other = load_private_key_pem(KEY_PEM).unwrap();
-    use rsa::traits::PublicKeyParts;
-    let mut n = other.n().to_bytes_be();
-    n[200] ^= 0x10;
-    s.notary.modulus_hex = Some(hex::encode(n));
+    s.notary.public_key = zktls_prover::eddsa::SigningKey::from_seed([9; 32]).public();
     assert!(s.verify(0).is_err());
 }
 
 #[test]
-fn certificate_and_modulus_paths_agree() {
-    let s = session(15_200);
-    let from_cert = s.notary_public_key().unwrap();
-    let k = load_private_key_pem(KEY_PEM).unwrap();
-    use rsa::traits::PublicKeyParts;
-    assert_eq!(from_cert.modulus_be_bytes(), k.n().to_bytes_be());
-    assert_eq!(from_cert.exponent(), 65537);
+fn rejects_legacy_versions_and_schemes() {
+    let mut s = session(15_200);
+    s.version = 1;
+    assert!(s.verify(0).is_err());
+    s.version = 3;
+    s.notary.scheme = "rsa-2048".into();
+    assert!(s.verify(0).is_err());
 }
 
 #[test]

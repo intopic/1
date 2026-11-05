@@ -51,16 +51,16 @@ describe("solana-zk-verifier", () => {
     const run = (args: string) => execSync(`${CLI} ${args}`, { cwd: ROOT, stdio: "pipe" }).toString().trim();
     run(`setup --out-dir ${TMP}`);
     run(
-      `mock-session --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem ` +
+      `mock-session --key tests/fixtures/mock_notary_seed.hex ` +
         `--balance 15200 --wallet ${user.toBase58()} --out ${TMP}/session.tls.json`
     );
-    run(`prove --input ${TMP}/session.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/proof.json`);
+    run(`prove --backend dev --input ${TMP}/session.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/proof.json`);
     // e njëjta llogari (account-id i parazgjedhur), portofol tjetër
     run(
-      `mock-session --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem ` +
+      `mock-session --key tests/fixtures/mock_notary_seed.hex ` +
         `--balance 15200 --wallet ${sybil.publicKey.toBase58()} --out ${TMP}/sybil.tls.json`
     );
-    run(`prove --input ${TMP}/sybil.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/sybil.json`);
+    run(`prove --backend dev --input ${TMP}/sybil.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/sybil.json`);
     bankKeyHash = run(`bank-key-hash --input ${TMP}/session.tls.json`);
     vk = JSON.parse(readFileSync(`${TMP}/vk.json`, "utf8"));
     proof = JSON.parse(readFileSync(`${TMP}/proof.json`, "utf8"));
@@ -205,24 +205,24 @@ describe("solana-zk-verifier", () => {
     let err = "";
     const t0 = Date.now();
     try {
-      run(`prove --input ${TMP}/sybil.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/sybil2.json ${pc}`);
+      run(`prove --backend dev --input ${TMP}/sybil.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/sybil2.json ${pc}`);
     } catch (e: any) {
       err = String(e.stderr ?? e);
     }
     console.log("      refuzimi i hershëm:", Date.now() - t0, "ms");
     expect(err).to.contain("NullifierAlreadyUsed");
     // pronari i vërtetë (rifreskim i atestimit) nuk bllokohet
-    run(`prove --input ${TMP}/session.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/again.json ${pc}`);
+    run(`prove --backend dev --input ${TMP}/session.tls.json --min 10000 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/again.json ${pc}`);
   });
 
   it("refuzon provë për një app_id tjetër", async () => {
     const other = Keypair.generate();
     const run = (args: string) => execSync(`${CLI} ${args}`, { cwd: ROOT, stdio: "pipe" }).toString().trim();
     run(
-      `mock-session --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem ` +
+      `mock-session --key tests/fixtures/mock_notary_seed.hex ` +
         `--balance 15200 --account-id AL00OTHER --wallet ${other.publicKey.toBase58()} --out ${TMP}/other.tls.json`
     );
-    run(`prove --input ${TMP}/other.tls.json --min 1 --app another-app --pk ${TMP}/dev_pk.bin --out ${TMP}/other.json`);
+    run(`prove --backend dev --input ${TMP}/other.tls.json --min 1 --app another-app --pk ${TMP}/dev_pk.bin --out ${TMP}/other.json`);
     const p = JSON.parse(readFileSync(`${TMP}/other.json`, "utf8"));
     const sig = await provider.connection.requestAirdrop(other.publicKey, LAMPORTS_PER_SOL);
     await provider.connection.confirmTransaction(sig, "confirmed");
@@ -244,10 +244,10 @@ describe("solana-zk-verifier", () => {
     const other = Keypair.generate();
     const run = (args: string) => execSync(`${CLI} ${args}`, { cwd: ROOT, stdio: "pipe" }).toString().trim();
     run(
-      `mock-session --kind age --dob 2001-05-17 --account-id J0AGE --key tests/fixtures/mock_notary_key.pem ` +
-        `--cert tests/fixtures/mock_notary_cert.pem --wallet ${other.publicKey.toBase58()} --out ${TMP}/age.tls.json`
+      `mock-session --kind age --dob 2001-05-17 --account-id J0AGE --key tests/fixtures/mock_notary_seed.hex ` +
+        `--wallet ${other.publicKey.toBase58()} --out ${TMP}/age.tls.json`
     );
-    run(`prove --input ${TMP}/age.tls.json --min-age 18 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/age.json`);
+    run(`prove --backend dev --input ${TMP}/age.tls.json --min-age 18 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/age.json`);
     const p = JSON.parse(readFileSync(`${TMP}/age.json`, "utf8"));
     const sig = await provider.connection.requestAirdrop(other.publicKey, LAMPORTS_PER_SOL);
     await provider.connection.confirmTransaction(sig, "confirmed");
@@ -273,10 +273,10 @@ describe("solana-zk-verifier", () => {
       .rpc();
     const run = (args: string) => execSync(`${CLI} ${args}`, { cwd: ROOT, stdio: "pipe" }).toString().trim();
     run(
-      `mock-session --kind age --dob 2001-05-17 --account-id J0USER --key tests/fixtures/mock_notary_key.pem ` +
-        `--cert tests/fixtures/mock_notary_cert.pem --wallet ${user.toBase58()} --out ${TMP}/user-age.tls.json`
+      `mock-session --kind age --dob 2001-05-17 --account-id J0USER --key tests/fixtures/mock_notary_seed.hex ` +
+        `--wallet ${user.toBase58()} --out ${TMP}/user-age.tls.json`
     );
-    run(`prove --input ${TMP}/user-age.tls.json --min-age 18 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/user-age.json`);
+    run(`prove --backend dev --input ${TMP}/user-age.tls.json --min-age 18 --app ci-airdrop --pk ${TMP}/dev_pk.bin --out ${TMP}/user-age.json`);
     const p = JSON.parse(readFileSync(`${TMP}/user-age.json`, "utf8"));
     // argumenti claim_key_id duhet të jetë ai i provës
     let err = "";

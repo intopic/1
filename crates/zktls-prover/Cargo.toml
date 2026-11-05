@@ -25,8 +25,8 @@ ark-serialize = { workspace = true }
 light-poseidon = { workspace = true }
 num-bigint = { workspace = true }
 rand = { workspace = true }
-rsa = { workspace = true }
-x509-parser = { workspace = true }
+ark-ed-on-bn254 = "0.5"
+blake-hash = "0.4"
 bs58 = { workspace = true }
 hmac = "0.12"
 

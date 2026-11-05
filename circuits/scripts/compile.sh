@@ -7,7 +7,7 @@ if ! command -v circom >/dev/null 2>&1; then
   echo "circom mungon. Instaloni: https://docs.circom.io/getting-started/installation/ (>= 2.1.6)" >&2
   exit 1
 fi
-[ -d node_modules ] || npm install
+[ -d node_modules ] || npm ci
 
 mkdir -p build
 # CPP_WITNESS=1: gjeneron edhe dëshmitarin C++ (më i shpejtë se WASM; kërkon

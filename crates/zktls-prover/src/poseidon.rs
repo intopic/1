@@ -4,13 +4,12 @@
 //! `Poseidon(n)`), prandaj zotimet e qarkut dev dhe të qarkut Circom janë identike.
 
 use ark_bn254::Fr;
-use ark_ff::{PrimeField, Zero};
+use ark_ff::Zero;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::*;
 use ark_relations::r1cs::SynthesisError;
 use light_poseidon::parameters::bn254_x5::get_poseidon_parameters;
 use light_poseidon::{Poseidon, PoseidonHasher};
-use num_bigint::BigUint;
 
 /// `Poseidon(inputs)` si në circomlib (1..=12 hyrje).
 pub fn hash(inputs: &[Fr]) -> Fr {
@@ -51,32 +50,6 @@ pub fn hash_gadget(inputs: &[FpVar<Fr>]) -> Result<FpVar<Fr>, SynthesisError> {
         }
     }
     Ok(state.swap_remove(0))
-}
-
-/// Ndan një numër të madh (bajte BE) në `k` copa me nga `n` bit (LE), si zk-email.
-pub fn to_chunks(be: &[u8], n: usize, k: usize) -> Vec<BigUint> {
-    let x = BigUint::from_bytes_be(be);
-    let mask = (BigUint::from(1u8) << n) - 1u8;
-    (0..k).map(|i| (&x >> (i * n)) & &mask).collect()
-}
-
-pub fn fr_from_biguint(x: &BigUint) -> Fr {
-    Fr::from_le_bytes_mod_order(&x.to_bytes_le())
-}
-
-/// `PoseidonLarge(121, 17)` nga `@zk-email/circuits` mbi modulin RSA:
-/// copat bashkohen dyshe (`c[2i] + 2^121·c[2i+1]`) → `Poseidon(9)`.
-pub fn rsa_modulus_hash(modulus_be: &[u8]) -> Fr {
-    let c = to_chunks(modulus_be, 121, 17);
-    let mut merged = Vec::with_capacity(9);
-    for i in 0..9 {
-        if i == 8 {
-            merged.push(fr_from_biguint(&c[16]));
-        } else {
-            merged.push(fr_from_biguint(&(&c[2 * i] + (&c[2 * i + 1] << 121))));
-        }
-    }
-    hash(&merged)
 }
 
 #[cfg(test)]

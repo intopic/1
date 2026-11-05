@@ -1,15 +1,10 @@
-//! Mesazhi kanonik i atestimit (128 bajte) që nënshkruhet me RSA-2048.
-//!
-//! TLS vetë nuk nënshkruan të dhënat e aplikacionit (vetëm handshake-un), ndaj
-//! modeli këtu është ai i një **noteri** (p.sh. TLSNotary/MPC-TLS ose një
-//! oracle i bankës): noteri sheh përgjigjen HTTPS, e maskon me MED-01 dhe
-//! nënshkruan këtë mesazh fiks. Qarku `circuits/main.circom` llogarit SHA-256
-//! e këtyre 128 bajteve brenda provës, ndaj vlera e bilancit është e lidhur
-//! kriptografikisht me nënshkrimin.
+//! Canonical v3 attestation message, signed with BabyJubjub EdDSA-Poseidon.
+//! The circuit hashes all 128 bytes as five BE limbs (<=31 bytes each), with a
+//! protocol domain. SHA-256 remains only the masked HTTP payload digest.
 //!
 //! | Bajtet    | Fusha            | Përshkrimi                                     |
 //! |-----------|------------------|------------------------------------------------|
-//! | 0..8      | magic            | `"ZKTLSv02"`                                   |
+//! | 0..8      | magic            | `"ZKTLSv03"`                                   |
 //! | 8..16     | value            | u64 BE (bilanci 15200, ose data 20010517)      |
 //! | 16..24    | timestamp        | u64 BE, sekonda Unix                           |
 //! | 24..32    | claim_key_id     | SHA-256(target_key)[0..8]                      |
@@ -30,7 +25,7 @@
 
 use crate::ProverError;
 
-pub const MAGIC: &[u8; 8] = b"ZKTLSv02";
+pub const MAGIC: &[u8; 8] = b"ZKTLSv03";
 pub const LEN: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

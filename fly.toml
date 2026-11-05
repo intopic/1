@@ -1,7 +1,7 @@
 # fly.io: një imazh, tre procese (shih deploy/Dockerfile dhe deploy/entrypoint.sh).
 #
 #   fly launch --no-deploy --copy-config --name <emri-juaj>
-#   fly secrets set NOTARY_KEY=$(openssl rand -hex 32) BRIDGE_RSA_KEY_PEM="$(cat bridge_rsa.pem)"
+#   fly secrets set NOTARY_KEY=$(openssl rand -hex 32) BRIDGE_SIGNING_SEED="$(openssl rand -hex 32)"
 #   fly deploy
 #
 # Vetëm demo me noter të simuluar (pa urë/noter real): fly scale count bridge=0 notary=0
@@ -13,7 +13,7 @@ primary_region = "fra"
 
 [env]
   # 1 = /mock-session aktiv (sesione të simuluara për demo). 0 për prodhim.
-  DEMO_MOCK_NOTARY = "1"
+  DEMO_MOCK_NOTARY = "0"
   # 0 = automatikisht (bërthamat / 3 për rapidsnark)
   PROVER_PARALLEL = "0"
   # Refuzim i hershëm i IBAN-ve të përdorur nga portofol tjetër (409, pa provë).
@@ -79,7 +79,7 @@ primary_region = "fra"
     timeout = "5s"
     grace_period = "20s"
 
-# rapidsnark: ~2.3 s/provë dhe ~320 MB për provë të njëkohshme
+# v3: matni kohen/RAM-in ne host-in e deploy-it; shih docs/V3.md
 [[vm]]
   processes = ["prover"]
   size = "performance-2x"

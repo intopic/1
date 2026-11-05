@@ -18,8 +18,7 @@ pub use error::ZkVerifierError;
 pub use instructions::*;
 pub use state::*;
 
-// ID placeholder: zëvendësojeni me `anchor keys sync` para deploy-it.
-declare_id!("ZkTLSCoprocessor111111111111111111111111111");
+declare_id!("4LK4V8o74xbsG8oYYzrJmoPuBnaMCbdu7J7AfpAAjUtg");
 
 #[program]
 pub mod solana_zk_verifier {
@@ -172,15 +171,16 @@ mod tests {
         load_from(FIXTURE)
     }
 
-    /// Prova e qarkut të plotë Circom (RSA-2048 + SHA-256), e prodhuar në CI
-    /// nga workflow `zk-e2e.yml`. Anashkalohet kur variabli nuk është vendosur.
+    /// Full v3 EdDSA-Poseidon proof. CI can override the checked-in test fixture.
     #[test]
     fn accepts_circom_fixture_if_present() {
-        let Ok(path) = std::env::var("ZKTLS_CIRCOM_FIXTURE") else {
-            eprintln!("ZKTLS_CIRCOM_FIXTURE mungon - testi anashkalohet");
-            return;
+        let raw = match std::env::var("ZKTLS_CIRCOM_FIXTURE") {
+            Ok(path) => std::fs::read_to_string(path).unwrap(),
+            Err(_) => {
+                include_str!("../../../tests/fixtures/circom_v3_proof_fixture.json").to_owned()
+            }
         };
-        let (vk, a, b, c, inputs, wallet) = load_from(&std::fs::read_to_string(path).unwrap());
+        let (vk, a, b, c, inputs, wallet) = load_from(&raw);
         assert_eq!(inputs.len(), NUM_PUBLIC_INPUTS);
         assert!(verify_groth16_bn254(&a, &b, &c, &inputs, &vk).unwrap());
         let (hi, lo) = wallet_halves(&wallet);

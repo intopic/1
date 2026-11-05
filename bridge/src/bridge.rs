@@ -1,5 +1,5 @@
 //! Ura: verifikon një prezantim TLSNotary dhe, nëse plotëson politikën, nënshkruan
-//! mesazhin kanonik 128-bajtësh me RSA (`NotarizedSession`) që qarku Circom e verifikon.
+//! mesazhin kanonik 128-bajtësh me EdDSA (`NotarizedSession`) që qarku Circom e verifikon.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -95,7 +95,7 @@ fn default_max_age() -> u64 {
 impl Policy {
     /// Kontrollet e politikës në nisje (jo në çdo kërkesë).
     ///
-    /// Të gjitha burimet nënshkruhen me të njëjtin çelës RSA, pra on-chain duken si një
+    /// Të gjitha burimet nënshkruhen me të njëjtin çelës EdDSA, pra on-chain duken si një
     /// burim i vetëm: dy burime "balance" me monedha të ndryshme (EUR dhe ALL) do të
     /// bënin "bilanc ≥ 5 000" të paqartë. Prandaj burimet e të njëjtit `target_key`
     /// duhet të kenë të njëjtën monedhë.
@@ -179,10 +179,37 @@ pub struct AttestRequest {
 
 pub struct Bridge {
     pub policy: Policy,
-    /// Nënshkruesi RSA (i njëjti format si noteri i simuluar).
+    /// Nënshkruesi EdDSA (i njëjti format si noteri i simuluar).
     pub signer: MockNotary,
     /// Verifikuesi i certifikatave të serverëve (në prodhim: Mozilla).
     pub roots: RootCertStore,
+}
+
+fn check_response_encoding(head: &str) -> Result<()> {
+    for (name, value) in head.split("\r\n").filter_map(|l| l.split_once(':')) {
+        if name.trim().eq_ignore_ascii_case("transfer-encoding") {
+            anyhow::bail!("chunked/transfer-encoded responses are unsupported");
+        }
+        if name.trim().eq_ignore_ascii_case("content-encoding") {
+            ensure!(
+                value.trim().eq_ignore_ascii_case("identity"),
+                "compressed responses are unsupported; server must honor Accept-Encoding: identity"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn response_parts(raw: &[u8]) -> Result<(&str, &str)> {
+    let end = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .context("invalid HTTP response")?;
+    let head = std::str::from_utf8(&raw[..end]).context("invalid HTTP headers")?;
+    // Reject encodings before attempting to decode a potentially binary body.
+    check_response_encoding(head)?;
+    let body = std::str::from_utf8(&raw[end + 4..]).context("response body is not UTF-8")?;
+    Ok((head, body))
 }
 
 /// Kthen indeksin e fundit të rreshtit të parë (`\r\n`) dhe rrugën e kërkesës.
@@ -454,18 +481,12 @@ impl Bridge {
             transcript.received_unauthed().is_empty(),
             "përgjigjja nuk është zbuluar e plotë"
         );
-        let response = std::str::from_utf8(transcript.received_unsafe())
-            .context("përgjigjja nuk është UTF-8")?;
-        let (head, body) = response
-            .split_once("\r\n\r\n")
-            .context("përgjigje HTTP e pavlefshme")?;
+        let raw_response = transcript.received_unsafe();
+        let (head, body) = response_parts(raw_response)?;
+        let response = std::str::from_utf8(raw_response).expect("validated header and body");
         ensure!(
             head.starts_with("HTTP/1.1 200") || head.starts_with("HTTP/1.0 200"),
             "statusi nuk është 200"
-        );
-        ensure!(
-            !head.to_ascii_lowercase().contains("transfer-encoding:"),
-            "përgjigjet chunked nuk mbështeten ende"
         );
         // një përgjigje e vetme: trupi është saktësisht Content-Length bajte
         let lengths: Vec<&str> = head
@@ -664,5 +685,38 @@ mod tests {
         let (end, p) = request_path(b"GET /v1/me HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
         assert_eq!((end, p.as_str()), (19, "/v1/me"));
         assert!(request_path(b"POST /v1/me HTTP/1.1\r\n").is_err());
+    }
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+    #[test]
+    fn accepts_identity_and_refuses_server_encoding_overrides() {
+        assert!(check_response_encoding("HTTP/1.1 200 OK\r\nContent-Length: 2").is_ok());
+        assert!(check_response_encoding("HTTP/1.1 200 OK\r\nContent-Encoding: Identity").is_ok());
+        for line in [
+            "Content-Encoding: gzip",
+            "content-encoding: br",
+            "Content-Encoding: gzip, identity",
+            "Transfer-Encoding: chunked",
+            "transfer-encoding: identity",
+        ] {
+            assert!(
+                check_response_encoding(&format!("HTTP/1.1 200 OK\r\n{line}")).is_err(),
+                "{line}"
+            );
+        }
+        let binary_gzip = b"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\n\r\n\x1f\x8b\xff";
+        assert!(response_parts(binary_gzip)
+            .unwrap_err()
+            .to_string()
+            .contains("compressed"));
+        assert_eq!(
+            response_parts(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+                .unwrap()
+                .1,
+            "{}"
+        );
     }
 }

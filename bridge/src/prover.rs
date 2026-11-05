@@ -45,6 +45,35 @@ pub struct FetchRequest {
     pub wallet: String,
 }
 
+/// Reserved headers are protocol bindings, not caller-supplied metadata.
+fn build_request(req: &FetchRequest) -> Result<Request<Empty<Bytes>>> {
+    let mut builder = Request::builder().uri(&req.path);
+    for (k, v) in &req.headers {
+        let name = hyper::header::HeaderName::from_bytes(k.as_bytes())?;
+        if [
+            "host",
+            "accept-encoding",
+            "connection",
+            "content-length",
+            "transfer-encoding",
+            WALLET_HEADER,
+        ]
+        .iter()
+        .any(|reserved| name.as_str().eq_ignore_ascii_case(reserved))
+        {
+            bail!("reserved request header: {k}");
+        }
+        builder = builder.header(name, v);
+    }
+    Ok(builder
+        .header("Host", &req.server_name)
+        .header("Accept", "application/json")
+        .header("Accept-Encoding", "identity")
+        .header("Connection", "close")
+        .header(WALLET_HEADER, &req.wallet)
+        .body(Empty::<Bytes>::new())?)
+}
+
 /// Kryen kërkesën HTTPS me noterin si palë MPC dhe kthen atestimin + sekretet.
 ///
 /// * `notary_socket` – lidhja me noterin (TCP/WebSocket)
@@ -59,6 +88,7 @@ where
     N: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static,
     S: AsyncWrite + AsyncRead + Send + Sync + Unpin + 'static,
 {
+    let request = build_request(req)?;
     let session = Session::new(notary_socket.compat());
     let (driver, mut handle) = session.split();
     let driver_task = tokio::spawn(driver);
@@ -86,20 +116,7 @@ where
         hyper::client::conn::http1::handshake(TokioIo::new(tls_connection.compat())).await?;
     tokio::spawn(connection);
 
-    let mut builder = Request::builder()
-        .uri(&req.path)
-        .header("Host", &req.server_name)
-        .header("Accept", "application/json")
-        // TLSNotary nuk mbështet kompresimin
-        .header("Accept-Encoding", "identity")
-        .header("Connection", "close")
-        .header(WALLET_HEADER, &req.wallet);
-    for (k, v) in &req.headers {
-        builder = builder.header(k, v);
-    }
-    let response = sender
-        .send_request(builder.body(Empty::<Bytes>::new())?)
-        .await?;
+    let response = sender.send_request(request).await?;
     let status = response.status();
     // lexo trupin që transkripti të jetë i plotë
     let _ = response.into_body().collect().await?;
@@ -188,4 +205,34 @@ pub fn present(attestation: &Attestation, secrets: &Secrets) -> Result<Presentat
     pb.identity_proof(secrets.identity_proof())
         .transcript_proof(proof);
     Ok(pb.build()?)
+}
+
+#[cfg(test)]
+mod request_tests {
+    use super::*;
+    #[test]
+    fn identity_is_unique_and_bindings_cannot_be_overridden() {
+        let mut req = FetchRequest {
+            server_name: "api.test".into(),
+            path: "/".into(),
+            headers: vec![("Authorization".into(), "Bearer test".into())],
+            wallet: "wallet".into(),
+        };
+        let http = build_request(&req).unwrap();
+        assert_eq!(http.headers()["accept-encoding"], "identity");
+        assert_eq!(http.headers().get_all("accept-encoding").iter().count(), 1);
+        assert_eq!(http.headers()["authorization"], "Bearer test");
+        for name in [
+            "Accept-Encoding",
+            "aCcEpT-EnCoDiNg",
+            "Host",
+            "Connection",
+            "Transfer-Encoding",
+            "Content-Length",
+            WALLET_HEADER,
+        ] {
+            req.headers = vec![(name.into(), "override".into())];
+            assert!(build_request(&req).is_err(), "{name}");
+        }
+    }
 }

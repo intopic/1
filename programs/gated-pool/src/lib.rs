@@ -22,8 +22,7 @@ use anchor_lang::system_program;
 use solana_zk_verifier::gate::{self, Requirement};
 use solana_zk_verifier::{AttestationRecord, VerifierState};
 
-// ID placeholder: zëvendësojeni me `anchor keys sync` para deploy-it.
-declare_id!("GatedPoo11111111111111111111111111111111111");
+declare_id!("HQGnwqNbvNX2Z43ZUjTQWPw1WZXPbba7bZqTsVbjoVcX");
 
 #[program]
 pub mod gated_pool {

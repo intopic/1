@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! sesion i noterizuar (JSON) ──► tls_parser ──► VerifiedSession
-//!        (HTTP + atestim RSA)        │  (RSA PKCS#1 v1.5 me triad-core MOD-06,
+//!        (HTTP + atestim EdDSA)        │  (BabyJubjub EdDSA-Poseidon,
 //!                                    │   normalizer MED-01, kontroll digest-i)
 //!                                    ▼
 //!                               witness ──► input.json për circuits/main.circom
@@ -14,13 +14,14 @@
 //! ```
 //!
 //! Dy prapavija provimi:
-//! * [`prover::SnarkjsProver`] – prodhim: qarku i plotë Circom (RSA-2048 + SHA-256
+//! * [`prover::SnarkjsProver`] – prodhim: qarku i plotë Circom (EdDSA-Poseidon
 //!   + kushti) përmes `snarkjs groth16 fullprove`. Kërkon artefaktet e kompiluara.
 //! * [`prover::DevGroth16Prover`] – zhvillim: qark arkworks vendas që provon
 //!   kushtin `min ≤ value ≤ max`, zotimin dhe nullifier-in Poseidon, me të njëjtat 10 hyrje publike.
-//!   RSA verifikohet natively (jashtë provës) – **jo i sigurt për prodhim**.
+//!   EdDSA verifikohet natively (jashtë provës) – **jo i sigurt për prodhim**.
 
 pub mod attestation;
+pub mod eddsa;
 pub mod error;
 pub mod mock;
 pub mod poseidon;

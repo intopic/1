@@ -15,7 +15,7 @@ template BytesToNumBE(len) {
 
 // Nxjerr fushat nga mesazhi kanonik i atestimit (128 bajte).
 // Formati: crates/zktls-prover/src/attestation.rs
-//   0..8 magic "ZKTLSv02" | 8..16 value | 16..24 timestamp | 24..32 claim_key_id
+//   0..8 magic "ZKTLSv03" | 8..16 value | 16..24 timestamp | 24..32 claim_key_id
 //   32..64 wallet | 64..96 payload_digest | 96..128 account_tag (bajti 96 = 0)
 template ClaimExtractor() {
     signal input msg[128];
@@ -37,7 +37,7 @@ template ClaimExtractor() {
         }
     }
 
-    var magic[8] = [90, 75, 84, 76, 83, 118, 48, 50]; // "ZKTLSv02"
+    var magic[8] = [90, 75, 84, 76, 83, 118, 48, 51]; // "ZKTLSv03"
     for (var i = 0; i < 8; i++) {
         msg[i] === magic[i];
     }

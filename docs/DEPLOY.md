@@ -8,9 +8,13 @@ Tre pjesë, të gjitha nga i njëjti commit:
 | daemon-i i provës, ura, noteri | fly.io (një imazh, 3 procese) | `fly.toml`, `deploy/Dockerfile` |
 | faqja web (`app/`) | Vercel / Fly / çdo hosting statik | `npm run build` |
 
+**v3:** përdorni çelësa të rinj EdDSA-Poseidon dhe release të qarkut v3. Çelësat RSA,
+zkey/VK dhe whitelist-a e vjetër nuk përputhen. Shih [migrimin](V3.md). Fly përdor vetëm
+Rapidsnark dhe `/mock-session` është i fikur në konfigurimin standard.
+
 ## 1. Çelësat e qarkut (një herë)
 
-GitHub → Actions → **Çelësat e qarkut (release)** → *Run workflow*. Pas ~20 min del
+GitHub → Actions → **Çelësat e qarkut (release)** → *Run workflow*. Pas përfundimit del
 release-i `circuit-keys-<nr>`:
 
 ```bash
@@ -29,8 +33,8 @@ Me `--build-arg ZKEY_URL=...` kërkohet edhe `--build-arg ZKEY_SHA256=<hash>`.
 ```bash
 fly launch --no-deploy --copy-config --name <emri-juaj>     # ndryshon `app` te fly.toml
 # vetëm nëse ndizni urën dhe noterin real:
-openssl genrsa -out bridge_rsa.pem 2048
-fly secrets set NOTARY_KEY="$(openssl rand -hex 32)" BRIDGE_RSA_KEY_PEM="$(cat bridge_rsa.pem)"
+openssl rand -hex 32 > bridge_seed.hex
+fly secrets set NOTARY_KEY="$(openssl rand -hex 32)" BRIDGE_SIGNING_SEED="$(cat bridge_seed.hex)"
 # sekreti i etiketës së llogarisë: i pandryshueshëm për gjithë jetën e sistemit
 # (ndërrimi i tij = çdo llogari mund të provojë sërish me portofol të ri). Ruajeni offline.
 fly secrets set BRIDGE_TAG_KEY="$(openssl rand -hex 32)"
@@ -38,16 +42,17 @@ fly secrets set BRIDGE_POLICY_JSON="$(cat my-policy.json)"   # burimet, monedha,
 # kufiri i prover-it (shih më poshtë)
 fly secrets set PROVER_RATE_LIMIT=20 PROVER_CLIENT_IP_HEADER=fly-client-ip
 fly deploy
-# demo vetëm me noter të simuluar:
+# demo vetëm me noter të simuluar (çelësi publik testues, vetëm devnet):
+fly secrets set DEMO_MOCK_NOTARY=1
 fly scale count prover=1 bridge=0 notary=0
 curl https://<emri-juaj>.fly.dev/health   # {"status":"ok","backend":"circom-rapidsnark",...}
 ```
 
-- **prover**: `performance-2x` / 4 GB, rreth 2.3 s për provë, ~0.4 prova/s për makinë.
-  Për më shumë: `fly scale count prover=3` ose `fly scale vm performance-4x`.
+- **prover**: `performance-2x` / 4 GB është konfigurim fillestar; për kapacitetin v3
+  matni në host-in e deploy-it (`scripts/load_test.py`). Për më shumë: `fly scale count prover=3` ose `fly scale vm performance-4x`.
 - `VERIFIER_PROGRAM` (+ `SOLANA_RPC_URL`): daemon-i llogarit nullifier-in para provës dhe,
   nëse llogaria është përdorur nga një portofol tjetër, kthen **409** në milisekonda, pa
-  shpenzuar ~8 s CPU. Pas deploy-it në devnet: `fly secrets set VERIFIER_PROGRAM=<adresa>`
+  shpenzuar CPU për provën. Pas deploy-it në devnet: `fly secrets set VERIFIER_PROGRAM=<adresa>`
   (ose te `[env]`).
 - `DEMO_MOCK_NOTARY=1` aktivizon `/mock-session` me çelësin testues **publik** të depos.
   Vetëm devnet. Në prodhim vendoseni `0` dhe mos e shtoni atë çelës në whitelist.
@@ -58,7 +63,7 @@ curl https://<emri-juaj>.fly.dev/health   # {"status":"ok","backend":"circom-rap
   kur burimi ka `"allow_query": true`.
 - Noteri: `NOTARY_MAX_SESSIONS` (parazgjedhur 4) sesione MPC-TLS njëkohësisht, secili me
   afat `NOTARY_SESSION_TIMEOUT_SECS` (180). Lidhjet përtej kufirit mbyllen menjëherë.
-- Prover-i: në radhë presin deri në 32 kërkesa për çdo vend prove (~75 s); përtej
+- Prover-i: në radhë presin deri në 32 kërkesa për çdo vend prove (koha varet nga backend-i dhe makina); përtej
   kësaj kthen **503** me `Retry-After: 5`. Kërkesa HTTP duhet të mbërrijë e plotë brenda 30 s.
   Nëse klienti e mbyll lidhjen ndërsa pret në radhë, prova nuk nis fare. Çdo proces
   (dëshmitari, rapidsnark) vritet pas 300 s; skedarët e përkohshëm janë `0700`/`0600`.

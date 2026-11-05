@@ -1,39 +1,25 @@
-//! Parsimi i sesionit TLS të noterizuar dhe i certifikatave X.509.
-//!
-//! Formati i hyrjes (`session.tls.json`) është një transkript i noterizuar:
-//! përgjigja HTTP e deshifruar, çelësi publik RSA i noterit/bankës (certifikatë
-//! X.509 PEM ose modul hex) dhe atestimi i nënshkruar (shih [`crate::attestation`]).
-//!
-//! KUFIZIM: ky crate nuk zbaton protokollin MPC-TLS për të marrë transkriptin nga
-//! një lidhje e gjallë; ai pret transkriptin e prodhuar nga një noter.
+//! v3 notarized session: raw HTTP response, BabyJubjub public key and EdDSA-Poseidon
+//! signature over a fixed 128-byte message. TLSNotary presentation verification
+//! happens in bridge/; this parser checks the bridge signature and transcript binding.
 
 use serde::{Deserialize, Serialize};
-use triad_core::rsa::RsaPublicKey;
 use triad_core::{AlgebraicNormalizer, CanonicalClaim};
 
 use crate::attestation::AttestationMessage;
 use crate::ProverError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NotaryKey {
-    /// Certifikata X.509 (PEM) me çelës RSA.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub certificate_pem: Option<String>,
-    /// Alternativë: moduli RSA big-endian në hex.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub modulus_hex: Option<String>,
-    #[serde(default = "default_e")]
-    pub exponent: u64,
-}
-
-fn default_e() -> u64 {
-    65537
+    pub scheme: String,
+    pub public_key: crate::eddsa::PublicKey,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SignedAttestation {
     pub message_hex: String,
-    pub signature_hex: String,
+    pub signature: crate::eddsa::Signature,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,8 +42,8 @@ pub struct NotarizedSession {
 pub struct VerifiedSession {
     pub message: AttestationMessage,
     pub message_bytes: [u8; 128],
-    pub signature: Vec<u8>,
-    pub notary_key: RsaPublicKey,
+    pub signature: crate::eddsa::Signature,
+    pub notary_key: crate::eddsa::PublicKey,
     pub claim: CanonicalClaim,
 }
 
@@ -66,33 +52,24 @@ impl NotarizedSession {
         Ok(serde_json::from_str(s)?)
     }
 
-    pub fn notary_public_key(&self) -> Result<RsaPublicKey, ProverError> {
-        if let Some(pem) = &self.notary.certificate_pem {
-            return rsa_key_from_certificate_pem(pem.as_bytes());
+    pub fn notary_public_key(&self) -> Result<crate::eddsa::PublicKey, ProverError> {
+        if self.version != 3 || self.notary.scheme != crate::eddsa::SCHEME {
+            return Err(ProverError::Key(
+                "expected v3 EdDSA-Poseidon session; legacy RSA requires migration".into(),
+            ));
         }
-        if let Some(h) = &self.notary.modulus_hex {
-            let n = hex::decode(h.trim_start_matches("0x"))?;
-            return Ok(RsaPublicKey::from_be_bytes(&n, self.notary.exponent)?);
-        }
-        Err(ProverError::Key(
-            "mungon certificate_pem ose modulus_hex".into(),
-        ))
+        self.notary.public_key.coordinates()?;
+        Ok(self.notary.public_key.clone())
     }
 
-    /// Verifikon nënshkrimin, lidhjen me transkriptin dhe nxjerr pretendimin.
+    /// Verifies the signature and the binding to the normalized transcript.
     pub fn verify(&self, threshold: u64) -> Result<VerifiedSession, ProverError> {
         let key = self.notary_public_key()?;
-        if key.size_bytes() != 256 {
-            return Err(ProverError::Key(format!(
-                "qarku mbështet RSA-2048; çelësi ka {} bit",
-                key.size_bytes() * 8
-            )));
-        }
-        let message_bytes_vec = hex::decode(&self.attestation.message_hex)?;
-        let signature = hex::decode(&self.attestation.signature_hex)?;
-        // 1. Nënshkrimi RSA (MOD-06)
-        key.verify_pkcs1v15_sha256(&message_bytes_vec, &signature)?;
-        let message = AttestationMessage::from_bytes(&message_bytes_vec)?;
+        let raw = hex::decode(&self.attestation.message_hex)?;
+        let message = AttestationMessage::from_bytes(&raw)?;
+        let message_bytes: [u8; 128] = raw.try_into().expect("validated length");
+        let signature = self.attestation.signature.clone();
+        key.verify(&message_bytes, &signature)?;
         // 2. Normalizimi (MED-01) i transkriptit
         let claim = AlgebraicNormalizer::normalize_and_mask_scaled(
             self.http_response.as_bytes(),
@@ -117,8 +94,6 @@ impl NotarizedSession {
                 "claim_key_id nuk përputhet".into(),
             ));
         }
-        let mut message_bytes = [0u8; 128];
-        message_bytes.copy_from_slice(&message_bytes_vec);
         Ok(VerifiedSession {
             message,
             message_bytes,
@@ -126,28 +101,5 @@ impl NotarizedSession {
             notary_key: key,
             claim,
         })
-    }
-}
-
-/// Nxjerr çelësin RSA nga një certifikatë X.509 në PEM.
-pub fn rsa_key_from_certificate_pem(pem: &[u8]) -> Result<RsaPublicKey, ProverError> {
-    let (_, pem) =
-        x509_parser::pem::parse_x509_pem(pem).map_err(|e| ProverError::Key(e.to_string()))?;
-    rsa_key_from_certificate_der(&pem.contents)
-}
-
-/// Nxjerr çelësin RSA nga një certifikatë X.509 në DER.
-pub fn rsa_key_from_certificate_der(der: &[u8]) -> Result<RsaPublicKey, ProverError> {
-    use x509_parser::prelude::*;
-    let (_, cert) = X509Certificate::from_der(der).map_err(|e| ProverError::Key(e.to_string()))?;
-    match cert.public_key().parsed() {
-        Ok(x509_parser::public_key::PublicKey::RSA(rsa)) => {
-            let e = rsa
-                .try_exponent()
-                .map_err(|e| ProverError::Key(e.to_string()))?;
-            Ok(RsaPublicKey::from_be_bytes(rsa.modulus, e)?)
-        }
-        Ok(_) => Err(ProverError::Key("certifikata nuk ka çelës RSA".into())),
-        Err(e) => Err(ProverError::Key(e.to_string())),
     }
 }

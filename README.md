@@ -2,7 +2,7 @@
 
 **Coprocessor kriptografik me performancë të lartë dhe orakull zkTLS për ekosistemin Solana.**
 
-Ura Zero-Knowledge midis të dhënave Web2 (përgjigje HTTPS të atestuara me RSA-2048) dhe Solana:
+Ura Zero-Knowledge midis të dhënave Web2 (përgjigje HTTPS të atestuara nga ura me EdDSA-Poseidon) dhe Solana:
 prova Groth16 gjenerohet off-chain dhe verifikohet on-chain me syscall-et vendase `alt_bn128`.
 
 > ⚠️ Projekt në fazë zhvillimi. Shih [Gjendja e zbatimit](#gjendja-e-zbatimit) për atë që është
@@ -15,7 +15,7 @@ prova Groth16 gjenerohet off-chain dhe verifikohet on-chain me syscall-et vendas
 
 ```text
  ┌────────────────────────┐   sesion i noterizuar (JSON)
- │  Banka / API HTTPS     │──►  HTTP response + atestim RSA-2048 (128 B)
+ │  Banka / API HTTPS     │──►  HTTPS → TLSNotary → urë → EdDSA-Poseidon
  └────────────────────────┘                │
                                            ▼
  ┌───────────────────────────────────────────────────────────────┐
@@ -31,7 +31,7 @@ prova Groth16 gjenerohet off-chain dhe verifikohet on-chain me syscall-et vendas
  │  tls_parser → witness (input.json) → prover (Groth16 BN254)   │
  │  solana: kodim EIP-197 (G1 64 B, G2 128 B, Fr 32 B)           │
  └───────────────────────────────────────────────────────────────┘
-          │ circuits/main.circom (RSA + SHA-256 + kushti)
+          │ circuits/main.circom (EdDSA-Poseidon + kushti)
           ▼
  ┌───────────────────────────────────────────────────────────────┐
  │ programs/solana-zk-verifier (Anchor)                          │
@@ -42,13 +42,13 @@ prova Groth16 gjenerohet off-chain dhe verifikohet on-chain me syscall-et vendas
 
 ### Modeli i besimit (e rëndësishme)
 
-TLS nuk nënshkruan të dhënat e aplikacionit, vetëm handshake-un. Prandaj nënshkrimi RSA-2048 që
-verifikon qarku është ai i një **noteri** (TLSNotary / MPC-TLS ose një oracle i bankës) mbi një
-mesazh kanonik 128-bajtësh:
+TLS nuk nënshkruan përmbajtjen HTTP. TLSNotary vërteton sesionin; **ura** verifikon
+prezantimin dhe nënshkruan mesazhin kanonik 128-bajtësh me **BabyJubjub EdDSA-Poseidon**.
+Qarku verifikon këtë nënshkrim dhe lidh çelësin me whitelist-ën on-chain.
 
 | Bajtet  | Fusha          | Përshkrimi                                |
 |---------|----------------|-------------------------------------------|
-| 0..8    | magic          | `ZKTLSv02`                                |
+| 0..8    | magic          | `ZKTLSv03`                                |
 | 8..16   | value          | u64 BE (p.sh. bilanci)                    |
 | 16..24  | timestamp      | u64 BE, sekonda Unix                      |
 | 24..32  | claim_key_id   | SHA-256(`"balance"`)[0..8]                |
@@ -56,9 +56,19 @@ mesazh kanonik 128-bajtësh:
 | 64..96  | payload_digest | SHA-256 i përgjigjes HTTP pas maskimit    |
 | 96..128 | account_tag    | `0x00 ‖ HMAC(tag_key, "zktls/account-tag/v2" ‖ issuer ‖ id)[1..]` |
 
-Qarku llogarit SHA-256 të këtij mesazhi **brenda provës**, kështu bilanci është i lidhur me
-nënshkrimin. Protokolli MPC-TLS që e prodhon transkriptin nga një lidhje e gjallë **nuk** është pjesë
-e kësaj depoje.
+Qarku hash-on të 128 bajtet me Poseidon (domain + pesë copa BE prej ≤31 bajtesh),
+pastaj verifikon EdDSA-në. SHA-256 mbetet digest-i i payload-it që llogarit ura jashtë
+qarkut. Asnjë bajt nuk reduktohet modulo fushës. Formati i sesionit është `version: 3`;
+sesionet dhe çelësat RSA të vjetër kërkojnë migrim.
+
+**Privatësia:** ura sheh të gjithë përgjigjen e bankës në RAM. Edhe daemon-i i provës
+sheh përgjigjen nëse përdorni `/prove` në një server të largët. Kodi i urës nuk e ruan
+transkriptin dhe nuk e log-on, por operatori mund të ndryshojë serverin ose të lexojë RAM-in.
+Përdoruesi duhet t'u besojë operatorëve; ZK-ja fsheh vlerën nga Solana, jo nga këta serverë.
+`session.tls.json` ruan përgjigjen lokalisht dhe duhet trajtuar si të dhënë private.
+
+**v3 i matur:** 6,582 kufizime (42.1× më pak se 277,321 e RSA), PPoT `2^13`.
+Shih [migrimin dhe matjet](docs/V3.md). Koha 50 ms dhe `zkey <2 MB` nuk janë premtime.
 
 ### Hyrjet publike (10)
 
@@ -73,7 +83,7 @@ e kësaj depoje.
 * `claim_key_id` – `initialize` merr listën e llojeve të lejuara (p.sh. vetëm `date_of_birth`), ndaj
   një provë "bilanc ≤ 20081104" nuk mund të kalojë si provë moshe. `initialize` mund ta thërrasë
   vetëm upgrade authority i programit.
-* `bank_public_key_hash = PoseidonLarge(121,17)(N)` – kontrollohet kundër whitelist-ës on-chain.
+* `bank_public_key_hash = Poseidon(domain, Ax, Ay)` – kontrollohet kundër whitelist-ës on-chain.
 * `user_pubkey_hi/lo` – programi kërkon që të përputhen me nënshkruesin e transaksionit (anti-replay).
 
 ### Mosha ≥ 18 pa zbuluar datëlindjen
@@ -96,7 +106,7 @@ Asnjë e dhënë personale (emër, IBAN, cookie) nuk del si hyrje publike.
 │   ├── triad-core/src/        lib, bigint, normalizer, euclid, montgomery, rsa, simd/{avx512,neon}
 │   ├── zktls-prover/src/      tls_parser, attestation, witness, poseidon, prover, solana, mock
 │   └── coprocessor-cli/src/   main.rs (prove, verify, serve, setup, mock-session, export-vk, bank-key-hash)
-├── circuits/                  main.circom, rsa_verify_2048.circom, claim_extractor.circom, scripts/
+├── circuits/                  main.circom, claim_extractor.circom, scripts/
 ├── programs/solana-zk-verifier/  Anchor: lib, state, error, instructions/{initialize,verify_proof}
 └── tests/                     e2e_mock_tls.rs, benchmarks/montgomery_bench.rs, fixtures/
 ```
@@ -121,17 +131,17 @@ make anchor-test   # localnet + testet TypeScript
 ## Përdorimi i CLI-së
 
 ```bash
-coprocessor mock-session --key tests/fixtures/mock_notary_key.pem \
-    --cert tests/fixtures/mock_notary_cert.pem --balance 15200 \
+coprocessor mock-session --key tests/fixtures/mock_notary_seed.hex \
+    --balance 15200 \
     --wallet $(solana address) --out session.tls.json
 coprocessor setup --out-dir artifacts                 # çelësat e qarkut DEV
-coprocessor prove --input session.tls.json --min 10000 --app airdrop-2026 --out proof.json
+coprocessor prove --backend dev --input session.tls.json --min 10000 --app airdrop-2026 --out proof.json
 coprocessor mock-session --kind age --dob 2001-05-17 ... --out id.tls.json
-coprocessor prove --input id.tls.json --min-age 18 --app kyc-lite --out age.json
+coprocessor prove --backend dev --input id.tls.json --min-age 18 --app kyc-lite --out age.json
 coprocessor prove --backend snarkjs ...               # qarku i plotë Circom
 coprocessor verify --proof proof.json --vk artifacts/vk.json
 coprocessor bank-key-hash --input session.tls.json    # për add_bank_key
-coprocessor serve --addr 127.0.0.1:8787               # GET /health, POST /prove (qarku dev)
+coprocessor serve --backend dev --addr 127.0.0.1:8787 # vetëm localnet, GET /health, POST /prove
 coprocessor serve --backend rapidsnark --rapidsnark /usr/local/bin/prover \
     --witness-bin circuits/build/cpp/main_c_cpp/main_c         # qarku i plotë (CPP_WITNESS=1 make circuits)
 ```
@@ -143,12 +153,12 @@ ose "mosha ≥ 18", lidhu me burimin (noter i **simuluar**), gjenero provën dhe
 
 ```bash
 solana-test-validator                                  # terminal 1
-anchor build && anchor deploy                          # nga rrënja
+node scripts/sync-program-ids.mjs                      # nga rrënja
+anchor build && anchor deploy
 cargo build --release -p coprocessor-cli
 cd app && npm install && npm run init-localnet         # initialize + VK + whitelist + IDL
-../target/release/coprocessor serve --pk ../artifacts/demo/dev_pk.bin \
-    --mock-notary-key ../tests/fixtures/mock_notary_key.pem \
-    --mock-notary-cert ../tests/fixtures/mock_notary_cert.pem   # terminal 2
+../target/release/coprocessor serve --backend dev --pk ../artifacts/demo/dev_pk.bin \
+    --mock-notary-key ../tests/fixtures/mock_notary_seed.hex   # terminal 2
 npm run dev                                            # http://localhost:5173
 ```
 
@@ -166,13 +176,14 @@ pragun dhe freskinë, jo vetëm ekzistencën e llogarisë), `fetchAttestation` d
   prezantim që fsheh `Authorization`/`Cookie`, e dërgon te ura dhe ruan `session.tls.json`.
 * `zktls-bridge`: `POST /attest`. Verifikon noterin (çelës i besuar), certifikatën e bankës,
   domenin + rrugën (politika), freskinë (≤ 10 min), përgjigjen e plotë, dhe nënshkruan mesazhin
-  128-bajtësh me RSA, i njëjti format që qarku Circom verifikon. Qarku dhe programi nuk ndryshojnë.
+  128-bajtësh me EdDSA-Poseidon, të verifikuar nga qarku v3.
 
 ```bash
 cd bridge
 NOTARY_KEY=<32 bajte hex> cargo run --release --bin zktls-notary          # printon çelësin publik
-cargo run --release --bin zktls-bridge -- --policy policy.json \
-    --rsa-key notary_rsa.pem --rsa-cert notary_rsa.crt                   # shih bridge-policy.example.json
+BRIDGE_TAG_KEY=<sekreti-i-qendrueshem-32-bajte-hex> \
+  cargo run --release --bin zktls-bridge -- --policy policy.json \
+    --signing-key bridge_seed.hex                   # shih bridge-policy.example.json
 cargo run --release --bin zktls-fetch -- --url https://api.banka.al/v1/accounts/me \
     --header "Authorization: Bearer …" --wallet $(solana address) --bridge 127.0.0.1:8790
 coprocessor prove --input session.tls.json --min 10000 --app demo         # pastaj si më parë
@@ -184,10 +195,11 @@ e bën të gjithë rrjedhën në proces (MPC-TLS real, ~3 s) dhe refuzon noter t
 politikës, rrugë jashtë politikës, sesion të vjetër dhe prezantim të ndryshuar. Faqja demo pranon
 `session.tls.json` me "ngarko".
 
-**Kufizimet aktuale:** ura e sheh përgjigjen e bankës (nuk e ruan; on-chain nuk del asgjë), dhe
-përdoruesi duhet t'u besojë noterit dhe urës (njësoj si te Reclaim/zkPass). Përgjigjet `chunked`
-dhe të kompresuara nuk mbështeten ende. Në browser nevojitet zgjerimi/`tlsn-js` i TLSNotary, ndaj
-sot rrjedha reale bëhet me CLI.
+**Kufizimet aktuale:** ura dhe prover-i i largët e shohin përgjigjen (shih modelin e
+besimit më lart). `zktls-fetch` dërgon gjithmonë `Accept-Encoding: identity` dhe refuzon
+mbishkrimin e tij. Serveri mund ta injorojë; ura refuzon kompresimin. `chunked` ende nuk
+mbështetet: ky header kontrollon kompresimin, jo transferimin HTTP. Në browser nevojitet
+zgjerimi/`tlsn-js` i TLSNotary, ndaj sot rrjedha reale bëhet me CLI.
 
 **Noteri.** Banka nuk nënshkruan të dhëna, ndaj një server noteri (në prodhim `notary-server` i
 TLSNotary, i ekzekutuar nga ju) merr pjesë në lidhjen TLS me MPC dhe dëshmon që përgjigjja erdhi nga
@@ -268,16 +280,16 @@ Programi Anchor: `initialize(vk, max_age)`, `set_verifying_key(vk)`, `add_bank_k
 | `triad-core` AVX-512 IFMA (radix 2^52) | ✅ i plotë | ✅ kundër CIOS, në CPU me IFMA |
 | `triad-core` Neon (aarch64) | ⚠️ delegon te CIOS skalar (shih `simd/neon.rs`) | ❌ pa hardware ARM |
 | `triad-core` Euklidi (Stein, inversi CT), normalizer, RSA PKCS#1 | ✅ | ✅ |
-| `zktls-prover` parser X.509/sesion, dëshmitari Circom, Poseidon (circomlib) | ✅ | ✅ (vektor referencë circomlib) |
+| `zktls-prover` parser sesioni v3, EdDSA, dëshmitari Circom, Poseidon (circomlib) | ✅ | ✅ (vektor referencë circomlib) |
 | Prapavija **dev** (arkworks Groth16, 10 hyrje) | ✅ | ✅ e2e + verifikim me ekuacionin on-chain |
-| Prapavija **snarkjs** (qarku i plotë) | ✅ | ✅ në CI (`zk-e2e.yml`): provë në ~17 s, ~1.7 GB RAM |
-| Qarqet Circom (277 321 kufizime) | ✅ mbi `@zk-email/circuits` + `circomlib` | ✅ në CI: kompilim, ceremoni (PPoT 2^19), provë, `snarkjs verify`, refuzim i mesazhit të ndryshuar |
+| Prapavija **snarkjs** (qarku i plotë) | ✅ | ✅ qarku v3; matjet në [docs/V3.md](docs/V3.md) |
+| Qarqet Circom v3 (6 582 kufizime) | ✅ `circomlib`, EdDSA-Poseidon | ✅ vektor i pavarur circomlibjs + 142 witness-e negative; PPoT 2^13 |
 | Programi Anchor | ✅ | ✅ `build-sbf` + localnet + 5 teste TypeScript në CI (përfshirë anti-Sybil dhe `app_id`); prova e qarkut të plotë verifikohet me kodin e programit |
 | Demo web `app/` (Vite + React + wallet-adapter) | ✅ me noter të simuluar | ✅ build + rrjedha HTTP e daemon-it në CI; rrjedha në browser e testuar me një portofol testues |
 
 **Prapavija dev nuk është e sigurt për prodhim**: ajo provon vetëm diapazonin, zotimin dhe nullifier-in;
-nënshkrimi RSA verifikohet natively jashtë provës, pra kushdo me çelësin e provimit mund të deklarojë
-çdo `bank_key_hash`. Në prodhim regjistroni me `set_verifying_key` VK-në e qarkut Circom.
+nënshkrimi EdDSA verifikohet natively jashtë provës, pra kushdo me çelësin e provimit mund të deklarojë
+çdo `bank_key_hash`. CLI-ja përdor Rapidsnark si parazgjedhje. `--backend dev` është zgjedhje eksplicite dhe daemon-i dev lidhet vetëm në loopback. Devnet kërkon `VK_JSON` të qarkut Circom.
 
 ### Matjet (benchmark, x86_64 me AVX-512 IFMA, profili `bench`)
 
@@ -290,22 +302,21 @@ nënshkrimi RSA verifikohet natively jashtë provës, pra kushdo me çelësin e 
 
 ### Devijimet nga specifikimi fillestar (dhe arsyet)
 
-1. **Copat RSA në qark: 17 × 121 bit, jo 32 × 64.** Me 121 bit, produktet dhe akumulimi nxënë në
-   fushën BN254 dhe përdoret aritmetika e audituar e `@zk-email/circuits`.
-2. **Të dhënat e nënshkruara** janë mesazhi kanonik i noterit (shih më lart), jo përgjigja HTTPS e
-   nënshkruar nga certifikata e bankës, sepse TLS nuk ofron nënshkrime mbi të dhënat.
-3. **Qarku i specifikimit u ndreqë**: `diff <-- …` nuk ishte i kufizuar, moduli RSA nuk ishte i lidhur
-   me `bank_public_key_hash` dhe hash-i i nënshkruar nuk ishte i lidhur me bilancin. Tani të treja janë
-   të kufizuara, dhe u shtua lidhja me portofolin.
+1. **v3:** RSA-2048 + SHA-256 brenda qarkut u zëvendësuan me EdDSA-Poseidon, sepse
+   nënshkruesi është ura jonë. Biblioteka aritmetike `triad-core` ruan RSA/CIOS si API më vete.
+2. Banka autentikohet nga TLSNotary; ura nënshkruan atestimin, jo certifikata e bankës.
+3. Vlera, timestamp-i, lloji, portofoli, payload digest-i dhe account tag-u lidhen të gjitha
+   me nënshkrimin. Vektori Rust/Circom/circomlibjs kontrollon përputhshmërinë.
 4. **CU**: ~82k mbulon vetëm pairing-un; me 7 hyrje publike `verify_and_attest` konsumonte
    **118 261 CU** (e matur në localnet në CI); me 10 hyrje dhe PDA-në e nullifier-it rritet pak.
 5. **Madhësia e provës**: 128 B është forma e kompresuar; syscall-i kërkon formën e pakompresuar
    (256 B: A 64 + B 128 + C 64). Programi e mohon vetë `A`.
 6. **AVX-512 përdoret brenda `exp`**, jo në `mul`, sepse domeni Montgomery radix-2^52 (`R' = 2^2080`)
    ndryshon nga ai radix-2^64 (`R = 2^2048`).
-7. **ID e programit** në specifikim (`ZkTLSCoprocessor1111…111`, 45 shenja) dekodohet në 33 bajte dhe
-   nuk është i vlefshëm; u zëvendësua me `ZkTLSCoprocessor111111111111111111111111111` (placeholder,
-   ekzekutoni `anchor keys sync`).
+7. **ID-të e programeve** janë çelësa publikë realë, të sinkronizuar në `declare_id!`
+   dhe `Anchor.toml`. Keypair-et lokale mbeten te `target/deploy/` (jashtë Git).
+   `node scripts/sync-program-ids.mjs` ose `anchor keys sync` sinkronizon instalimin tuaj;
+   ID e vlefshme nuk do të thotë që programi është deploy-uar.
 8. U shtuan në program: `set_verifying_key`, `add/remove_bank_key`, kufiri i moshës së atestimit dhe
    eventi `AttestationVerified`.
 
@@ -321,7 +332,7 @@ nënshkrimi RSA verifikohet natively jashtë provës, pra kushdo me çelësin e 
    (pjesë e transkriptit të autentikuar); ura refuzon një portofol tjetër në kërkesën JSON.
 6. **Nullifier i fshehtë**: `account_tag = HMAC(BRIDGE_TAG_KEY, issuer ‖ id)`. Pa çelësin
    nuk provohen ID të hamendësueshme, dhe e njëjta ID te dy banka jep nullifier-ë të ndryshëm.
-   Sekreti është i ndarë nga çelësi RSA dhe `issuer` nga domeni, ndaj rrotullimi i çelësit
+   Sekreti është i ndarë nga çelësi EdDSA dhe `issuer` nga domeni, ndaj rrotullimi i çelësit
    ose ndërrimi i domenit nuk e lejon të njëjtën llogari me portofol të dytë. Operatori i
    urës e ka sekretin: ai mund ta lidhë nullifier-in me llogarinë.
 7. **Datëlindja**: prova e moshës vërteton `1900-01-01 ≤ datëlindja ≤ kufiri`; `min_age`
@@ -342,7 +353,7 @@ nënshkrimi RSA verifikohet natively jashtë provës, pra kushdo me çelësin e 
 | M1 Core Engine | ✅ |
 | M2 ZK Circuits | ✅ (ceremonia e fazës 2 është me një kontribut; për mainnet duhet ceremoni me shumë palë) |
 | M3 Solana Contract | ⚠️ localnet ✅; mbetet deploy në devnet (kërkon portofol me SOL) |
-| M4 End-to-End CLI | ✅ (backend dev); dërgimi në Solana bëhet nga testi TS |
-| M5 UI & Demo | ❌ |
+| M4 End-to-End CLI | ✅ (dev dhe qarku i plotë v3); dërgimi në Solana bëhet nga testi TS |
+| M5 UI & Demo | ✅ demo; shih kufizimet e TLSNotary në browser |
 
 Licenca: Apache-2.0

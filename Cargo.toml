@@ -37,7 +37,6 @@ ark-serialize = "0.5"
 light-poseidon = "0.3"
 rand = "0.8"
 rsa = { version = "0.9", features = ["sha2"] }
-x509-parser = "0.16"
 num-bigint = "0.4"
 bs58 = "0.5"
 clap = { version = "4", features = ["derive", "env"] }

@@ -24,7 +24,7 @@ use crate::{poseidon, public_layout as L, ProverError};
 /// * `commitment = Poseidon(value, salt)`
 /// * `nullifier = Poseidon(account_tag, app_id)`
 ///
-/// NUK provon nënshkrimin RSA as SHA-256 – këto verifikohen natively nga
+/// NUK provon nënshkrimin EdDSA të mesazhit; ai verifikohet natively nga
 /// [`crate::tls_parser`] para provimit. Përdoret për teste, CI dhe demo në
 /// localnet; për prodhim regjistroni VK-në e qarkut Circom.
 #[derive(Clone, Default)]
@@ -276,6 +276,15 @@ const ENV_KEEP: &[&str] = &[
     "NODE_OPTIONS",
     "LD_LIBRARY_PATH",
     "OMP_NUM_THREADS",
+    // Windows needs the system directory for crypto providers (Node CSPRNG).
+    #[cfg(windows)]
+    "SystemRoot",
+    #[cfg(windows)]
+    "WINDIR",
+    #[cfg(windows)]
+    "TEMP",
+    #[cfg(windows)]
+    "TMP",
 ];
 
 /// Krijon një skedar vetëm për pronarin (0600): input.json mban të dhëna personale.
@@ -291,9 +300,13 @@ fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
 /// Krijon drejtorinë e provës vetëm për pronarin (0700). Nëse ekziston (vetëm me
 /// `keep_files`), mbetet ashtu siç është.
 fn create_private_dir(dir: &Path, may_exist: bool) -> std::io::Result<()> {
-    let mut b = std::fs::DirBuilder::new();
+    let b = std::fs::DirBuilder::new();
     #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+    let b = {
+        let mut b = b;
+        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+        b
+    };
     match b.create(dir) {
         Err(e) if may_exist && e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
         r => r,

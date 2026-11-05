@@ -1,7 +1,7 @@
 //! `coprocessor` – CLI dhe daemon i solana-zktls-coprocessor.
 //!
 //! ```text
-//! coprocessor mock-session --key tests/fixtures/mock_notary_key.pem --balance 15200 \
+//! coprocessor mock-session --key tests/fixtures/mock_notary_seed.hex --balance 15200 \
 //!     --wallet <PUBKEY> --out session.tls.json
 //! coprocessor setup --out-dir artifacts
 //! coprocessor prove --input session.tls.json --min 10000 --app airdrop-2026 --out proof.json
@@ -10,7 +10,7 @@
 //! coprocessor bank-key-hash --input session.tls.json
 //! coprocessor export-vk --snarkjs-vk circuits/build/verification_key.json --out artifacts/vk.json
 //! coprocessor app-id --app airdrop-2026
-//! coprocessor serve --addr 127.0.0.1:8787 --mock-notary-key tests/fixtures/mock_notary_key.pem
+//! coprocessor serve --addr 127.0.0.1:8787 --mock-notary-key tests/fixtures/mock_notary_seed.hex
 //! ```
 
 mod chain;
@@ -23,9 +23,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
-use zktls_prover::mock::{
-    load_private_key_pem, sample_bank_response, sample_identity_response, MockNotary,
-};
+use zktls_prover::mock::{sample_bank_response, sample_identity_response, MockNotary};
 use zktls_prover::prover::{
     fr_to_decimal, DevGroth16Prover, ProofBundle, ProveTimings, SnarkjsProver,
 };
@@ -42,9 +40,9 @@ struct Cli {
     cmd: Cmd,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Backend {
-    /// Qarku arkworks i zhvillimit (RSA verifikohet jashtë provës)
+    /// Qarku arkworks i zhvillimit (EdDSA verifikohet jashtë provës)
     Dev,
     /// Qarku i plotë Circom përmes snarkjs
     Snarkjs,
@@ -55,7 +53,7 @@ enum Backend {
 /// Motori i provës (i përbashkët për `prove` dhe `serve`).
 #[derive(clap::Args, Clone)]
 struct EngineArgs {
-    #[arg(long, value_enum, default_value_t = Backend::Dev)]
+    #[arg(long, value_enum, default_value_t = Backend::Rapidsnark)]
     backend: Backend,
     /// Çelësi i provimit të qarkut dev
     #[arg(long, default_value = "artifacts/dev_pk.bin")]
@@ -125,8 +123,7 @@ impl Engine {
         }
     }
 
-    /// Provat e njëkohshme që nuk mbingarkojnë CPU-në: një provë Circom zë ~3–4
-    /// bërthama (~8 s CPU në ~2.2 s, matur në CI), një provë dev ~2.
+    /// Conservative default; tune --parallel using measurements on the deployment host.
     fn default_parallel(&self) -> usize {
         let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
         match self {
@@ -276,8 +273,6 @@ enum Cmd {
     MockSession {
         #[arg(long)]
         key: PathBuf,
-        #[arg(long)]
-        cert: Option<PathBuf>,
         /// Lloji i të dhënave: bilanc bankar ose datë lindjeje
         #[arg(long, value_enum, default_value_t = MockKind::Balance)]
         kind: MockKind,
@@ -357,8 +352,6 @@ enum Cmd {
         /// VETËM PËR DEMO: aktivizon noterin e simuluar në /mock-session
         #[arg(long)]
         mock_notary_key: Option<PathBuf>,
-        #[arg(long)]
-        mock_notary_cert: Option<PathBuf>,
         #[command(flatten)]
         precheck: PrecheckArgs,
         #[command(flatten)]
@@ -440,7 +433,6 @@ fn main() -> Result<()> {
     match cli.cmd {
         Cmd::MockSession {
             key,
-            cert,
             kind,
             balance,
             dob,
@@ -448,7 +440,7 @@ fn main() -> Result<()> {
             wallet,
             out,
         } => {
-            let notary = load_notary(&key, cert.as_deref())?;
+            let notary = load_notary(&key)?;
             let s = mock_session(
                 &notary,
                 &MockRequest {
@@ -518,7 +510,7 @@ fn main() -> Result<()> {
         Cmd::BankKeyHash { input } => {
             let s = read_session(&input)?;
             let k = s.notary_public_key()?;
-            let h = zktls_prover::poseidon::rsa_modulus_hash(&k.modulus_be_bytes());
+            let h = k.hash()?;
             println!("{}", hex::encode(zktls_prover::solana::fr_to_be(&h)));
         }
         Cmd::ExportVk { snarkjs_vk, out } => {
@@ -548,17 +540,20 @@ fn main() -> Result<()> {
             engine,
             parallel,
             mock_notary_key,
-            mock_notary_cert,
             precheck: pc,
             access,
         } => {
+            if matches!(engine.backend, Backend::Dev) {
+                let bind: std::net::SocketAddr = addr.parse().context("invalid listen address")?;
+                if !bind.ip().is_loopback() {
+                    bail!("dev backend is restricted to loopback; use rapidsnark for deployed services");
+                }
+            }
             let pc = pc.load()?;
             if let Some(p) = &pc {
                 eprintln!("kontrolli i nullifier-it: {} ", p.rpc_url);
             }
-            let notary = mock_notary_key
-                .map(|k| load_notary(&k, mock_notary_cert.as_deref()))
-                .transpose()?;
+            let notary = mock_notary_key.map(|k| load_notary(&k)).transpose()?;
             if notary.is_some() {
                 eprintln!("KUJDES: noteri i simuluar është aktiv në /mock-session (vetëm demo)");
             }
@@ -615,10 +610,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_notary(key: &Path, cert: Option<&Path>) -> Result<MockNotary> {
+fn load_notary(key: &Path) -> Result<MockNotary> {
     Ok(MockNotary {
-        key: load_private_key_pem(&std::fs::read_to_string(key)?)?,
-        certificate_pem: cert.map(std::fs::read_to_string).transpose()?,
+        key: zktls_prover::eddsa::SigningKey::from_hex(&std::fs::read_to_string(key)?)?,
         tag_secret: None,
     })
 }
@@ -1087,6 +1081,20 @@ mod tests {
         while !f(&g.st.lock().unwrap()) {
             std::thread::yield_now();
         }
+    }
+
+    #[test]
+    fn full_circuit_is_the_default() {
+        let cli = Cli::try_parse_from(["coprocessor", "serve"]).unwrap();
+        let Cmd::Serve { engine, .. } = cli.cmd else {
+            panic!("serve")
+        };
+        assert!(matches!(engine.backend, Backend::Rapidsnark));
+        let cli = Cli::try_parse_from(["coprocessor", "serve", "--backend", "dev"]).unwrap();
+        let Cmd::Serve { engine, .. } = cli.cmd else {
+            panic!("serve")
+        };
+        assert!(matches!(engine.backend, Backend::Dev));
     }
 
     #[test]

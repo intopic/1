@@ -1,0 +1,55 @@
+{
+  "measured_at": "2026-11-05T16:34:25.215Z",
+  "cpu": "Intel(R) Core(TM) i5-7200U CPU @ 2.50GHz",
+  "platform": "win32",
+  "arch": "x64",
+  "logical_cpus": 4,
+  "node": "v25.5.0",
+  "backend": "snarkjs 0.7.6 API singleThread",
+  "circuit": "v3 BabyJubjub EdDSA-Poseidon",
+  "constraints": 6582,
+  "ptau_power": 13,
+  "zkey_bytes": 4316203,
+  "r1cs_sha256": "ca5221d52a63f21db9ce8ce61a097790689ceb178df53c2ca71b1501bc5cb1ff",
+  "zkey_sha256": "1013cfa43e843262ec2b63eea320bc1bec3496922aef39d92adfa62b9b516794",
+  "samples": [
+    {
+      "witness_ms": 382.19460000000004,
+      "prove_ms": 3558.9515,
+      "total_ms": 3941.1461
+    },
+    {
+      "witness_ms": 333.8017999999993,
+      "prove_ms": 3459.2996000000003,
+      "total_ms": 3793.1013999999996
+    },
+    {
+      "witness_ms": 487.9984999999997,
+      "prove_ms": 3698.0216999999993,
+      "total_ms": 4186.020199999999
+    },
+    {
+      "witness_ms": 347.90649999999914,
+      "prove_ms": 3160.7822000000015,
+      "total_ms": 3508.6887000000006
+    },
+    {
+      "witness_ms": 304.78470000000016,
+      "prove_ms": 3348.3336000000018,
+      "total_ms": 3653.118300000002
+    },
+    {
+      "witness_ms": 354.9369000000006,
+      "prove_ms": 3168.980199999998,
+      "total_ms": 3523.9170999999988
+    }
+  ],
+  "warm_median": {
+    "witness_ms": 347.90649999999914,
+    "prove_ms": 3348.3336000000018,
+    "total_ms": 3653.118300000002
+  },
+  "max_rss_kib": 239120,
+  "exclusions": "setup, process startup, TLSNotary, HTTP, Solana; shared development machine",
+  "context": "Repeat after npm installations and workspace/program builds completed; bridge compilation still ran on one worker. Shared laptop, not isolated hardware."
+}

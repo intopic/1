@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Imazhi i vetëm për fly.io: daemon-i i provës (rapidsnark + dëshmitar C++),
-# ura TLSNotary → RSA dhe noteri TLSNotary. Roli zgjidhet në `entrypoint.sh`.
+# ura TLSNotary → EdDSA-Poseidon dhe noteri TLSNotary. Roli zgjidhet në `entrypoint.sh`.
 #
 #   docker build -f deploy/Dockerfile -t zktls .
 #
@@ -38,7 +38,7 @@ RUN curl -fsSL -o /usr/local/bin/circom \
  && chmod +x /usr/local/bin/circom
 WORKDIR /src/circuits
 COPY circuits/ ./
-RUN npm install --no-audit --no-fund && CPP_WITNESS=1 bash scripts/compile.sh \
+RUN npm ci --no-audit --no-fund && CPP_WITNESS=1 bash scripts/compile.sh \
  && mkdir -p /out && cp build/main_js/main.wasm build/cpp/main_c_cpp/main_c build/cpp/main_c_cpp/main_c.dat /out/
 
 # ---- rapidsnark (binari i release-it, varianti me asm x86_64) ----
@@ -79,7 +79,7 @@ RUN set -eu; cd /app/keys; \
     if [ -f SHA256SUMS ]; then \
       grep -E '[ */]main_final\.zkey$' SHA256SUMS | awk '{print $1"  main_final.zkey"}' | sha256sum -c -; fi
 # VETËM PËR DEMO: çelësi i noterit të simuluar (publik në depo!) për /mock-session
-COPY tests/fixtures/mock_notary_key.pem tests/fixtures/mock_notary_cert.pem /app/demo/
+COPY tests/fixtures/mock_notary_seed.hex /app/demo/
 COPY bridge/bridge-policy.example.json /app/bridge-policy.json
 COPY deploy/entrypoint.sh /app/entrypoint.sh
 # kontroll: bibliotekat dinamike të binarëve C++ janë të pranishme

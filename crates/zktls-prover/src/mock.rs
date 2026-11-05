@@ -1,13 +1,8 @@
 //! Noter i simuluar për teste dhe demo: maskon transkriptin, ndërton
-//! [`AttestationMessage`] dhe e nënshkruan me RSA-2048 PKCS#1 v1.5 / SHA-256.
+//! [`AttestationMessage`] dhe e nënshkruan me EdDSA-Poseidon.
 //!
-//! VETËM PËR TESTIM – çelësi i noterit lexohet nga një skedar PEM lokal.
+//! VETËM PËR TESTIM – çelësi i noterit lexohet nga një skedar seed hex lokal.
 
-use rsa::pkcs1::DecodeRsaPrivateKey;
-use rsa::pkcs8::DecodePrivateKey;
-use rsa::traits::PublicKeyParts;
-use rsa::{Pkcs1v15Sign, RsaPrivateKey};
-use sha2::{Digest, Sha256};
 use triad_core::normalizer::{claim_key_id, AlgebraicNormalizer};
 
 use crate::attestation::{account_tag, AttestationMessage};
@@ -36,20 +31,12 @@ pub fn sample_identity_response(date_of_birth: &str) -> String {
     )
 }
 
-pub fn load_private_key_pem(pem: &str) -> Result<RsaPrivateKey, ProverError> {
-    RsaPrivateKey::from_pkcs8_pem(pem)
-        .or_else(|_| RsaPrivateKey::from_pkcs1_pem(pem))
-        .map_err(|e| ProverError::Key(e.to_string()))
-}
-
 pub struct MockNotary {
-    pub key: RsaPrivateKey,
-    /// Nëse jepet, sesioni përfshin certifikatën në vend të modulit hex.
-    pub certificate_pem: Option<String>,
-    /// Sekreti i qëndrueshëm i `account_tag`, i ndarë nga çelësi RSA i nënshkrimit.
-    /// Me të, rotacioni i çelësit RSA nuk i ndryshon nullifier-ët (pra një llogari
+    pub key: crate::eddsa::SigningKey,
+    /// Sekreti i qëndrueshëm i `account_tag`, i ndarë nga çelësi EdDSA i nënshkrimit.
+    /// Me të, rotacioni i çelësit EdDSA nuk i ndryshon nullifier-ët (pra një llogari
     /// nuk mund të regjistrohet sërish me portofol tjetër pas rotacionit).
-    /// `None` = nxirret nga çelësi RSA (vetëm demo/teste).
+    /// `None` = nxirret nga çelësi EdDSA (vetëm demo/teste).
     pub tag_secret: Option<[u8; 32]>,
 }
 
@@ -71,16 +58,9 @@ pub struct NotarizeRequest<'a> {
 
 impl MockNotary {
     /// Sekreti i `account_tag` (HMAC): `tag_secret` nëse jepet (prodhim), përndryshe
-    /// i nxjerrë nga çelësi privat RSA (i qëndrueshëm vetëm sa kohë çelësi nuk ndryshon).
+    /// i nxjerrë nga çelësi privat EdDSA (i qëndrueshëm vetëm sa kohë çelësi nuk ndryshon).
     pub fn tag_key(&self) -> [u8; 32] {
-        use rsa::traits::PrivateKeyParts;
-        if let Some(s) = self.tag_secret {
-            return s;
-        }
-        let mut h = Sha256::new();
-        h.update(b"zktls/tag-key/v1");
-        h.update(self.key.d().to_bytes_be());
-        h.finalize().into()
+        self.tag_secret.unwrap_or_else(|| self.key.demo_tag_key())
     }
 
     pub fn notarize(
@@ -145,25 +125,13 @@ impl MockNotary {
             account_tag: account_tag(&self.tag_key(), issuer.unwrap_or(server_name), account_id),
         };
         let bytes = msg.to_bytes();
-        let digest = Sha256::digest(bytes);
-        let sig = self
-            .key
-            .sign(Pkcs1v15Sign::new::<Sha256>(), &digest)
-            .map_err(|e| ProverError::Key(e.to_string()))?;
-        let notary = match &self.certificate_pem {
-            Some(c) => NotaryKey {
-                certificate_pem: Some(c.clone()),
-                modulus_hex: None,
-                exponent: 65537,
-            },
-            None => NotaryKey {
-                certificate_pem: None,
-                modulus_hex: Some(hex::encode(self.key.n().to_bytes_be())),
-                exponent: 65537,
-            },
+        let sig = self.key.sign(&bytes);
+        let notary = NotaryKey {
+            scheme: crate::eddsa::SCHEME.into(),
+            public_key: self.key.public(),
         };
         Ok(NotarizedSession {
-            version: 1,
+            version: 3,
             server_name: server_name.into(),
             target_key: target_key.into(),
             http_response: http_response.into(),
@@ -171,7 +139,7 @@ impl MockNotary {
             notary,
             attestation: SignedAttestation {
                 message_hex: hex::encode(bytes),
-                signature_hex: hex::encode(sig),
+                signature: sig,
             },
         })
     }
@@ -183,9 +151,10 @@ mod tests {
 
     fn notary(tag_secret: Option<[u8; 32]>) -> MockNotary {
         MockNotary {
-            key: load_private_key_pem(include_str!("../../../tests/fixtures/mock_notary_key.pem"))
-                .unwrap(),
-            certificate_pem: None,
+            key: crate::eddsa::SigningKey::from_hex(include_str!(
+                "../../../tests/fixtures/mock_notary_seed.hex"
+            ))
+            .unwrap(),
             tag_secret,
         }
     }
@@ -212,10 +181,9 @@ mod tests {
     fn stable_tag_secret_and_issuer() {
         let http = sample_bank_response(15_200);
         let a = notary(Some([9; 32])).notarize_with(&req(&http, "balance", Some("banka-x")));
-        // një çelës RSA tjetër me të njëjtin tag_secret: i njëjti tag (rotacion pa Sybil)
+        // një çelës EdDSA tjetër me të njëjtin tag_secret: i njëjti tag (rotacion pa Sybil)
         let other = MockNotary {
-            key: RsaPrivateKey::new(&mut rand::thread_rng(), 2048).unwrap(),
-            certificate_pem: None,
+            key: crate::eddsa::SigningKey::from_seed([8; 32]),
             tag_secret: Some([9; 32]),
         };
         let b = other.notarize_with(&req(&http, "balance", Some("banka-x")));

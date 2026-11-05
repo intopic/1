@@ -1,6 +1,6 @@
 name: ZK E2E
 
-# Qarku i plotë Circom (RSA-2048 + SHA-256) dhe programi Solana në localnet.
+# Qarku i plotë Circom v3 (EdDSA-Poseidon) dhe programi Solana në localnet.
 on:
   push:
     branches: [main]
@@ -47,7 +47,7 @@ jobs:
         env:
           CPP_WITNESS: "1"
         run: |
-          npm install
+          npm ci
           circom --version
           bash scripts/compile.sh
 
@@ -71,7 +71,7 @@ jobs:
           B=target/release/coprocessor
           mkdir -p artifacts
           $B export-vk --snarkjs-vk circuits/build/verification_key.json --out artifacts/vk.json
-          $B mock-session --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem \
+          $B mock-session --key tests/fixtures/mock_notary_seed.hex \
             --balance 15200 --wallet "$WALLET" --out artifacts/session.tls.json
           /usr/bin/time -v $B prove --backend snarkjs --keep-files target/snarkjs --input artifacts/session.tls.json --min 10000 \
             --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey \
@@ -83,6 +83,13 @@ jobs:
           jq -n --slurpfile vk artifacts/vk.json --slurpfile p artifacts/proof.json \
             '{note: "Prove e qarkut Circom nga CI", wallet: $p[0].wallet, vk: $vk[0], proof: $p[0]}' \
             > artifacts/circom_fixture.json
+
+      - name: EdDSA vectors and adversarial circuit witnesses
+        working-directory: circuits
+        env:
+          NATIVE_INPUT: ../artifacts/input.json
+          NATIVE_PROOF: ../artifacts/proof.json
+        run: npm test
 
       - name: Cache rapidsnark
         id: rapidsnark-cache
@@ -128,7 +135,7 @@ jobs:
           run rapidsnark rapidsnark
           run rapidsnark+cpp rapidsnark --witness-bin circuits/build/cpp/main_c_cpp/main_c
           {
-            echo "### Koha e provës, qarku i plotë (277k kufizime)"
+            echo "### Koha e provës, qarku v3 EdDSA-Poseidon"
             echo '| backend | dëshmitari + prova | gjithsej | RAM max | CPU |'
             echo '|---|---|---|---|---|'
             for backend in snarkjs rapidsnark rapidsnark+cpp; do
@@ -144,8 +151,8 @@ jobs:
           $B serve --addr 127.0.0.1:8787 --backend rapidsnark --rapidsnark ~/rapidsnark/prover \
             --witness-bin circuits/build/cpp/main_c_cpp/main_c \
             --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey \
-            --mock-notary-key tests/fixtures/mock_notary_key.pem \
-            --mock-notary-cert tests/fixtures/mock_notary_cert.pem > serve.log 2>&1 &
+            --mock-notary-key tests/fixtures/mock_notary_seed.hex \
+            > serve.log 2>&1 &
           PID=$!
           for i in $(seq 30); do curl -sf localhost:8787/health && break; sleep 1; done
           cat serve.log
@@ -163,7 +170,7 @@ jobs:
                --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey --out /tmp/x.json; then
             echo "prova duhej të dështonte"; exit 1
           fi
-          # witness me bilanc të ndryshuar në mesazh -> qarku duhet ta refuzojë (RSA)
+          # witness me bilanc të ndryshuar në mesazh -> qarku duhet ta refuzojë (EdDSA)
           jq '.attestation_msg[15] = "99"' artifacts/input.json > /tmp/bad_input.json
           if snarkjs wtns calculate circuits/build/main_js/main.wasm /tmp/bad_input.json /tmp/bad.wtns; then
             echo "qarku pranoi mesazh të ndryshuar"; exit 1
@@ -174,7 +181,7 @@ jobs:
         run: |
           B=target/release/coprocessor
           $B mock-session --kind age --dob 2001-05-17 --account-id J01234567A \
-            --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem \
+            --key tests/fixtures/mock_notary_seed.hex \
             --wallet "$WALLET" --out artifacts/age.tls.json
           $B prove --backend snarkjs --input artifacts/age.tls.json --min-age 18 --app ci-age \
             --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey --out artifacts/age_proof.json
@@ -182,7 +189,7 @@ jobs:
           jq '{min_value, max_value, nullifier}' artifacts/age_proof.json
           # nën 18 -> duhet të dështojë
           $B mock-session --kind age --dob 2012-03-01 --account-id J0999 \
-            --key tests/fixtures/mock_notary_key.pem --cert tests/fixtures/mock_notary_cert.pem \
+            --key tests/fixtures/mock_notary_seed.hex \
             --wallet "$WALLET" --out artifacts/minor.tls.json
           if $B prove --backend snarkjs --input artifacts/minor.tls.json --min-age 18 \
                --wasm circuits/build/main_js/main.wasm --zkey circuits/build/main_final.zkey --out /tmp/m.json; then
@@ -252,8 +259,8 @@ jobs:
       - name: Noteri dhe ura në kontejner
         run: |
           docker run -d --name notary -p 7047:7047 -e NOTARY_KEY="$(openssl rand -hex 32)" zktls:ci notary
-          openssl genrsa -out /tmp/rsa.pem 2048
-          docker run -d --name bridge -p 8790:8790 -e BRIDGE_RSA_KEY_PEM="$(cat /tmp/rsa.pem)" zktls:ci bridge
+          openssl rand -hex 32 > /tmp/seed.hex
+          docker run -d --name bridge -p 8790:8790 -e BRIDGE_SIGNING_SEED="$(cat /tmp/seed.hex)" -e BRIDGE_TAG_KEY="$(openssl rand -hex 32)" zktls:ci bridge
           for i in $(seq 30); do curl -sf localhost:8790/health && break; sleep 1; done
           curl -sf localhost:8790/health
           timeout 5 bash -c 'echo > /dev/tcp/127.0.0.1/7047' && echo "noteri pranon lidhje TCP"
@@ -301,7 +308,8 @@ jobs:
           # programi është workspace më vete; artefaktet duhet të dalin në target/deploy të rrënjës
           CARGO_TARGET_DIR: ${{ github.workspace }}/target
         run: |
-          npm install
+          npm ci
+          node scripts/sync-program-ids.mjs
           anchor keys sync
           anchor build
           ls -la target/deploy target/idl || true

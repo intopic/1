@@ -1,4 +1,4 @@
-# Urë atestimi TLSNotary -> atestim RSA i qarkut zkTLS.
+# Urë atestimi TLSNotary -> atestim EdDSA i qarkut zkTLS.
 # Workspace më vete: TLSNotary (MPC-TLS) ka shumë varësi dhe kompilim të gjatë,
 # ndaj nuk ngadalëson CI-në e crate-ve kryesore.
 [workspace]
@@ -8,7 +8,7 @@ name = "zktls-bridge"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Noter TLSNotary + urë që kthen prezantimet TLSNotary në atestime RSA për qarkun zkTLS"
+description = "Noter TLSNotary + urë që kthen prezantimet TLSNotary në atestime EdDSA për qarkun zkTLS"
 publish = false
 
 [dependencies]

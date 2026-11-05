@@ -2,7 +2,7 @@
 //! i njëjti format si `POST /mock-session` i daemon-it `coprocessor serve`.
 //!
 //! ```text
-//! zktls-bridge --policy bridge-policy.json --rsa-key notary_rsa.pem --rsa-cert notary_rsa.crt
+//! zktls-bridge --policy bridge-policy.json --signing-key bridge_seed.hex
 //! ```
 use std::convert::Infallible;
 
@@ -13,7 +13,7 @@ use hyper::{body::Bytes, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use tlsn::webpki::{CertificateDer, RootCertStore};
 use zktls_bridge::bridge::{unix_now, AttestRequest, Bridge, Policy};
-use zktls_prover::mock::{load_private_key_pem, MockNotary};
+use zktls_prover::{eddsa::SigningKey, mock::MockNotary};
 
 #[derive(Parser)]
 struct Args {
@@ -21,15 +21,12 @@ struct Args {
     addr: String,
     #[arg(long)]
     policy: std::path::PathBuf,
-    /// Çelësi RSA-2048 (PEM) që nënshkruan atestimet për qarkun
+    /// 32-byte BabyJubjub EdDSA signing seed, hex file.
     #[arg(long)]
-    rsa_key: std::path::PathBuf,
-    #[arg(long)]
-    rsa_cert: Option<std::path::PathBuf>,
-    /// Sekreti (32 bajte hex) për `account_tag`. Pa të, etiketa varet nga çelësi RSA dhe
-    /// ndërrimi i çelësit do të ndërronte nullifier-at (një llogari = dy portofole).
+    signing_key: std::path::PathBuf,
+    /// Stable secret (32-byte hex) for account_tag, independent of the signing seed.
     #[arg(long, env = "BRIDGE_TAG_KEY", hide_env_values = true)]
-    tag_key: Option<String>,
+    tag_key: String,
     /// VETËM PËR TESTE: certifikatë rrënjë shtesë (DER)
     #[arg(long)]
     test_root_der: Option<std::path::PathBuf>,
@@ -88,22 +85,10 @@ async fn main() -> Result<()> {
     let a = Args::parse();
     let policy: Policy = serde_json::from_slice(&std::fs::read(&a.policy)?)?;
     policy.validate()?;
-    let tag_secret = match a.tag_key.as_deref().map(str::trim) {
-        Some(h) if !h.is_empty() => {
-            let v = hex::decode(h).map_err(|e| anyhow::anyhow!("BRIDGE_TAG_KEY: {e}"))?;
-            Some(
-                <[u8; 32]>::try_from(v.as_slice())
-                    .map_err(|_| anyhow::anyhow!("BRIDGE_TAG_KEY duhet 32 bajte (64 hex)"))?,
-            )
-        }
-        _ => {
-            eprintln!(
-                "KUJDES: pa BRIDGE_TAG_KEY etiketa e llogarisë varet nga çelësi RSA; \
-                 rrotullimi i çelësit lejon të njëjtën llogari me portofol të ri"
-            );
-            None
-        }
-    };
+    let tag_secret = Some(
+        <[u8; 32]>::try_from(hex::decode(a.tag_key.trim())?.as_slice())
+            .map_err(|_| anyhow::anyhow!("BRIDGE_TAG_KEY must be 32 bytes (64 hex)"))?,
+    );
     let roots = match &a.test_root_der {
         Some(p) => RootCertStore {
             roots: vec![CertificateDer(std::fs::read(p)?)],
@@ -113,12 +98,7 @@ async fn main() -> Result<()> {
     let bridge = std::sync::Arc::new(Bridge {
         policy,
         signer: MockNotary {
-            key: load_private_key_pem(&std::fs::read_to_string(&a.rsa_key)?)?,
-            certificate_pem: a
-                .rsa_cert
-                .as_ref()
-                .map(std::fs::read_to_string)
-                .transpose()?,
+            key: SigningKey::from_hex(&std::fs::read_to_string(&a.signing_key)?)?,
             tag_secret,
         },
         roots,

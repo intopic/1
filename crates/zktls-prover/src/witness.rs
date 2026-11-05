@@ -1,10 +1,3 @@
-//! Gjenerimi i dëshmitarit (`input.json`) për `circuits/main.circom`.
-//!
-//! Numrat RSA ndahen në 17 copa × 121 bit (formati i `@zk-email/circuits`
-//! `RSAVerifier65537(121, 17)`): produkti i dy copave (242 bit) plus akumulimi
-//! mbetet nën modulin e fushës BN254 (254 bit), çka nuk do të ishte e sigurt
-//! me fjalë 64-bit pa kontrolle shtesë të bartjeve.
-
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField, UniformRand};
 use num_bigint::BigUint;
@@ -15,9 +8,6 @@ use crate::poseidon;
 use crate::solana::fr_to_be;
 use crate::tls_parser::VerifiedSession;
 use crate::{public_layout as L, ProverError};
-
-pub const RSA_CHUNK_BITS: usize = 121;
-pub const RSA_CHUNKS: usize = 17;
 
 /// Diapazoni i pretenduar `min ≤ value ≤ max`.
 ///
@@ -86,8 +76,8 @@ pub fn app_id_from_label(label: &str) -> Fr {
 pub struct ZkWebProofWitness {
     pub attestation_msg: [u8; 128],
     pub user_secret_salt: Fr,
-    pub rsa_signature_be: Vec<u8>,
-    pub rsa_modulus_be: Vec<u8>,
+    pub signature: crate::eddsa::Signature,
+    pub notary_key: crate::eddsa::PublicKey,
     pub min_value: u64,
     pub max_value: u64,
     /// Identifikuesi i aplikacionit/kampanjës (element Fr) – i njëjti nullifier
@@ -122,8 +112,8 @@ impl ZkWebProofWitness {
         Ok(Self {
             attestation_msg: vs.message_bytes,
             user_secret_salt: salt,
-            rsa_signature_be: vs.signature.clone(),
-            rsa_modulus_be: vs.notary_key.modulus_be_bytes(),
+            signature: vs.signature.clone(),
+            notary_key: vs.notary_key.clone(),
             min_value: range.min,
             max_value: range.max,
             app_id,
@@ -149,7 +139,7 @@ impl ZkWebProofWitness {
     }
 
     pub fn bank_key_hash(&self) -> Fr {
-        poseidon::rsa_modulus_hash(&self.rsa_modulus_be)
+        self.notary_key.hash().expect("validated notary key")
     }
 
     /// Hyrjet publike në rendin e `public_layout` (dalje Circom së pari, pastaj hyrje).
@@ -176,18 +166,13 @@ impl ZkWebProofWitness {
     /// `input.json` për `snarkjs groth16 fullprove` / `circom` witness calculator.
     pub fn to_circom_input(&self) -> Value {
         let dec = |x: &Fr| BigUint::from_bytes_le(&x.into_bigint().to_bytes_le()).to_string();
-        let chunks = |be: &[u8]| -> Vec<String> {
-            poseidon::to_chunks(be, RSA_CHUNK_BITS, RSA_CHUNKS)
-                .iter()
-                .map(|c| c.to_string())
-                .collect()
-        };
         let (hi, lo) = wallet_halves(&self.wallet);
         json!({
             "attestation_msg": self.attestation_msg.iter().map(|b| b.to_string()).collect::<Vec<_>>(),
             "user_secret_salt": dec(&self.user_secret_salt),
-            "rsa_signature": chunks(&self.rsa_signature_be),
-            "rsa_modulus": chunks(&self.rsa_modulus_be),
+            "notary_pubkey": [&self.notary_key.x, &self.notary_key.y],
+            "signature_r8": [&self.signature.r8x, &self.signature.r8y],
+            "signature_s": &self.signature.s,
             "bank_public_key_hash": dec(&self.bank_key_hash()),
             "min_value": self.min_value.to_string(),
             "max_value": self.max_value.to_string(),

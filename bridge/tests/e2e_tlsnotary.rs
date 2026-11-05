@@ -1,6 +1,6 @@
 //! E2E me TLSNotary real (MPC-TLS), pa rrjet të jashtëm:
 //! bankë testuese TLS (certifikatat e fixture-s së TLSNotary) ↔ prover ↔ noter,
-//! prezantim → ura → `NotarizedSession` → verifikim RSA + provë Groth16 (qarku dev)
+//! prezantim → ura → `NotarizedSession` → verifikim EdDSA + provë Groth16 (qarku dev)
 //! → verifikim me ekuacionin e programit Solana.
 
 use std::sync::Arc;
@@ -15,13 +15,13 @@ use tokio_rustls::rustls;
 use zktls_bridge::bridge::{AttestRequest, Bridge, Policy, Source};
 use zktls_bridge::notary;
 use zktls_bridge::prover::{notarize, present, FetchRequest};
-use zktls_prover::mock::{load_private_key_pem, MockNotary};
 use zktls_prover::prover::DevGroth16Prover;
 use zktls_prover::solana::{verify_reference, SolanaVerifyingKey};
 use zktls_prover::witness::{app_id_from_label, ValueRange, ZkWebProofWitness};
+use zktls_prover::{eddsa::SigningKey, mock::MockNotary};
 
 const NOTARY_KEY: [u8; 32] = [7u8; 32];
-const RSA_PEM: &str = include_str!("../../tests/fixtures/mock_notary_key.pem");
+const SEED: &str = include_str!("../../tests/fixtures/mock_notary_seed.hex");
 const WALLET: &str = "4wBqpZM9xaSheZzJSMawUKKwhdpChKbZ5eu5ky4Vigw";
 const TOKEN: &str = "Bearer sekret-i-perdoruesit-123";
 
@@ -58,6 +58,9 @@ where
         req.extend_from_slice(&buf[..n]);
     }
     let req = String::from_utf8(req).unwrap();
+    assert!(req
+        .to_ascii_lowercase()
+        .contains("accept-encoding: identity\r\n"));
     let ok = req.contains(&format!("authorization: {TOKEN}"))
         || req.contains(&format!("Authorization: {TOKEN}"));
     let body = if ok {
@@ -100,8 +103,7 @@ fn bridge() -> Bridge {
             max_age_secs: 600,
         },
         signer: MockNotary {
-            key: load_private_key_pem(RSA_PEM).unwrap(),
-            certificate_pem: None,
+            key: SigningKey::from_hex(SEED).unwrap(),
             tag_secret: None,
         },
         roots: roots(),
@@ -149,7 +151,7 @@ async fn tlsnotary_to_groth16() {
         .unwrap();
     assert_eq!(s.server_name, SERVER_DOMAIN);
 
-    // i njëjti pipeline si noteri i simuluar: RSA + normalizim + provë
+    // i njëjti pipeline si noteri i simuluar: EdDSA + normalizim + provë
     let vs = s.verify(10_000).unwrap();
     assert_eq!(vs.message.value, 15_200);
     let mut rng = rand::rngs::StdRng::seed_from_u64(1);
